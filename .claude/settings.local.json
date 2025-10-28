@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/Project/**)",
+      "Bash(npm install)",
+      "Bash(npm install:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(npm exec:*)",
+      "Bash(cat:*)",
+      "Bash(npm uninstall:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

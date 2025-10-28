@@ -1,0 +1,130 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: binancebot_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - binancebot_network
+
+  # Redis Cache & Message Broker
+  redis:
+    image: redis:7-alpine
+    container_name: binancebot_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - binancebot_network
+
+  # Django Web Application (Backend)
+  web:
+    build:
+      context: ../backend
+      dockerfile: ../docker/Dockerfile
+    container_name: binancebot_web
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    volumes:
+      - ../backend:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../backend/.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - binancebot_network
+
+  # React Frontend Application
+  frontend:
+    build:
+      context: ../client
+      dockerfile: ../docker/Dockerfile.frontend.dev
+    container_name: binancebot_frontend
+    volumes:
+      - ../client:/app
+      - node_modules_volume:/app/node_modules  # Use named volume for node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000/api
+      - VITE_WS_URL=ws://localhost:8000/ws/signals/
+    depends_on:
+      - web
+    networks:
+      - binancebot_network
+    stdin_open: true
+    tty: true
+
+  # Celery Worker
+  celery:
+    build:
+      context: ../backend
+      dockerfile: ../docker/Dockerfile
+    container_name: binancebot_celery
+    command: celery -A config worker -l info
+    volumes:
+      - ../backend:/app
+    env_file:
+      - ../backend/.env
+    depends_on:
+      - db
+      - redis
+      - web
+    networks:
+      - binancebot_network
+
+  # Celery Beat (Scheduler)
+  celery-beat:
+    build:
+      context: ../backend
+      dockerfile: ../docker/Dockerfile
+    container_name: binancebot_celery_beat
+    command: celery -A config beat -l info
+    volumes:
+      - ../backend:/app
+    env_file:
+      - ../backend/.env
+    depends_on:
+      - db
+      - redis
+      - web
+    networks:
+      - binancebot_network
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:
+  node_modules_volume:
+
+networks:
+  binancebot_network:
+    driver: bridge

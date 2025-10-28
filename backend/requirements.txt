@@ -1,0 +1,26 @@
+# Django Core
+Django==5.0.1
+djangorestframework==3.14.0
+djangorestframework-simplejwt==5.3.1
+
+# Database
+psycopg2-binary==2.9.9
+dj-database-url==2.1.0
+
+# Environment Management
+python-dotenv==1.0.0
+
+# Async & WebSocket Support
+channels==4.0.0
+channels-redis==4.1.0
+daphne==4.0.0
+
+# Celery & Redis
+celery==5.3.4
+redis==5.0.1
+
+# CORS
+django-cors-headers==4.3.1
+
+# Utilities
+gunicorn==21.2.0
