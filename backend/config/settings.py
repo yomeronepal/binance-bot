@@ -36,6 +36,9 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'corsheaders',
     'channels',
+    'django_filters',
+    'django_celery_beat',
+    'django_celery_results',
 
     # Local apps
     'api',
@@ -158,6 +161,8 @@ SIMPLE_JWT = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:5173",  # Vite dev server
+    "http://127.0.0.1:5173",  # Vite dev server
 ]
 CORS_ALLOW_CREDENTIALS = True
 

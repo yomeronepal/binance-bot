@@ -1,23 +1,26 @@
 /**
  * Dashboard page component
- * Main landing page after login with signal overview
+ * Main landing page after login with signal overview and real-time WebSocket updates
  */
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSignalStore } from '../../store/useSignalStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import SignalCard from '../../components/common/SignalCard';
+import FuturesSignalCard from '../../components/signals/FuturesSignalCard';
 
 // Mock signals data for development
 const mockSignals = [
   {
     id: 1,
     symbol: 'BTCUSDT',
-    signal_type: 'BUY',
-    entry_price: '42500.00',
-    target_price: '45000.00',
-    stop_loss: '41000.00',
-    confidence: 85,
+    direction: 'LONG',
+    entry: '42500.00',
+    tp: '45000.00',
+    sl: '41000.00',
+    confidence: 0.85,
+    timeframe: '4h',
     status: 'ACTIVE',
     description: 'Strong bullish momentum with high volume',
     created_at: new Date().toISOString(),
@@ -25,11 +28,12 @@ const mockSignals = [
   {
     id: 2,
     symbol: 'ETHUSDT',
-    signal_type: 'SELL',
-    entry_price: '2250.00',
-    target_price: '2100.00',
-    stop_loss: '2350.00',
-    confidence: 72,
+    direction: 'SHORT',
+    entry: '2250.00',
+    tp: '2100.00',
+    sl: '2350.00',
+    confidence: 0.72,
+    timeframe: '1h',
     status: 'ACTIVE',
     description: 'Bearish divergence detected on 4H chart',
     created_at: new Date(Date.now() - 3600000).toISOString(),
@@ -37,11 +41,12 @@ const mockSignals = [
   {
     id: 3,
     symbol: 'BNBUSDT',
-    signal_type: 'BUY',
-    entry_price: '315.00',
-    target_price: '335.00',
-    stop_loss: '305.00',
-    confidence: 68,
+    direction: 'LONG',
+    entry: '315.00',
+    tp: '335.00',
+    sl: '305.00',
+    confidence: 0.68,
+    timeframe: '1d',
     status: 'EXECUTED',
     description: 'Breakout above resistance level',
     created_at: new Date(Date.now() - 7200000).toISOString(),
@@ -50,93 +55,208 @@ const mockSignals = [
 
 const Dashboard = () => {
   const { user } = useAuthStore();
-  const { signals, fetchSignals, isLoading, connectWebSocket, disconnectWebSocket } = useSignalStore();
+  const {
+    signals,
+    futuresSignals,
+    fetchSignals,
+    fetchFuturesSignals,
+    isLoading: loading,
+    processWebSocketMessage,
+    setWsConnected
+  } = useSignalStore();
   const [useMockData, setUseMockData] = useState(true);
 
+  // WebSocket URL
+  const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/signals/';
+
+  // Initialize WebSocket connection
+  const { isConnected, connectionStatus, subscribe } = useWebSocket(WS_URL, {
+    onMessage: (message) => {
+      console.log('WebSocket message received:', message);
+      processWebSocketMessage(message);
+      if (useMockData && message.type === 'signal_created') {
+        setUseMockData(false); // Switch to real data once we receive real signals
+      }
+    },
+    onOpen: () => {
+      console.log('WebSocket connected - subscribing to signals');
+      subscribe({ direction: 'ALL', timeframe: 'ALL' });
+    },
+    reconnectInterval: 3000,
+    reconnectAttempts: 5,
+    heartbeatInterval: 30000,
+  });
+
+  // Sync WebSocket connection state
   useEffect(() => {
-    // Try to fetch real signals
-    fetchSignals().catch(() => {
-      console.log('Using mock data');
+    setWsConnected(isConnected);
+  }, [isConnected, setWsConnected]);
+
+  // Fetch initial signals for both spot and futures
+  useEffect(() => {
+    Promise.all([fetchSignals(), fetchFuturesSignals()]).then(() => {
+      setUseMockData(false);
+    }).catch((error) => {
+      console.log('Using mock data:', error);
       setUseMockData(true);
     });
-
-    // Connect to WebSocket for real-time updates
-    // connectWebSocket();
-
-    // Cleanup on unmount
-    return () => {
-      // disconnectWebSocket();
-    };
-  }, []);
+  }, [fetchSignals, fetchFuturesSignals]);
 
   const displaySignals = useMockData ? mockSignals : signals;
+  const displayFuturesSignals = useMockData ? [] : futuresSignals;
   const activeSignals = displaySignals.filter((s) => s.status === 'ACTIVE');
+  const activeFuturesSignals = displayFuturesSignals.filter((s) => s.status === 'ACTIVE');
+
+  // Connection status badge
+  const ConnectionBadge = () => {
+    const statusConfig = {
+      connected: { color: 'bg-green-500', text: 'Connected' },
+      connecting: { color: 'bg-yellow-500', text: 'Connecting...' },
+      disconnected: { color: 'bg-gray-500', text: 'Disconnected' },
+      reconnecting: { color: 'bg-orange-500', text: 'Reconnecting...' },
+      error: { color: 'bg-red-500', text: 'Error' },
+    };
+    const status = statusConfig[connectionStatus] || statusConfig.disconnected;
+
+    return (
+      <div className="flex items-center space-x-2">
+        <span className={`${status.color} w-2 h-2 rounded-full animate-pulse`}></span>
+        <span className="text-xs text-gray-600 dark:text-gray-400">{status.text}</span>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-          Welcome back, {user?.username}!
-        </h1>
-        <p className="mt-2 text-gray-600 dark:text-gray-400">
-          Here's an overview of your trading signals
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+              Welcome back, {user?.username}!
+            </h1>
+            <p className="mt-2 text-gray-600 dark:text-gray-400">
+              Here's an overview of your trading signals
+            </p>
+          </div>
+          <ConnectionBadge />
+        </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="card">
-          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
-            Active Signals
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="card bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20">
+          <h3 className="text-sm font-medium text-blue-700 dark:text-blue-300">
+            Active Spot Signals
           </h3>
-          <p className="mt-2 text-3xl font-bold text-gray-900 dark:text-white">
+          <p className="mt-2 text-3xl font-bold text-blue-900 dark:text-blue-100">
             {activeSignals.length}
           </p>
-        </div>
-
-        <div className="card">
-          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
-            Total Signals
-          </h3>
-          <p className="mt-2 text-3xl font-bold text-gray-900 dark:text-white">
-            {displaySignals.length}
+          <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">
+            Spot market
           </p>
         </div>
 
-        <div className="card">
-          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
+        <div className="card bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20">
+          <h3 className="text-sm font-medium text-purple-700 dark:text-purple-300">
+            Active Futures Signals
+          </h3>
+          <p className="mt-2 text-3xl font-bold text-purple-900 dark:text-purple-100">
+            {activeFuturesSignals.length}
+          </p>
+          <p className="mt-1 text-xs text-purple-600 dark:text-purple-400">
+            Futures market
+          </p>
+        </div>
+
+        <div className="card bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20">
+          <h3 className="text-sm font-medium text-green-700 dark:text-green-300">
+            Total Active
+          </h3>
+          <p className="mt-2 text-3xl font-bold text-green-900 dark:text-green-100">
+            {activeSignals.length + activeFuturesSignals.length}
+          </p>
+          <p className="mt-1 text-xs text-green-600 dark:text-green-400">
+            All markets
+          </p>
+        </div>
+
+        <div className="card bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20">
+          <h3 className="text-sm font-medium text-orange-700 dark:text-orange-300">
             Success Rate
           </h3>
-          <p className="mt-2 text-3xl font-bold text-success">78%</p>
+          <p className="mt-2 text-3xl font-bold text-orange-900 dark:text-orange-100">78%</p>
+          <p className="mt-1 text-xs text-orange-600 dark:text-orange-400">
+            Overall performance
+          </p>
         </div>
       </div>
 
-      {/* Recent Signals */}
+      {/* Recent Spot Signals */}
       <div>
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Recent Signals
+            Recent Spot Signals
           </h2>
-          <Link to="/signals" className="btn btn-primary">
-            View All
+          <Link to="/spot-signals" className="btn btn-primary">
+            View All Spot
           </Link>
         </div>
 
-        {isLoading ? (
+        {loading ? (
           <div className="flex justify-center items-center h-64">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
           </div>
         ) : displaySignals.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {displaySignals.slice(0, 6).map((signal) => (
-              <SignalCard key={signal.id} signal={signal} />
+            {displaySignals.slice(0, 3).map((signal) => (
+              <div
+                key={signal.id}
+                className="transform transition-all duration-200 hover:scale-105"
+              >
+                <SignalCard signal={signal} />
+              </div>
             ))}
           </div>
         ) : (
           <div className="card text-center py-12">
             <p className="text-gray-500 dark:text-gray-400">
-              No signals available yet
+              No spot signals available yet
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Recent Futures Signals */}
+      <div>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+            Recent Futures Signals
+          </h2>
+          <Link to="/futures" className="btn btn-primary">
+            View All Futures
+          </Link>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center items-center h-64">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+          </div>
+        ) : displayFuturesSignals.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {displayFuturesSignals.slice(0, 3).map((signal) => (
+              <div
+                key={signal.id}
+                className="transform transition-all duration-200 hover:scale-105"
+              >
+                <FuturesSignalCard signal={signal} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="card text-center py-12">
+            <p className="text-gray-500 dark:text-gray-400">
+              No futures signals available yet
             </p>
           </div>
         )}

@@ -66,3 +66,7 @@ celerybeat.pid
 # Docker
 *.log
 node_modules/
+
+# Root level npm files (should only be in client/)
+/package.json
+/package-lock.json

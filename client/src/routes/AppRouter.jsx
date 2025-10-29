@@ -13,6 +13,7 @@ import Register from '../pages/auth/Register';
 import Dashboard from '../pages/dashboard/Dashboard';
 import SignalDetail from '../pages/signals/SignalDetail';
 import SignalList from '../pages/signals/SignalList';
+import Futures from '../pages/Futures';
 
 const AppRouter = () => {
   return (
@@ -33,8 +34,11 @@ const AppRouter = () => {
         >
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
-          <Route path="signals" element={<SignalList />} />
-          <Route path="signals/:id" element={<SignalDetail />} />
+          <Route path="spot-signals" element={<SignalList />} />
+          <Route path="spot-signals/:id" element={<SignalDetail />} />
+          <Route path="signals" element={<Navigate to="/spot-signals" replace />} />
+          <Route path="signals/:id" element={<Navigate to="/spot-signals/:id" replace />} />
+          <Route path="futures" element={<Futures />} />
         </Route>
 
         {/* Catch all - redirect to dashboard */}
