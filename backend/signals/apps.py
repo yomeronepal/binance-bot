@@ -1,4 +1,7 @@
 from django.apps import AppConfig
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class SignalsConfig(AppConfig):
@@ -10,4 +13,8 @@ class SignalsConfig(AppConfig):
         Import signal handlers when app is ready.
         This ensures Django signals are registered.
         """
-        import signals.signals_handlers  # noqa
+        try:
+            import signals.signals_handlers  # noqa
+            logger.info("✅ Signal handlers imported successfully in ready()")
+        except Exception as e:
+            logger.error(f"❌ Failed to import signal handlers: {e}", exc_info=True)

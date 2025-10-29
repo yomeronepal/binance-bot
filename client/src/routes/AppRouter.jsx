@@ -3,6 +3,7 @@
  */
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import ProtectedRoute from './ProtectedRoute';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 // Layout
 import Layout from '../components/layout/Layout';
@@ -14,6 +15,9 @@ import Dashboard from '../pages/dashboard/Dashboard';
 import SignalDetail from '../pages/signals/SignalDetail';
 import SignalList from '../pages/signals/SignalList';
 import Futures from '../pages/Futures';
+import PaperTrading from '../pages/PaperTrading';
+import AutoTrading from '../pages/AutoTrading';
+import BotPerformance from '../pages/BotPerformance';
 
 const AppRouter = () => {
   return (
@@ -22,6 +26,11 @@ const AppRouter = () => {
         {/* Public routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/bot-performance" element={
+          <ErrorBoundary>
+            <BotPerformance />
+          </ErrorBoundary>
+        } />
 
         {/* Protected routes */}
         <Route
@@ -39,6 +48,16 @@ const AppRouter = () => {
           <Route path="signals" element={<Navigate to="/spot-signals" replace />} />
           <Route path="signals/:id" element={<Navigate to="/spot-signals/:id" replace />} />
           <Route path="futures" element={<Futures />} />
+          <Route path="paper-trading" element={
+            <ErrorBoundary>
+              <PaperTrading />
+            </ErrorBoundary>
+          } />
+          <Route path="auto-trading" element={
+            <ErrorBoundary>
+              <AutoTrading />
+            </ErrorBoundary>
+          } />
         </Route>
 
         {/* Catch all - redirect to dashboard */}

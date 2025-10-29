@@ -1,8 +1,24 @@
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import usePaperTradeStore from '../../store/usePaperTradeStore';
 
-const FuturesSignalCard = ({ signal }) => {
+const FuturesSignalCard = ({ signal, tradingMode = 'paper' }) => {
   const isLong = signal.direction === 'LONG';
+  const [isCreatingTrade, setIsCreatingTrade] = useState(false);
+  const { createTradeFromSignal } = usePaperTradeStore();
+
+  const handleCreatePaperTrade = async () => {
+    setIsCreatingTrade(true);
+    try {
+      await createTradeFromSignal(signal.id, 100); // Default $100 position
+      alert('Paper trade created successfully!');
+    } catch (error) {
+      alert(`Failed to create paper trade: ${error.message}`);
+    } finally {
+      setIsCreatingTrade(false);
+    }
+  };
 
   const calculateRiskReward = () => {
     const risk = Math.abs(signal.entry - signal.sl);
@@ -148,24 +164,34 @@ const FuturesSignalCard = ({ signal }) => {
 
       {/* Action Buttons */}
       <div className="px-6 py-4 bg-gray-900/50 border-t border-gray-700 flex space-x-2">
+        {tradingMode === 'paper' ? (
+          <button
+            onClick={handleCreatePaperTrade}
+            disabled={isCreatingTrade || signal.status !== 'ACTIVE'}
+            className="flex-1 py-2 px-4 rounded-lg font-medium text-center bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isCreatingTrade ? 'Creating...' : '📝 Create Paper Trade'}
+          </button>
+        ) : (
+          <a
+            href={`https://www.binance.com/en/trade/${signal.symbol?.symbol || signal.symbol}?type=futures`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`flex-1 py-2 px-4 rounded-lg font-medium text-center transition-colors ${
+              isLong
+                ? 'bg-green-600 hover:bg-green-700 text-white'
+                : 'bg-red-600 hover:bg-red-700 text-white'
+            }`}
+          >
+            💰 Trade Now
+          </a>
+        )}
         <Link
           to={`/spot-signals/${signal.id}`}
           className="flex-1 py-2 px-4 rounded-lg font-medium text-center bg-blue-600 hover:bg-blue-700 text-white transition-colors"
         >
           View Details
         </Link>
-        <a
-          href={`https://www.binance.com/en/trade/${signal.symbol?.symbol || signal.symbol}?type=futures`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`flex-1 py-2 px-4 rounded-lg font-medium text-center transition-colors ${
-            isLong
-              ? 'bg-green-600 hover:bg-green-700 text-white'
-              : 'bg-red-600 hover:bg-red-700 text-white'
-          }`}
-        >
-          Trade Now
-        </a>
       </div>
     </div>
   );

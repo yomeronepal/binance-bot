@@ -45,6 +45,24 @@ const Layout = () => {
                 >
                   Futures
                 </Link>
+                <Link
+                  to="/paper-trading"
+                  className="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
+                >
+                  Paper Trading
+                </Link>
+                <Link
+                  to="/auto-trading"
+                  className="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
+                >
+                  Auto-Trading
+                </Link>
+                <Link
+                  to="/bot-performance"
+                  className="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
+                >
+                  Bot Performance
+                </Link>
               </div>
             </div>
 

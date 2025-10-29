@@ -37,7 +37,23 @@ class PaperTradingService:
 
         Returns:
             Created PaperTrade instance
+
+        Raises:
+            ValueError: If duplicate trade exists for this signal
         """
+        # Check for duplicate - prevent creating multiple trades for same signal
+        existing_trade = PaperTrade.objects.filter(
+            signal=signal,
+            user=user,
+            status__in=['OPEN', 'PENDING']
+        ).first()
+
+        if existing_trade:
+            raise ValueError(
+                f"Duplicate trade detected: Trade #{existing_trade.id} already exists for this signal. "
+                f"Status: {existing_trade.status}, Entry: {existing_trade.entry_price}"
+            )
+
         if position_size is None:
             position_size = self.default_position_size
         else:
@@ -47,11 +63,17 @@ class PaperTradingService:
         entry_price = Decimal(str(signal.entry))
         quantity = position_size / entry_price
 
+        # Get symbol string - handle both ForeignKey and string cases
+        if hasattr(signal.symbol, 'symbol'):
+            symbol_str = signal.symbol.symbol
+        else:
+            symbol_str = str(signal.symbol)
+
         # Create paper trade
         paper_trade = PaperTrade.objects.create(
             signal=signal,
             user=user,
-            symbol=signal.symbol_name or signal.symbol.symbol,
+            symbol=symbol_str,
             direction=signal.direction,
             market_type=signal.market_type,
             entry_price=entry_price,
@@ -219,9 +241,11 @@ class PaperTradingService:
         aggregates = closed_trades.aggregate(
             total_pnl=Sum('profit_loss'),
             avg_pnl=Avg('profit_loss'),
-            best=closed_trades.order_by('-profit_loss').first(),
-            worst=closed_trades.order_by('profit_loss').first(),
         )
+
+        # Get best and worst trades separately
+        best_trade = closed_trades.order_by('-profit_loss').first()
+        worst_trade = closed_trades.order_by('profit_loss').first()
 
         # Calculate average duration
         trades_with_duration = closed_trades.exclude(
@@ -239,8 +263,8 @@ class PaperTradingService:
             'win_rate': round(win_rate, 2),
             'total_profit_loss': float(aggregates['total_pnl'] or 0),
             'avg_profit_loss': float(aggregates['avg_pnl'] or 0),
-            'best_trade': float(aggregates['best'].profit_loss if aggregates['best'] else 0),
-            'worst_trade': float(aggregates['worst'].profit_loss if aggregates['worst'] else 0),
+            'best_trade': float(best_trade.profit_loss if best_trade else 0),
+            'worst_trade': float(worst_trade.profit_loss if worst_trade else 0),
             'avg_duration_hours': round(avg_duration, 2),
             'profitable_trades': profitable_trades,
             'losing_trades': losing_trades,

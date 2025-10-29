@@ -36,7 +36,17 @@
       "Bash(timeout 15 bash -c 'while ! curl -s http://localhost:8000/api/health/ >/dev/null 2>&1; do sleep 1; done; echo \"\"Backend is ready\"\"')",
       "Bash(timeout 10 docker-compose logs:*)",
       "Bash(timeout 15 docker-compose logs:*)",
-      "Bash(timeout 60 docker-compose logs:*)"
+      "Bash(timeout 60 docker-compose logs:*)",
+      "Bash(docker-compose rm:*)",
+      "Bash(timeout 5 docker-compose logs:*)",
+      "Bash(timeout 5 python:*)",
+      "Bash(timeout 10 npm run build:*)",
+      "Bash(timeout 20 docker-compose logs:*)",
+      "Bash(timeout 20 bash:*)",
+      "Bash(docker volume ls:*)",
+      "Bash(docker volume rm:*)",
+      "Bash(timeout 10 bash -c 'while ! docker-compose exec -T backend python manage.py check >/dev/null 2>&1; do sleep 1; done; echo \"\"Backend is ready\"\"')",
+      "Bash(if not exist docs mkdir docs)"
     ],
     "deny": [],
     "ask": []

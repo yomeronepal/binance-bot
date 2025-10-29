@@ -1,6 +1,7 @@
 """
-Django signal handlers for automatic real-time broadcasting.
-These handlers trigger WebSocket broadcasts when Signal model instances change.
+Django signal handlers for automatic real-time broadcasting and auto-trading.
+These handlers trigger WebSocket broadcasts when Signal model instances change,
+and automatically execute paper trades when new signals are created.
 """
 import logging
 from django.db.models.signals import post_save, post_delete, pre_save
@@ -130,3 +131,106 @@ def signal_post_delete_handler(sender, instance, **kwargs):
 
     except Exception as e:
         logger.error(f"Error in signal_post_delete_handler: {str(e)}", exc_info=True)
+
+
+@receiver(post_save, sender=Signal)
+def auto_execute_trade_on_signal(sender, instance, created, **kwargs):
+    """
+    Automatically execute a paper trade when a new signal is created.
+
+    This handler integrates with the PaperAccount auto-trading system:
+    - Only executes on new signals (created=True)
+    - Only executes if signal is ACTIVE
+    - Checks all PaperAccounts with auto_trading_enabled=True
+    - Prevents duplicate trades (same symbol + direction)
+    - Respects account risk management settings
+
+    Args:
+        sender: Signal model class
+        instance: Signal instance that was saved
+        created: Boolean indicating if this is a new signal
+        **kwargs: Additional keyword arguments
+    """
+    # Only execute on new signals, not updates
+    if not created:
+        return
+
+    # Only execute if signal is ACTIVE
+    if instance.status != 'ACTIVE':
+        logger.debug(f"Signal {instance.id} not ACTIVE (status={instance.status}), skipping auto-trade")
+        return
+
+    try:
+        # Import here to avoid circular imports
+        from .services.auto_trader import auto_trading_service
+
+        # Execute trade via auto-trading service
+        trade = auto_trading_service.execute_signal(instance)
+
+        if trade:
+            logger.info(
+                f"✅ Auto-trade executed: {trade.direction} {trade.symbol} "
+                f"@ {trade.entry_price} (Trade ID: {trade.id}, Signal ID: {instance.id})"
+            )
+        else:
+            logger.debug(
+                f"ℹ️  No auto-trade for signal {instance.id}: "
+                f"criteria not met or no accounts enabled"
+            )
+
+    except Exception as e:
+        logger.error(
+            f"❌ Failed to auto-execute trade for signal {instance.id}: {e}",
+            exc_info=True
+        )
+
+
+@receiver(post_save, sender=Signal)
+def create_system_paper_trade(sender, instance, created, **kwargs):
+    """
+    Automatically create a SYSTEM-WIDE paper trade for every signal.
+
+    This is different from user auto-trading - this creates a public paper trade
+    to track the bot's overall accuracy and performance that everyone can see.
+
+    - Creates paper trade with user=None (system-wide)
+    - Fixed position size of $100 per trade
+    - Only executes on new ACTIVE signals
+    - Results displayed on public dashboard
+
+    Args:
+        sender: Signal model class
+        instance: Signal instance that was saved
+        created: Boolean indicating if this is a new signal
+        **kwargs: Additional keyword arguments
+    """
+    # Only execute on new signals
+    if not created:
+        return
+
+    # Only execute if signal is ACTIVE
+    if instance.status != 'ACTIVE':
+        logger.debug(f"Signal {instance.id} not ACTIVE, skipping system paper trade")
+        return
+
+    try:
+        # Import here to avoid circular imports
+        from .services.paper_trader import paper_trading_service
+
+        # Create system-wide paper trade (user=None)
+        trade = paper_trading_service.create_paper_trade(
+            signal=instance,
+            user=None,  # System-wide trade
+            position_size=100.0  # Fixed $100 per trade
+        )
+
+        logger.info(
+            f"🤖 System paper trade created: {trade.direction} {trade.symbol} "
+            f"@ {trade.entry_price} (Trade ID: {trade.id}, Signal ID: {instance.id})"
+        )
+
+    except Exception as e:
+        logger.error(
+            f"❌ Failed to create system paper trade for signal {instance.id}: {e}",
+            exc_info=True
+        )

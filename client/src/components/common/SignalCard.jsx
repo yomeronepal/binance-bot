@@ -4,8 +4,25 @@
  * Compatible with backend signal format (direction, entry, sl, tp)
  */
 import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import usePaperTradeStore from '../../store/usePaperTradeStore';
 
-const SignalCard = ({ signal }) => {
+const SignalCard = ({ signal, tradingMode = 'paper' }) => {
+  const [isCreatingTrade, setIsCreatingTrade] = useState(false);
+  const { createTradeFromSignal } = usePaperTradeStore();
+
+  const handleCreatePaperTrade = async () => {
+    setIsCreatingTrade(true);
+    try {
+      const trade = await createTradeFromSignal(signal.id, 100); // Default $100 position
+      alert(`✅ Paper trade created successfully!\n\nSymbol: ${trade.symbol}\nDirection: ${trade.direction}\nEntry: $${parseFloat(trade.entry_price).toFixed(4)}\nPosition: $${parseFloat(trade.position_size).toFixed(2)}`);
+    } catch (error) {
+      console.error('Paper trade error:', error);
+      alert(`❌ Failed to create paper trade\n\nError: ${error.message}\n\nPlease make sure you're logged in and the signal is active.`);
+    } finally {
+      setIsCreatingTrade(false);
+    }
+  };
   // Support both old and new signal formats
   const direction = signal.direction || signal.signal_type;
   const entry = signal.entry || signal.entry_price;
@@ -168,7 +185,23 @@ const SignalCard = ({ signal }) => {
         </p>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex justify-between gap-2">
+        {tradingMode === 'paper' ? (
+          <button
+            onClick={handleCreatePaperTrade}
+            disabled={isCreatingTrade || signal.status !== 'ACTIVE'}
+            className="btn bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed flex-1"
+          >
+            {isCreatingTrade ? 'Creating...' : '📝 Create Paper Trade'}
+          </button>
+        ) : (
+          <button
+            disabled={signal.status !== 'ACTIVE'}
+            className="btn btn-success text-sm disabled:opacity-50 disabled:cursor-not-allowed flex-1"
+          >
+            💰 Execute Live Trade
+          </button>
+        )}
         <Link
           to={`/spot-signals/${signal.id}`}
           className="btn btn-primary text-sm"

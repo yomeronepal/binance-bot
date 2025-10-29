@@ -3,7 +3,7 @@ Signal admin configuration following DRY principles.
 """
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Symbol, Signal, UserSubscription
+from .models import Symbol, Signal, UserSubscription, PaperTrade, PaperAccount
 
 
 class BaseModelAdmin(admin.ModelAdmin):
@@ -300,6 +300,308 @@ class UserSubscriptionAdmin(BaseModelAdmin):
         """Bulk cancel subscriptions."""
         updated = queryset.update(status='cancelled')
         self.message_user(request, f'{updated} subscriptions cancelled.')
+
+    def get_queryset(self, request):
+        """Optimize queryset with select_related."""
+        queryset = super().get_queryset(request)
+        return queryset.select_related('user')
+
+
+@admin.register(PaperTrade)
+class PaperTradeAdmin(BaseModelAdmin):
+    """
+    Admin interface for PaperTrade model.
+    """
+    list_display = (
+        'id',
+        'symbol',
+        'direction',
+        'market_type',
+        'entry_price',
+        'exit_price',
+        'status_badge',
+        'profit_loss_display',
+        'profit_loss_percentage',
+        'user_display',
+        'created_at'
+    )
+    list_filter = (
+        'status',
+        'direction',
+        'market_type',
+        'created_at',
+        'exit_time'
+    )
+    search_fields = (
+        'symbol',
+        'user__username',
+        'signal__id'
+    )
+    ordering = ('-created_at',)
+    list_per_page = 50
+
+    fieldsets = (
+        ('Trade Information', {
+            'fields': ('user', 'signal', 'symbol', 'direction', 'market_type', 'status')
+        }),
+        ('Entry Details', {
+            'fields': ('entry_price', 'entry_time', 'position_size', 'quantity', 'leverage')
+        }),
+        ('Exit Details', {
+            'fields': ('stop_loss', 'take_profit', 'exit_price', 'exit_time')
+        }),
+        ('Performance', {
+            'fields': ('profit_loss', 'profit_loss_percentage')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+
+    readonly_fields = ('profit_loss', 'profit_loss_percentage', 'exit_time', 'quantity')
+    autocomplete_fields = ['user', 'signal']
+
+    def user_display(self, obj):
+        """Display user."""
+        return obj.user.username if obj.user else 'System'
+    user_display.short_description = 'User'
+    user_display.admin_order_field = 'user__username'
+
+    def profit_loss_display(self, obj):
+        """Display profit/loss with color."""
+        pnl = float(obj.profit_loss)
+        if pnl > 0:
+            color = 'green'
+            sign = '+'
+        elif pnl < 0:
+            color = 'red'
+            sign = ''
+        else:
+            color = 'gray'
+            sign = ''
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}{:.2f} USDT</span>',
+            color,
+            sign,
+            pnl
+        )
+    profit_loss_display.short_description = 'P/L'
+    profit_loss_display.admin_order_field = 'profit_loss'
+
+    def status_badge(self, obj):
+        """Display status with colored badge."""
+        colors = {
+            'OPEN': '#007bff',
+            'CLOSED_TP': '#28a745',
+            'CLOSED_SL': '#dc3545',
+            'CLOSED_MANUAL': '#6c757d',
+            'PENDING': '#ffc107',
+            'CANCELLED': '#6c757d'
+        }
+        color = colors.get(obj.status, '#6c757d')
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 8px; '
+            'border-radius: 3px; font-size: 11px;">{}</span>',
+            color,
+            obj.status.replace('_', ' ')
+        )
+    status_badge.short_description = 'Status'
+    status_badge.admin_order_field = 'status'
+
+    def get_queryset(self, request):
+        """Optimize queryset with select_related."""
+        queryset = super().get_queryset(request)
+        return queryset.select_related('user', 'signal')
+
+
+@admin.register(PaperAccount)
+class PaperAccountAdmin(BaseModelAdmin):
+    """
+    Admin interface for PaperAccount model (Auto-Trading).
+    """
+    list_display = (
+        'user_display',
+        'balance_display',
+        'equity_display',
+        'total_pnl_display',
+        'win_rate_display',
+        'total_trades',
+        'open_positions_count',
+        'auto_trading_status',
+        'created_at'
+    )
+    list_filter = (
+        'auto_trading_enabled',
+        'auto_trade_spot',
+        'auto_trade_futures',
+        'created_at'
+    )
+    search_fields = (
+        'user__username',
+        'user__email'
+    )
+    ordering = ('-created_at',)
+    list_per_page = 50
+
+    fieldsets = (
+        ('User', {
+            'fields': ('user',)
+        }),
+        ('Balance & Equity', {
+            'fields': ('initial_balance', 'balance', 'equity')
+        }),
+        ('Performance Metrics', {
+            'fields': (
+                'total_pnl',
+                'realized_pnl',
+                'unrealized_pnl',
+                'total_trades',
+                'winning_trades',
+                'losing_trades',
+                'win_rate'
+            )
+        }),
+        ('Risk Management', {
+            'fields': ('max_position_size', 'max_open_trades')
+        }),
+        ('Auto-Trading Settings', {
+            'fields': (
+                'auto_trading_enabled',
+                'auto_trade_spot',
+                'auto_trade_futures',
+                'min_signal_confidence'
+            )
+        }),
+        ('Open Positions', {
+            'fields': ('open_positions',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('last_trade_at', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+
+    readonly_fields = (
+        'balance',
+        'equity',
+        'total_pnl',
+        'realized_pnl',
+        'unrealized_pnl',
+        'total_trades',
+        'winning_trades',
+        'losing_trades',
+        'win_rate',
+        'open_positions',
+        'last_trade_at'
+    )
+    autocomplete_fields = ['user']
+    actions = ['reset_accounts', 'enable_auto_trading', 'disable_auto_trading']
+
+    def user_display(self, obj):
+        """Display user."""
+        return f"{obj.user.username} ({obj.user.email})"
+    user_display.short_description = 'User'
+    user_display.admin_order_field = 'user__username'
+
+    def balance_display(self, obj):
+        """Display balance."""
+        return format_html(
+            '<span style="font-weight: bold;">${:,.2f}</span>',
+            float(obj.balance)
+        )
+    balance_display.short_description = 'Balance'
+    balance_display.admin_order_field = 'balance'
+
+    def equity_display(self, obj):
+        """Display equity."""
+        return format_html(
+            '<span style="font-weight: bold;">${:,.2f}</span>',
+            float(obj.equity)
+        )
+    equity_display.short_description = 'Equity'
+    equity_display.admin_order_field = 'equity'
+
+    def total_pnl_display(self, obj):
+        """Display total P/L with color."""
+        pnl = float(obj.total_pnl)
+        if pnl > 0:
+            color = 'green'
+            sign = '+'
+        elif pnl < 0:
+            color = 'red'
+            sign = ''
+        else:
+            color = 'gray'
+            sign = ''
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}{:.2f}</span>',
+            color,
+            sign,
+            pnl
+        )
+    total_pnl_display.short_description = 'Total P/L'
+    total_pnl_display.admin_order_field = 'total_pnl'
+
+    def win_rate_display(self, obj):
+        """Display win rate with color."""
+        win_rate = float(obj.win_rate)
+        if win_rate >= 70:
+            color = 'green'
+        elif win_rate >= 50:
+            color = 'orange'
+        else:
+            color = 'red'
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{:.1f}%</span>',
+            color,
+            win_rate
+        )
+    win_rate_display.short_description = 'Win Rate'
+    win_rate_display.admin_order_field = 'win_rate'
+
+    def open_positions_count(self, obj):
+        """Display open positions count."""
+        count = len(obj.open_positions)
+        if count > 0:
+            return format_html('<strong>{}</strong>', count)
+        return count
+    open_positions_count.short_description = 'Open Positions'
+
+    def auto_trading_status(self, obj):
+        """Display auto-trading status."""
+        if obj.auto_trading_enabled:
+            return format_html(
+                '<span style="background-color: #28a745; color: white; padding: 3px 8px; '
+                'border-radius: 3px; font-size: 11px;">ENABLED</span>'
+            )
+        else:
+            return format_html(
+                '<span style="background-color: #dc3545; color: white; padding: 3px 8px; '
+                'border-radius: 3px; font-size: 11px;">DISABLED</span>'
+            )
+    auto_trading_status.short_description = 'Auto-Trading'
+    auto_trading_status.admin_order_field = 'auto_trading_enabled'
+
+    @admin.action(description='Reset accounts to initial state')
+    def reset_accounts(self, request, queryset):
+        """Bulk reset accounts."""
+        for account in queryset:
+            account.reset_account()
+        self.message_user(request, f'{queryset.count()} accounts reset successfully.')
+
+    @admin.action(description='Enable auto-trading')
+    def enable_auto_trading(self, request, queryset):
+        """Bulk enable auto-trading."""
+        updated = queryset.update(auto_trading_enabled=True)
+        self.message_user(request, f'Auto-trading enabled for {updated} accounts.')
+
+    @admin.action(description='Disable auto-trading')
+    def disable_auto_trading(self, request, queryset):
+        """Bulk disable auto-trading."""
+        updated = queryset.update(auto_trading_enabled=False)
+        self.message_user(request, f'Auto-trading disabled for {updated} accounts.')
 
     def get_queryset(self, request):
         """Optimize queryset with select_related."""

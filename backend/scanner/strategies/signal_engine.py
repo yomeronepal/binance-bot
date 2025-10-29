@@ -37,15 +37,17 @@ class SignalConfig:
     max_candles_cache: int = 200
     signal_expiry_minutes: int = 60
 
-    # Indicator weights for confidence scoring
-    macd_weight: float = 1.5
-    rsi_weight: float = 1.0
-    price_ema_weight: float = 1.0
-    adx_weight: float = 1.0
-    ha_weight: float = 1.5
-    volume_weight: float = 1.0
-    ema_alignment_weight: float = 0.5
-    di_weight: float = 0.5
+    # Indicator weights for confidence scoring (more realistic distribution)
+    macd_weight: float = 2.0       # Strong momentum indicator
+    rsi_weight: float = 1.5         # Key overbought/oversold indicator
+    price_ema_weight: float = 1.8   # Trend confirmation
+    adx_weight: float = 1.7         # Trend strength is crucial
+    ha_weight: float = 1.6          # Smoothed trend direction
+    volume_weight: float = 1.4      # Confirmation of interest
+    ema_alignment_weight: float = 1.2  # Multiple timeframe alignment
+    di_weight: float = 1.0          # Directional movement
+    bb_weight: float = 0.8          # Volatility and price extremes
+    volatility_weight: float = 0.5  # Market condition adjustment
 
 
 @dataclass
@@ -269,7 +271,7 @@ class SignalDetectionEngine:
         return None  # No significant change
 
     def _check_long_conditions(self, df, current, previous) -> tuple[bool, float, Dict[str, bool]]:
-        """Check LONG signal conditions with detailed tracking."""
+        """Check LONG signal conditions with realistic confidence scoring."""
         score = 0.0
         max_score = (
             self.config.macd_weight +
@@ -279,7 +281,9 @@ class SignalDetectionEngine:
             self.config.ha_weight +
             self.config.volume_weight +
             self.config.ema_alignment_weight +
-            self.config.di_weight
+            self.config.di_weight +
+            self.config.bb_weight +
+            self.config.volatility_weight
         )
 
         conditions = {}
@@ -340,14 +344,56 @@ class SignalDetectionEngine:
             else:
                 conditions['ema_aligned'] = False
 
-            # 8. +DI > -DI
+            # 8. +DI > -DI (Directional Movement)
             if current['plus_di'] > current['minus_di']:
-                score += self.config.di_weight
+                di_diff = current['plus_di'] - current['minus_di']
+                if di_diff > 10:
+                    score += self.config.di_weight
+                else:
+                    score += self.config.di_weight * min(di_diff / 10, 1.0)
                 conditions['positive_di'] = True
             else:
                 conditions['positive_di'] = False
 
-            confidence = min(score / max_score, 1.0)
+            # 9. Bollinger Bands Position
+            bb_range = current['bb_upper'] - current['bb_lower']
+            if bb_range > 0:
+                bb_position = (current['close'] - current['bb_lower']) / bb_range
+                if 0.3 < bb_position < 0.7:
+                    score += self.config.bb_weight
+                    conditions['bb_favorable'] = True
+                elif bb_position < 0.3:
+                    score += self.config.bb_weight * 0.7
+                    conditions['bb_favorable'] = True
+                else:
+                    conditions['bb_favorable'] = False
+            else:
+                conditions['bb_favorable'] = False
+
+            # 10. Volatility Adjustment
+            atr_percent = (current['atr'] / current['close']) * 100
+            if atr_percent < 2.0:
+                score += self.config.volatility_weight
+                conditions['low_volatility'] = True
+            elif atr_percent < 4.0:
+                score += self.config.volatility_weight * 0.5
+                conditions['low_volatility'] = True
+            else:
+                conditions['low_volatility'] = False
+
+            # Calculate realistic confidence
+            raw_confidence = score / max_score
+
+            # Apply non-linear transformation for more realistic distribution
+            # This prevents too many 90%+ signals
+            if raw_confidence > 0.88:
+                confidence = 0.78 + (raw_confidence - 0.88) * 1.17  # Map 0.88-1.0 to 0.78-0.92
+            elif raw_confidence > 0.75:
+                confidence = 0.68 + (raw_confidence - 0.75) * 0.77  # Map 0.75-0.88 to 0.68-0.78
+            else:
+                confidence = raw_confidence * 0.91  # Map 0.0-0.75 to 0.0-0.68
+
+            confidence = min(confidence, 0.92)  # Cap at 92% for realism
             triggered = score >= (max_score * self.config.min_confidence)
 
             return triggered, confidence, conditions
@@ -357,7 +403,7 @@ class SignalDetectionEngine:
             return False, 0.0, {}
 
     def _check_short_conditions(self, df, current, previous) -> tuple[bool, float, Dict[str, bool]]:
-        """Check SHORT signal conditions with detailed tracking."""
+        """Check SHORT signal conditions with realistic confidence scoring."""
         score = 0.0
         max_score = (
             self.config.macd_weight +
@@ -367,7 +413,9 @@ class SignalDetectionEngine:
             self.config.ha_weight +
             self.config.volume_weight +
             self.config.ema_alignment_weight +
-            self.config.di_weight
+            self.config.di_weight +
+            self.config.bb_weight +
+            self.config.volatility_weight
         )
 
         conditions = {}
@@ -428,14 +476,55 @@ class SignalDetectionEngine:
             else:
                 conditions['ema_aligned'] = False
 
-            # 8. -DI > +DI
+            # 8. -DI > +DI (Directional Movement)
             if current['minus_di'] > current['plus_di']:
-                score += self.config.di_weight
+                di_diff = current['minus_di'] - current['plus_di']
+                if di_diff > 10:
+                    score += self.config.di_weight
+                else:
+                    score += self.config.di_weight * min(di_diff / 10, 1.0)
                 conditions['negative_di'] = True
             else:
                 conditions['negative_di'] = False
 
-            confidence = min(score / max_score, 1.0)
+            # 9. Bollinger Bands Position
+            bb_range = current['bb_upper'] - current['bb_lower']
+            if bb_range > 0:
+                bb_position = (current['close'] - current['bb_lower']) / bb_range
+                if 0.3 < bb_position < 0.7:
+                    score += self.config.bb_weight
+                    conditions['bb_favorable'] = True
+                elif bb_position > 0.7:
+                    score += self.config.bb_weight * 0.7
+                    conditions['bb_favorable'] = True
+                else:
+                    conditions['bb_favorable'] = False
+            else:
+                conditions['bb_favorable'] = False
+
+            # 10. Volatility Adjustment
+            atr_percent = (current['atr'] / current['close']) * 100
+            if atr_percent < 2.0:
+                score += self.config.volatility_weight
+                conditions['low_volatility'] = True
+            elif atr_percent < 4.0:
+                score += self.config.volatility_weight * 0.5
+                conditions['low_volatility'] = True
+            else:
+                conditions['low_volatility'] = False
+
+            # Calculate realistic confidence
+            raw_confidence = score / max_score
+
+            # Apply non-linear transformation for more realistic distribution
+            if raw_confidence > 0.88:
+                confidence = 0.78 + (raw_confidence - 0.88) * 1.17  # Map 0.88-1.0 to 0.78-0.92
+            elif raw_confidence > 0.75:
+                confidence = 0.68 + (raw_confidence - 0.75) * 0.77  # Map 0.75-0.88 to 0.68-0.78
+            else:
+                confidence = raw_confidence * 0.91  # Map 0.0-0.75 to 0.0-0.68
+
+            confidence = min(confidence, 0.92)  # Cap at 92% for realism
             triggered = score >= (max_score * self.config.min_confidence)
 
             return triggered, confidence, conditions

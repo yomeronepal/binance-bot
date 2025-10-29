@@ -69,6 +69,15 @@ app.conf.beat_schedule = {
         'task': 'scanner.tasks.celery_tasks.system_health_check',
         'schedule': 600.0,  # Every 10 minutes
     },
+
+    # Check and auto-close paper trades every 30 seconds
+    'check-paper-trades': {
+        'task': 'scanner.tasks.celery_tasks.check_and_close_paper_trades',
+        'schedule': 30.0,  # Every 30 seconds
+        'options': {
+            'expires': 25.0,  # Expire if not executed within 25 seconds
+        }
+    },
 }
 
 # Celery Configuration
@@ -101,6 +110,7 @@ app.conf.update(
         'scanner.tasks.celery_tasks.send_signal_notifications': {'queue': 'notifications'},
         'scanner.tasks.celery_tasks.cleanup_expired_signals': {'queue': 'maintenance'},
         'scanner.tasks.celery_tasks.system_health_check': {'queue': 'maintenance'},
+        'scanner.tasks.celery_tasks.check_and_close_paper_trades': {'queue': 'paper_trading'},
     },
 )
 

@@ -65,6 +65,7 @@ const Dashboard = () => {
     setWsConnected
   } = useSignalStore();
   const [useMockData, setUseMockData] = useState(true);
+  const [tradingMode, setTradingMode] = useState('paper'); // 'paper' or 'live'
 
   // WebSocket URL
   const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/signals/';
@@ -139,7 +140,32 @@ const Dashboard = () => {
               Here's an overview of your trading signals
             </p>
           </div>
-          <ConnectionBadge />
+          <div className="flex items-center gap-4">
+            {/* Trading Mode Toggle */}
+            <div className="flex items-center gap-2 bg-white dark:bg-gray-800 rounded-lg p-1 shadow-md">
+              <button
+                onClick={() => setTradingMode('paper')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+                  tradingMode === 'paper'
+                    ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-md'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                📝 Paper Trading
+              </button>
+              <button
+                onClick={() => setTradingMode('live')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+                  tradingMode === 'live'
+                    ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-md'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                💰 Live Trading
+              </button>
+            </div>
+            <ConnectionBadge />
+          </div>
         </div>
       </div>
 
@@ -214,7 +240,7 @@ const Dashboard = () => {
                 key={signal.id}
                 className="transform transition-all duration-200 hover:scale-105"
               >
-                <SignalCard signal={signal} />
+                <SignalCard signal={signal} tradingMode={tradingMode} />
               </div>
             ))}
           </div>
@@ -249,7 +275,7 @@ const Dashboard = () => {
                 key={signal.id}
                 className="transform transition-all duration-200 hover:scale-105"
               >
-                <FuturesSignalCard signal={signal} />
+                <FuturesSignalCard signal={signal} tradingMode={tradingMode} />
               </div>
             ))}
           </div>

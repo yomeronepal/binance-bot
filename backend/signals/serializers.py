@@ -3,7 +3,7 @@ Signal serializers following DRY principles and clean architecture.
 """
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Symbol, Signal, UserSubscription
+from .models import Symbol, Signal, UserSubscription, PaperTrade, PaperAccount
 
 
 User = get_user_model()
@@ -364,3 +364,208 @@ class SignalStatusUpdateSerializer(serializers.Serializer):
 
         Signal.objects.filter(id__in=signal_ids).update(status=status)
         return Signal.objects.filter(id__in=signal_ids)
+
+
+class PaperTradeSerializer(BaseModelSerializer):
+    """
+    Paper trade serializer with computed fields and signal details.
+    """
+    signal_id = serializers.IntegerField(source='signal.id', read_only=True)
+    signal_direction = serializers.CharField(source='signal.direction', read_only=True)
+    signal_timeframe = serializers.CharField(source='signal.timeframe', read_only=True)
+    signal_confidence = serializers.FloatField(source='signal.confidence', read_only=True)
+
+    # Computed properties
+    duration_hours = serializers.FloatField(read_only=True)
+    risk_reward_ratio = serializers.FloatField(read_only=True)
+    is_open = serializers.BooleanField(read_only=True)
+    is_closed = serializers.BooleanField(read_only=True)
+    is_profitable = serializers.BooleanField(read_only=True)
+
+    # Formatted fields
+    entry_price_formatted = serializers.SerializerMethodField()
+    exit_price_formatted = serializers.SerializerMethodField()
+    profit_loss_formatted = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PaperTrade
+        fields = [
+            'id', 'signal_id', 'signal_direction', 'signal_timeframe', 'signal_confidence',
+            'symbol', 'direction', 'market_type',
+            'entry_price', 'entry_price_formatted', 'entry_time',
+            'position_size', 'quantity',
+            'stop_loss', 'take_profit',
+            'exit_price', 'exit_price_formatted', 'exit_time',
+            'profit_loss', 'profit_loss_formatted', 'profit_loss_percentage',
+            'leverage', 'status',
+            'created_at', 'updated_at',
+            'duration_hours', 'risk_reward_ratio',
+            'is_open', 'is_closed', 'is_profitable'
+        ]
+        read_only_fields = [
+            'id', 'entry_time', 'exit_price', 'exit_time',
+            'profit_loss', 'profit_loss_percentage', 'status',
+            'created_at', 'updated_at', 'quantity'
+        ]
+
+    def get_entry_price_formatted(self, obj):
+        """Format entry price for display."""
+        return f"${float(obj.entry_price):,.4f}"
+
+    def get_exit_price_formatted(self, obj):
+        """Format exit price for display."""
+        if obj.exit_price:
+            return f"${float(obj.exit_price):,.4f}"
+        return None
+
+    def get_profit_loss_formatted(self, obj):
+        """Format P/L for display."""
+        pnl = float(obj.profit_loss)
+        sign = "+" if pnl >= 0 else ""
+        return f"{sign}${pnl:,.2f}"
+
+
+class PaperAccountSerializer(BaseModelSerializer):
+    """
+    Paper account serializer for auto-trading accounts.
+    Includes balance, equity, performance metrics, and settings.
+    """
+    user_detail = UserBasicSerializer(source='user', read_only=True)
+
+    # Computed fields
+    available_balance = serializers.SerializerMethodField()
+    open_positions_count = serializers.SerializerMethodField()
+    equity_percentage = serializers.SerializerMethodField()
+    balance_percentage = serializers.SerializerMethodField()
+
+    # Formatted fields
+    balance_formatted = serializers.SerializerMethodField()
+    equity_formatted = serializers.SerializerMethodField()
+    total_pnl_formatted = serializers.SerializerMethodField()
+    realized_pnl_formatted = serializers.SerializerMethodField()
+    unrealized_pnl_formatted = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PaperAccount
+        fields = [
+            'id',
+            'user',
+            'user_detail',
+            # Balances
+            'initial_balance',
+            'balance',
+            'balance_formatted',
+            'balance_percentage',
+            'equity',
+            'equity_formatted',
+            'equity_percentage',
+            'available_balance',
+            # Performance metrics
+            'total_pnl',
+            'total_pnl_formatted',
+            'realized_pnl',
+            'realized_pnl_formatted',
+            'unrealized_pnl',
+            'unrealized_pnl_formatted',
+            # Statistics
+            'total_trades',
+            'winning_trades',
+            'losing_trades',
+            'win_rate',
+            # Risk management
+            'max_position_size',
+            'max_open_trades',
+            # Auto-trading settings
+            'auto_trading_enabled',
+            'auto_trade_spot',
+            'auto_trade_futures',
+            'min_signal_confidence',
+            # Open positions
+            'open_positions',
+            'open_positions_count',
+            # Timestamps
+            'last_trade_at',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = [
+            'id',
+            'user',
+            'balance',
+            'equity',
+            'total_pnl',
+            'realized_pnl',
+            'unrealized_pnl',
+            'total_trades',
+            'winning_trades',
+            'losing_trades',
+            'win_rate',
+            'open_positions',
+            'last_trade_at',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_available_balance(self, obj):
+        """Calculate available balance (balance - allocated in positions)."""
+        return float(obj.balance)
+
+    def get_open_positions_count(self, obj):
+        """Get count of open positions."""
+        return len(obj.open_positions)
+
+    def get_equity_percentage(self, obj):
+        """Get equity as percentage of initial balance."""
+        if obj.initial_balance > 0:
+            return round((float(obj.equity) / float(obj.initial_balance)) * 100, 2)
+        return 0.0
+
+    def get_balance_percentage(self, obj):
+        """Get balance as percentage of initial balance."""
+        if obj.initial_balance > 0:
+            return round((float(obj.balance) / float(obj.initial_balance)) * 100, 2)
+        return 0.0
+
+    def get_balance_formatted(self, obj):
+        """Format balance for display."""
+        return f"${float(obj.balance):,.2f}"
+
+    def get_equity_formatted(self, obj):
+        """Format equity for display."""
+        return f"${float(obj.equity):,.2f}"
+
+    def get_total_pnl_formatted(self, obj):
+        """Format total P/L for display."""
+        pnl = float(obj.total_pnl)
+        sign = "+" if pnl >= 0 else ""
+        return f"{sign}${pnl:,.2f}"
+
+    def get_realized_pnl_formatted(self, obj):
+        """Format realized P/L for display."""
+        pnl = float(obj.realized_pnl)
+        sign = "+" if pnl >= 0 else ""
+        return f"{sign}${pnl:,.2f}"
+
+    def get_unrealized_pnl_formatted(self, obj):
+        """Format unrealized P/L for display."""
+        pnl = float(obj.unrealized_pnl)
+        sign = "+" if pnl >= 0 else ""
+        return f"{sign}${pnl:,.2f}"
+
+    def validate_max_position_size(self, value):
+        """Validate max position size percentage."""
+        if value < 1 or value > 100:
+            raise serializers.ValidationError("Max position size must be between 1% and 100%")
+        return value
+
+    def validate_max_open_trades(self, value):
+        """Validate max open trades."""
+        if value < 1 or value > 50:
+            raise serializers.ValidationError("Max open trades must be between 1 and 50")
+        return value
+
+    def validate_min_signal_confidence(self, value):
+        """Validate minimum signal confidence."""
+        if value < 0 or value > 1:
+            raise serializers.ValidationError("Minimum confidence must be between 0.0 and 1.0")
+        return value

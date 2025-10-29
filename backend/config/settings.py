@@ -43,7 +43,7 @@ INSTALLED_APPS = [
     # Local apps
     'api',
     'users',
-    'signals',
+    'signals.apps.SignalsConfig',
     'scanner',
     'billing',
     'websocket',

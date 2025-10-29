@@ -823,4 +823,127 @@ async def _save_futures_signal_async(signal_data: Dict):
         )
         return signal
 
-    return await save_signal()
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+def check_and_close_paper_trades(self):
+    """
+    Periodic task to check open paper trades and automatically close them
+    if Stop Loss or Take Profit is hit.
+
+    This task:
+    1. Fetches current prices from Binance
+    2. Checks all open paper trades
+    3. Closes trades that hit SL or TP
+    4. Sends notifications for closed trades
+
+    Runs every 30 seconds via Celery Beat.
+    """
+    try:
+        from decimal import Decimal
+        from signals.services.paper_trader import paper_trading_service
+        from signals.models import PaperTrade
+        from scanner.services.binance_client import BinanceClient
+        from scanner.services.dispatcher import signal_dispatcher
+
+        logger.info("🔍 Checking paper trades for auto-close...")
+
+        # Get all open paper trades
+        open_trades = PaperTrade.objects.filter(status='OPEN')
+        if not open_trades.exists():
+            logger.debug("No open paper trades to check")
+            return {'checked': 0, 'closed': 0}
+
+        # Get unique symbols from open trades
+        symbols = set(trade.symbol for trade in open_trades)
+        logger.info(f"📊 Checking {open_trades.count()} open trades across {len(symbols)} symbols")
+
+        # Fetch current prices from Binance
+        binance_client = BinanceClient()
+        current_prices = {}
+
+        async def fetch_prices():
+            prices = {}
+            for symbol in symbols:
+                try:
+                    price_data = await binance_client.get_price(symbol)
+                    if price_data and 'price' in price_data:
+                        prices[symbol] = Decimal(str(price_data['price']))
+                except Exception as e:
+                    logger.warning(f"Failed to fetch price for {symbol}: {e}")
+                    continue
+            return prices
+
+        # Run async price fetching
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            current_prices = loop.run_until_complete(fetch_prices())
+        finally:
+            loop.close()
+
+        # Check and close trades
+        closed_trades = paper_trading_service.check_and_close_trades(current_prices)
+
+        # Update PaperAccounts for closed trades
+        for trade in closed_trades:
+            try:
+                # Import auto_trading_service to update account
+                from signals.services.auto_trader import auto_trading_service
+
+                # Update account if this trade belongs to an auto-trading account
+                if trade.user:
+                    from signals.models import PaperAccount
+                    try:
+                        account = PaperAccount.objects.get(user=trade.user)
+                        # Remove position from account (already done in close_trade_and_update_account)
+                        # but we ensure metrics are updated
+                        account.update_metrics()
+                        logger.debug(f"Updated account for user {trade.user.id}: Balance=${account.balance}")
+                    except PaperAccount.DoesNotExist:
+                        pass  # User doesn't have auto-trading account
+            except Exception as e:
+                logger.warning(f"Failed to update account for trade {trade.id}: {e}")
+
+        # Send notifications for closed trades via WebSocket
+        for trade in closed_trades:
+            try:
+                # Dispatch trade closed notification
+                asyncio.run(signal_dispatcher.broadcast_paper_trade_update(
+                    'paper_trade_closed',
+                    {
+                        'id': trade.id,
+                        'symbol': trade.symbol,
+                        'direction': trade.direction,
+                        'status': trade.status,
+                        'entry_price': str(trade.entry_price),
+                        'exit_price': str(trade.exit_price) if trade.exit_price else None,
+                        'profit_loss': float(trade.profit_loss),
+                        'profit_loss_percentage': float(trade.profit_loss_percentage),
+                    }
+                ))
+            except Exception as e:
+                logger.error(f"Failed to send notification for closed trade {trade.id}: {e}")
+
+        result = {
+            'checked': open_trades.count(),
+            'closed': len(closed_trades),
+            'symbols': list(symbols),
+            'closed_trades': [
+                {
+                    'id': t.id,
+                    'symbol': t.symbol,
+                    'status': t.status,
+                    'profit_loss': float(t.profit_loss)
+                } for t in closed_trades
+            ]
+        }
+
+        if closed_trades:
+            logger.info(f"✅ Auto-closed {len(closed_trades)} paper trades")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ Error in check_and_close_paper_trades: {str(e)}", exc_info=True)
+        # Retry on error
+        raise self.retry(exc=e)

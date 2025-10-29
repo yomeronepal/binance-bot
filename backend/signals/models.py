@@ -611,4 +611,272 @@ class PaperTrade(models.Model):
         self.profit_loss_percentage = pnl_pct
 
         self.save()
-        return pnl, pnl_pct
+
+
+class PaperAccount(models.Model):
+    """
+    Paper trading account for auto-trading simulation.
+    Manages virtual balance and tracks all auto-executed trades.
+    """
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='paper_account',
+        help_text=_("User who owns this paper account")
+    )
+
+    # Account balances
+    initial_balance = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=1000.00,
+        help_text=_("Starting balance in USDT")
+    )
+    balance = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=1000.00,
+        help_text=_("Available balance in USDT")
+    )
+    equity = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=1000.00,
+        help_text=_("Total equity (balance + unrealized P/L)")
+    )
+
+    # Performance metrics
+    total_pnl = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0.00,
+        help_text=_("Total profit/loss")
+    )
+    realized_pnl = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0.00,
+        help_text=_("Realized profit/loss from closed trades")
+    )
+    unrealized_pnl = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0.00,
+        help_text=_("Unrealized P/L from open positions")
+    )
+
+    # Trading statistics
+    total_trades = models.IntegerField(default=0)
+    winning_trades = models.IntegerField(default=0)
+    losing_trades = models.IntegerField(default=0)
+    win_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0.00,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text=_("Win rate percentage")
+    )
+
+    # Risk management
+    max_position_size = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=10.00,
+        validators=[MinValueValidator(1), MaxValueValidator(100)],
+        help_text=_("Maximum position size as percentage of balance")
+    )
+    max_open_trades = models.IntegerField(
+        default=5,
+        validators=[MinValueValidator(1), MaxValueValidator(20)],
+        help_text=_("Maximum number of concurrent open trades")
+    )
+
+    # Auto-trading settings
+    auto_trading_enabled = models.BooleanField(
+        default=False,
+        help_text=_("Enable automatic trade execution on new signals")
+    )
+    auto_trade_spot = models.BooleanField(
+        default=True,
+        help_text=_("Auto-trade SPOT signals")
+    )
+    auto_trade_futures = models.BooleanField(
+        default=True,
+        help_text=_("Auto-trade FUTURES signals")
+    )
+    min_signal_confidence = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        default=0.70,
+        validators=[MinValueValidator(0.50), MaxValueValidator(0.95)],
+        help_text=_("Minimum signal confidence to auto-trade")
+    )
+
+    # Open positions tracking
+    open_positions = models.JSONField(
+        default=list,
+        help_text=_("List of currently open positions")
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_trade_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("Paper Account")
+        verbose_name_plural = _("Paper Accounts")
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Paper Account - {self.user.username} (Balance: ${self.balance})"
+
+    def update_metrics(self):
+        """
+        Update account metrics based on closed trades.
+        """
+        from django.db.models import Sum, Count, Q
+
+        # Get all trades for this account
+        trades = PaperTrade.objects.filter(user=self.user)
+        closed_trades = trades.filter(status__startswith='CLOSED')
+
+        # Update trade counts
+        self.total_trades = closed_trades.count()
+        self.winning_trades = closed_trades.filter(profit_loss__gt=0).count()
+        self.losing_trades = closed_trades.filter(profit_loss__lt=0).count()
+
+        # Calculate win rate
+        if self.total_trades > 0:
+            self.win_rate = (self.winning_trades / self.total_trades) * 100
+        else:
+            self.win_rate = 0
+
+        # Calculate realized P/L
+        aggregates = closed_trades.aggregate(
+            total=Sum('profit_loss')
+        )
+        self.realized_pnl = aggregates['total'] or 0
+
+        # Update balance (initial + realized P/L)
+        self.balance = self.initial_balance + self.realized_pnl
+
+        # Total P/L includes unrealized
+        self.total_pnl = self.realized_pnl + self.unrealized_pnl
+
+        # Equity = balance + unrealized P/L
+        self.equity = self.balance + self.unrealized_pnl
+
+        self.save()
+
+    def can_open_trade(self, symbol, direction):
+        """
+        Check if a new trade can be opened.
+
+        Args:
+            symbol: Trading pair symbol
+            direction: LONG or SHORT
+
+        Returns:
+            bool: True if trade can be opened
+        """
+        # Check if auto-trading is enabled
+        if not self.auto_trading_enabled:
+            return False
+
+        # Check max open trades limit
+        open_count = len(self.open_positions)
+        if open_count >= self.max_open_trades:
+            return False
+
+        # Check for duplicate position (same symbol + direction)
+        for pos in self.open_positions:
+            if pos.get('symbol') == symbol and pos.get('direction') == direction:
+                return False  # Duplicate trade not allowed
+
+        # Check if sufficient balance
+        position_size = (self.balance * self.max_position_size / 100)
+        if position_size < 10:  # Minimum $10 position
+            return False
+
+        return True
+
+    def add_position(self, trade):
+        """
+        Add a new position to open_positions.
+
+        Args:
+            trade: PaperTrade instance
+        """
+        position = {
+            'trade_id': trade.id,
+            'symbol': trade.symbol,
+            'direction': trade.direction,
+            'entry_price': str(trade.entry_price),
+            'stop_loss': str(trade.stop_loss),
+            'take_profit': str(trade.take_profit),
+            'position_size': str(trade.position_size),
+            'opened_at': trade.entry_time.isoformat() if trade.entry_time else None,
+        }
+        self.open_positions.append(position)
+        self.last_trade_at = trade.entry_time
+        self.save()
+
+    def remove_position(self, trade_id):
+        """
+        Remove a position from open_positions.
+
+        Args:
+            trade_id: ID of the trade to remove
+        """
+        self.open_positions = [
+            pos for pos in self.open_positions
+            if pos.get('trade_id') != trade_id
+        ]
+        self.save()
+
+    def reset_account(self):
+        """
+        Reset account to initial state.
+        """
+        self.balance = self.initial_balance
+        self.equity = self.initial_balance
+        self.total_pnl = 0
+        self.realized_pnl = 0
+        self.unrealized_pnl = 0
+        self.total_trades = 0
+        self.winning_trades = 0
+        self.losing_trades = 0
+        self.win_rate = 0
+        self.open_positions = []
+        self.last_trade_at = None
+        self.save()
+
+        # Close all open trades
+        PaperTrade.objects.filter(
+            user=self.user,
+            status='OPEN'
+        ).update(status='CANCELLED')
+
+    def calculate_position_size(self, signal_confidence=None):
+        """
+        Calculate position size based on risk management rules.
+
+        Args:
+            signal_confidence: Optional confidence level (0-1)
+
+        Returns:
+            Decimal: Position size in USDT
+        """
+        from decimal import Decimal
+
+        base_size = self.balance * self.max_position_size / 100
+
+        # Adjust based on confidence (if provided)
+        if signal_confidence:
+            confidence_multiplier = Decimal(str(signal_confidence))
+            base_size = base_size * confidence_multiplier
+
+        # Ensure minimum position size
+        min_size = Decimal('10.00')
+        return max(base_size, min_size)
