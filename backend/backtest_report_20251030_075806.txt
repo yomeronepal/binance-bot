@@ -1,0 +1,75 @@
+VOLATILITY-AWARE STRATEGY BACKTEST REPORT
+====================================================================================================
+
+HIGH Volatility - 30 Days - PEPE/SHIB/DOGE
+  Volatility: HIGH
+  Trades: 0
+  Win Rate: 0.0%
+  Profit Factor: 0.00
+  ROI: 0.00%
+  Sharpe: 0.00
+
+HIGH Volatility - 30 Days - WIF/FLOKI/BONK
+  Volatility: HIGH
+  Trades: 0
+  Win Rate: 0.0%
+  Profit Factor: 0.00
+  ROI: 0.00%
+  Sharpe: 0.00
+
+HIGH Volatility - 60 Days - PEPE/SHIB/DOGE
+  Volatility: HIGH
+  Trades: 0
+  Win Rate: 0.0%
+  Profit Factor: 0.00
+  ROI: 0.00%
+  Sharpe: 0.00
+
+MEDIUM Volatility - 30 Days - DOT/AVAX/LINK
+  Volatility: MEDIUM
+  Trades: 0
+  Win Rate: 0.0%
+  Profit Factor: 0.00
+  ROI: 0.00%
+  Sharpe: 0.00
+
+MEDIUM Volatility - 30 Days - SOL/ADA/MATIC
+  Volatility: MEDIUM
+  Trades: 0
+  Win Rate: 0.0%
+  Profit Factor: 0.00
+  ROI: 0.00%
+  Sharpe: 0.00
+
+MEDIUM Volatility - 60 Days - SOL/ADA/MATIC
+  Volatility: MEDIUM
+  Trades: 0
+  Win Rate: 0.0%
+  Profit Factor: 0.00
+  ROI: 0.00%
+  Sharpe: 0.00
+
+LOW Volatility - 30 Days - BTC/ETH/BNB
+  Volatility: LOW
+  Trades: 0
+  Win Rate: 0.0%
+  Profit Factor: 0.00
+  ROI: 0.00%
+  Sharpe: 0.00
+
+LOW Volatility - 60 Days - BTC/ETH/BNB
+  Volatility: LOW
+  Trades: 0
+  Win Rate: 0.0%
+  Profit Factor: 0.00
+  ROI: 0.00%
+  Sharpe: 0.00
+
+LOW Volatility - 90 Days - BTC/ETH
+  Volatility: LOW
+  Trades: 0
+  Win Rate: 0.0%
+  Profit Factor: 0.00
+  ROI: 0.00%
+  Sharpe: 0.00
+

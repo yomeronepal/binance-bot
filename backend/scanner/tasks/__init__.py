@@ -10,6 +10,25 @@ from .celery_tasks import (
     cleanup_expired_signals,
     system_health_check,
     test_celery_task,
+    check_and_close_paper_trades,
+)
+
+from .backtest_tasks import (
+    run_backtest_async,
+    run_optimization_async,
+    generate_recommendations_async,
+)
+
+from .walkforward_tasks import (
+    run_walkforward_optimization_async,
+)
+
+from .montecarlo_tasks import (
+    run_montecarlo_simulation_async,
+)
+
+from .mltuning_tasks import (
+    run_ml_tuning_async,
 )
 
 __all__ = [
@@ -20,4 +39,11 @@ __all__ = [
     'cleanup_expired_signals',
     'system_health_check',
     'test_celery_task',
+    'check_and_close_paper_trades',
+    'run_backtest_async',
+    'run_optimization_async',
+    'generate_recommendations_async',
+    'run_walkforward_optimization_async',
+    'run_montecarlo_simulation_async',
+    'run_ml_tuning_async',
 ]

@@ -19,7 +19,8 @@ class EnhancedPollingWorker:
         batch_size: int = 20,
         poll_interval: int = 60,
         min_confidence: float = 0.7,
-        top_pairs: int = 50
+        top_pairs: int = 50,
+        use_volatility_aware: bool = True
     ):
         """Initialize enhanced polling worker."""
         self.interval = interval
@@ -27,6 +28,7 @@ class EnhancedPollingWorker:
         self.poll_interval = poll_interval
         self.top_pairs = top_pairs
         self.min_confidence = min_confidence
+        self.use_volatility_aware = use_volatility_aware
         self.client = None
         self.signal_engine = None
         self.dispatcher = None
@@ -42,7 +44,7 @@ class EnhancedPollingWorker:
         # Initialize components
         self.client = BinanceClient()
         config = SignalConfig(min_confidence=self.min_confidence)
-        self.signal_engine = SignalDetectionEngine(config)
+        self.signal_engine = SignalDetectionEngine(config, use_volatility_aware=self.use_volatility_aware)
         self.dispatcher = signal_dispatcher
         self.running = True
 
@@ -51,7 +53,8 @@ class EnhancedPollingWorker:
             f"   Interval: {self.interval}\n"
             f"   Min Confidence: {self.min_confidence}\n"
             f"   Top Pairs: {self.top_pairs}\n"
-            f"   Poll Interval: {self.poll_interval}s"
+            f"   Poll Interval: {self.poll_interval}s\n"
+            f"   Volatility Aware: {self.use_volatility_aware}"
         )
 
         try:

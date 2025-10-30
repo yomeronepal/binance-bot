@@ -1,6 +1,7 @@
 """
 Rule-based signal detection engine with real-time updates.
 Maintains in-memory cache of candles and active signals.
+Supports volatility-aware configuration adjustment.
 """
 import logging
 from typing import Dict, List, Optional, Deque
@@ -12,28 +13,36 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+# Import volatility classifier
+try:
+    from scanner.services.volatility_classifier import get_volatility_classifier
+    VOLATILITY_CLASSIFIER_AVAILABLE = True
+except ImportError:
+    logger.warning("VolatilityClassifier not available - using default configurations")
+    VOLATILITY_CLASSIFIER_AVAILABLE = False
+
 
 @dataclass
 class SignalConfig:
     """Configuration for signal detection rules."""
-    # LONG signal thresholds
-    long_rsi_min: float = 50.0
-    long_rsi_max: float = 70.0
-    long_adx_min: float = 20.0
+    # LONG signal thresholds (Buy when oversold - mean reversion)
+    long_rsi_min: float = 25.0  # Buy when RSI is low (oversold)
+    long_rsi_max: float = 35.0  # Maximum RSI for LONG entry
+    long_adx_min: float = 22.0  # Require stronger trend
     long_volume_multiplier: float = 1.2
 
-    # SHORT signal thresholds
-    short_rsi_min: float = 30.0
-    short_rsi_max: float = 50.0
-    short_adx_min: float = 20.0
+    # SHORT signal thresholds (Sell when overbought - mean reversion)
+    short_rsi_min: float = 65.0  # Minimum RSI for SHORT entry
+    short_rsi_max: float = 75.0  # Sell when RSI is high (overbought)
+    short_adx_min: float = 22.0  # Require stronger trend
     short_volume_multiplier: float = 1.2
 
     # Stop loss and take profit multipliers (ATR-based)
-    sl_atr_multiplier: float = 1.5
-    tp_atr_multiplier: float = 2.5
+    sl_atr_multiplier: float = 1.5  # 1.5x ATR for stop loss (good risk management)
+    tp_atr_multiplier: float = 2.5  # 2.5x ATR for take profit (1.67:1 R/R)
 
     # Signal management
-    min_confidence: float = 0.7
+    min_confidence: float = 0.75  # Increased to filter marginal signals
     max_candles_cache: int = 200
     signal_expiry_minutes: int = 60
 
@@ -86,16 +95,19 @@ class SignalDetectionEngine:
     """
     Rule-based signal detection engine with real-time updates.
     Maintains in-memory cache and dynamically updates signals.
+    Supports volatility-aware configuration adjustment.
     """
 
-    def __init__(self, config: Optional[SignalConfig] = None):
+    def __init__(self, config: Optional[SignalConfig] = None, use_volatility_aware: bool = False):
         """
         Initialize signal detection engine.
 
         Args:
             config: Signal configuration (uses defaults if None)
+            use_volatility_aware: Enable volatility-aware configuration adjustment
         """
         self.config = config or SignalConfig()
+        self.use_volatility_aware = use_volatility_aware and VOLATILITY_CLASSIFIER_AVAILABLE
 
         # In-memory cache: symbol -> deque of candles
         self.candle_cache: Dict[str, Deque[List]] = defaultdict(
@@ -108,10 +120,98 @@ class SignalDetectionEngine:
         # Tracking for signal changes
         self.signal_history: Dict[str, List[ActiveSignal]] = defaultdict(list)
 
+        # Volatility classifier instance
+        self.volatility_classifier = None
+        if self.use_volatility_aware:
+            self.volatility_classifier = get_volatility_classifier()
+            logger.info("Volatility-aware mode ENABLED - configs will auto-adjust per symbol")
+
+        # Cache for symbol-specific configs
+        self.symbol_configs: Dict[str, SignalConfig] = {}
+
         logger.info(
             f"Signal engine initialized (min_confidence={self.config.min_confidence}, "
-            f"cache_size={self.config.max_candles_cache})"
+            f"cache_size={self.config.max_candles_cache}, "
+            f"volatility_aware={self.use_volatility_aware})"
         )
+
+    def get_config_for_symbol(self, symbol: str, df: Optional[pd.DataFrame] = None) -> SignalConfig:
+        """
+        Get configuration for specific symbol (with volatility adjustment if enabled).
+
+        Args:
+            symbol: Trading pair symbol
+            df: Optional DataFrame with historical data for classification
+
+        Returns:
+            SignalConfig for the symbol (default or volatility-adjusted)
+        """
+        # If volatility-aware mode disabled, use default config
+        if not self.use_volatility_aware:
+            return self.config
+
+        # Check cache first
+        if symbol in self.symbol_configs:
+            return self.symbol_configs[symbol]
+
+        # Classify symbol and get recommended parameters
+        try:
+            profile = self.volatility_classifier.classify_symbol(symbol, df)
+
+            # Create adjusted config based on volatility profile
+            adjusted_config = SignalConfig(
+                # Keep RSI ranges (they work across volatility levels)
+                long_rsi_min=self.config.long_rsi_min,
+                long_rsi_max=self.config.long_rsi_max,
+                short_rsi_min=self.config.short_rsi_min,
+                short_rsi_max=self.config.short_rsi_max,
+
+                # Adjust SL/TP based on volatility
+                sl_atr_multiplier=profile.sl_atr_multiplier,
+                tp_atr_multiplier=profile.tp_atr_multiplier,
+
+                # Adjust ADX threshold based on volatility
+                long_adx_min=profile.adx_threshold,
+                short_adx_min=profile.adx_threshold,
+
+                # Adjust confidence threshold based on volatility
+                min_confidence=profile.min_confidence,
+
+                # Keep volume multipliers
+                long_volume_multiplier=self.config.long_volume_multiplier,
+                short_volume_multiplier=self.config.short_volume_multiplier,
+
+                # Keep other settings
+                max_candles_cache=self.config.max_candles_cache,
+                signal_expiry_minutes=self.config.signal_expiry_minutes,
+
+                # Keep indicator weights
+                macd_weight=self.config.macd_weight,
+                rsi_weight=self.config.rsi_weight,
+                price_ema_weight=self.config.price_ema_weight,
+                adx_weight=self.config.adx_weight,
+                ha_weight=self.config.ha_weight,
+                volume_weight=self.config.volume_weight,
+                ema_alignment_weight=self.config.ema_alignment_weight,
+                di_weight=self.config.di_weight,
+                bb_weight=self.config.bb_weight,
+                volatility_weight=self.config.volatility_weight,
+            )
+
+            # Cache it
+            self.symbol_configs[symbol] = adjusted_config
+
+            logger.info(
+                f"📊 {symbol} classified as {profile.volatility_level} volatility: "
+                f"SL={profile.sl_atr_multiplier}x, TP={profile.tp_atr_multiplier}x, "
+                f"ADX={profile.adx_threshold}, Conf={profile.min_confidence:.0%}"
+            )
+
+            return adjusted_config
+
+        except Exception as e:
+            logger.error(f"Error getting volatility-adjusted config for {symbol}: {e}")
+            return self.config
 
     def update_candles(self, symbol: str, klines: List[List]) -> None:
         """
@@ -160,15 +260,18 @@ class SignalDetectionEngine:
             df = klines_to_dataframe(candles)
             df = calculate_all_indicators(df)
 
+            # Get symbol-specific config (with volatility adjustment if enabled)
+            symbol_config = self.get_config_for_symbol(symbol, df)
+
             # Check if we have an active signal
             existing_signal = self.active_signals.get(symbol)
 
             if existing_signal:
                 # Update existing signal
-                return self._update_existing_signal(symbol, df, existing_signal, timeframe)
+                return self._update_existing_signal(symbol, df, existing_signal, timeframe, symbol_config)
             else:
                 # Detect new signal
-                return self._detect_new_signal(symbol, df, timeframe)
+                return self._detect_new_signal(symbol, df, timeframe, symbol_config)
 
         except Exception as e:
             logger.error(f"Error processing {symbol}: {e}")
@@ -178,7 +281,8 @@ class SignalDetectionEngine:
         self,
         symbol: str,
         df: pd.DataFrame,
-        timeframe: str
+        timeframe: str,
+        config: SignalConfig
     ) -> Optional[Dict]:
         """Detect new trading signal."""
         if len(df) < 2:
@@ -189,12 +293,12 @@ class SignalDetectionEngine:
 
         # Check LONG conditions
         long_signal, long_conf, long_conditions = self._check_long_conditions(
-            df, current, previous
+            df, current, previous, config
         )
 
-        if long_signal and long_conf >= self.config.min_confidence:
+        if long_signal and long_conf >= config.min_confidence:
             signal = self._create_signal(
-                symbol, 'LONG', df, current, long_conf, long_conditions, timeframe
+                symbol, 'LONG', df, current, long_conf, long_conditions, timeframe, config
             )
             self.active_signals[symbol] = signal
             logger.info(f"🆕 NEW LONG signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%})")
@@ -202,12 +306,12 @@ class SignalDetectionEngine:
 
         # Check SHORT conditions
         short_signal, short_conf, short_conditions = self._check_short_conditions(
-            df, current, previous
+            df, current, previous, config
         )
 
-        if short_signal and short_conf >= self.config.min_confidence:
+        if short_signal and short_conf >= config.min_confidence:
             signal = self._create_signal(
-                symbol, 'SHORT', df, current, short_conf, short_conditions, timeframe
+                symbol, 'SHORT', df, current, short_conf, short_conditions, timeframe, config
             )
             self.active_signals[symbol] = signal
             logger.info(f"🆕 NEW SHORT signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%})")
@@ -220,7 +324,8 @@ class SignalDetectionEngine:
         symbol: str,
         df: pd.DataFrame,
         signal: ActiveSignal,
-        timeframe: str
+        timeframe: str,
+        config: SignalConfig
     ) -> Optional[Dict]:
         """Update or invalidate existing signal."""
         current = df.iloc[-1]
@@ -228,18 +333,18 @@ class SignalDetectionEngine:
 
         # Check if signal conditions are still valid
         if signal.direction == 'LONG':
-            valid, conf, conditions = self._check_long_conditions(df, current, previous)
+            valid, conf, conditions = self._check_long_conditions(df, current, previous, config)
         else:
-            valid, conf, conditions = self._check_short_conditions(df, current, previous)
+            valid, conf, conditions = self._check_short_conditions(df, current, previous, config)
 
         # Check for signal invalidation
-        if not valid or conf < self.config.min_confidence * 0.7:  # 30% tolerance
+        if not valid or conf < config.min_confidence * 0.7:  # 30% tolerance
             logger.info(f"❌ INVALIDATED {signal.direction} signal: {symbol}")
             del self.active_signals[symbol]
             return {'action': 'deleted', 'signal_id': symbol}
 
         # Check for signal expiry
-        if datetime.now() - signal.created_at > timedelta(minutes=self.config.signal_expiry_minutes):
+        if datetime.now() - signal.created_at > timedelta(minutes=config.signal_expiry_minutes):
             logger.info(f"⏰ EXPIRED {signal.direction} signal: {symbol}")
             del self.active_signals[symbol]
             return {'action': 'deleted', 'signal_id': symbol}
@@ -256,11 +361,11 @@ class SignalDetectionEngine:
             entry = float(signal.entry)
 
             if signal.direction == 'LONG':
-                signal.sl = Decimal(str(entry - (self.config.sl_atr_multiplier * atr)))
-                signal.tp = Decimal(str(entry + (self.config.tp_atr_multiplier * atr)))
+                signal.sl = Decimal(str(entry - (config.sl_atr_multiplier * atr)))
+                signal.tp = Decimal(str(entry + (config.tp_atr_multiplier * atr)))
             else:
-                signal.sl = Decimal(str(entry + (self.config.sl_atr_multiplier * atr)))
-                signal.tp = Decimal(str(entry - (self.config.tp_atr_multiplier * atr)))
+                signal.sl = Decimal(str(entry + (config.sl_atr_multiplier * atr)))
+                signal.tp = Decimal(str(entry - (config.tp_atr_multiplier * atr)))
 
             logger.info(
                 f"🔄 UPDATED {signal.direction} signal: {symbol} "
@@ -270,20 +375,20 @@ class SignalDetectionEngine:
 
         return None  # No significant change
 
-    def _check_long_conditions(self, df, current, previous) -> tuple[bool, float, Dict[str, bool]]:
+    def _check_long_conditions(self, df, current, previous, config: SignalConfig) -> tuple[bool, float, Dict[str, bool]]:
         """Check LONG signal conditions with realistic confidence scoring."""
         score = 0.0
         max_score = (
-            self.config.macd_weight +
-            self.config.rsi_weight +
-            self.config.price_ema_weight +
-            self.config.adx_weight +
-            self.config.ha_weight +
-            self.config.volume_weight +
-            self.config.ema_alignment_weight +
-            self.config.di_weight +
-            self.config.bb_weight +
-            self.config.volatility_weight
+            config.macd_weight +
+            config.rsi_weight +
+            config.price_ema_weight +
+            config.adx_weight +
+            config.ha_weight +
+            config.volume_weight +
+            config.ema_alignment_weight +
+            config.di_weight +
+            config.bb_weight +
+            config.volatility_weight
         )
 
         conditions = {}
@@ -291,55 +396,55 @@ class SignalDetectionEngine:
         try:
             # 1. MACD Crossover
             if previous['macd_hist'] <= 0 and current['macd_hist'] > 0:
-                score += self.config.macd_weight
+                score += config.macd_weight
                 conditions['macd_crossover'] = True
             else:
                 conditions['macd_crossover'] = False
 
             # 2. RSI Range
-            if self.config.long_rsi_min < current['rsi'] < self.config.long_rsi_max:
-                score += self.config.rsi_weight
+            if config.long_rsi_min < current['rsi'] < config.long_rsi_max:
+                score += config.rsi_weight
                 conditions['rsi_favorable'] = True
             elif current['rsi'] > previous['rsi']:
-                score += self.config.rsi_weight * 0.5
+                score += config.rsi_weight * 0.5
                 conditions['rsi_favorable'] = True
             else:
                 conditions['rsi_favorable'] = False
 
             # 3. Price above EMA50
             if current['close'] > current['ema_50']:
-                score += self.config.price_ema_weight
+                score += config.price_ema_weight
                 conditions['price_above_ema'] = True
             else:
                 conditions['price_above_ema'] = False
 
             # 4. ADX Strength
-            if current['adx'] > self.config.long_adx_min:
-                score += self.config.adx_weight
+            if current['adx'] > config.long_adx_min:
+                score += config.adx_weight
                 conditions['strong_trend'] = True
             else:
                 conditions['strong_trend'] = False
 
             # 5. Heikin Ashi Bullish
             if current['ha_bullish']:
-                score += self.config.ha_weight
+                score += config.ha_weight
                 conditions['ha_bullish'] = True
             else:
                 conditions['ha_bullish'] = False
 
             # 6. Volume Increase
-            if current['volume_trend'] > self.config.long_volume_multiplier:
-                score += self.config.volume_weight
+            if current['volume_trend'] > config.long_volume_multiplier:
+                score += config.volume_weight
                 conditions['volume_spike'] = True
             elif current['volume_trend'] > 1.0:
-                score += self.config.volume_weight * 0.5
+                score += config.volume_weight * 0.5
                 conditions['volume_spike'] = True
             else:
                 conditions['volume_spike'] = False
 
             # 7. EMA Alignment
             if current['ema_9'] > current['ema_21'] > current['ema_50']:
-                score += self.config.ema_alignment_weight
+                score += config.ema_alignment_weight
                 conditions['ema_aligned'] = True
             else:
                 conditions['ema_aligned'] = False
@@ -348,9 +453,9 @@ class SignalDetectionEngine:
             if current['plus_di'] > current['minus_di']:
                 di_diff = current['plus_di'] - current['minus_di']
                 if di_diff > 10:
-                    score += self.config.di_weight
+                    score += config.di_weight
                 else:
-                    score += self.config.di_weight * min(di_diff / 10, 1.0)
+                    score += config.di_weight * min(di_diff / 10, 1.0)
                 conditions['positive_di'] = True
             else:
                 conditions['positive_di'] = False
@@ -360,10 +465,10 @@ class SignalDetectionEngine:
             if bb_range > 0:
                 bb_position = (current['close'] - current['bb_lower']) / bb_range
                 if 0.3 < bb_position < 0.7:
-                    score += self.config.bb_weight
+                    score += config.bb_weight
                     conditions['bb_favorable'] = True
                 elif bb_position < 0.3:
-                    score += self.config.bb_weight * 0.7
+                    score += config.bb_weight * 0.7
                     conditions['bb_favorable'] = True
                 else:
                     conditions['bb_favorable'] = False
@@ -373,10 +478,10 @@ class SignalDetectionEngine:
             # 10. Volatility Adjustment
             atr_percent = (current['atr'] / current['close']) * 100
             if atr_percent < 2.0:
-                score += self.config.volatility_weight
+                score += config.volatility_weight
                 conditions['low_volatility'] = True
             elif atr_percent < 4.0:
-                score += self.config.volatility_weight * 0.5
+                score += config.volatility_weight * 0.5
                 conditions['low_volatility'] = True
             else:
                 conditions['low_volatility'] = False
@@ -394,7 +499,7 @@ class SignalDetectionEngine:
                 confidence = raw_confidence * 0.91  # Map 0.0-0.75 to 0.0-0.68
 
             confidence = min(confidence, 0.92)  # Cap at 92% for realism
-            triggered = score >= (max_score * self.config.min_confidence)
+            triggered = score >= (max_score * config.min_confidence)
 
             return triggered, confidence, conditions
 
@@ -402,20 +507,20 @@ class SignalDetectionEngine:
             logger.error(f"Error checking LONG conditions: {e}")
             return False, 0.0, {}
 
-    def _check_short_conditions(self, df, current, previous) -> tuple[bool, float, Dict[str, bool]]:
+    def _check_short_conditions(self, df, current, previous, config: SignalConfig) -> tuple[bool, float, Dict[str, bool]]:
         """Check SHORT signal conditions with realistic confidence scoring."""
         score = 0.0
         max_score = (
-            self.config.macd_weight +
-            self.config.rsi_weight +
-            self.config.price_ema_weight +
-            self.config.adx_weight +
-            self.config.ha_weight +
-            self.config.volume_weight +
-            self.config.ema_alignment_weight +
-            self.config.di_weight +
-            self.config.bb_weight +
-            self.config.volatility_weight
+            config.macd_weight +
+            config.rsi_weight +
+            config.price_ema_weight +
+            config.adx_weight +
+            config.ha_weight +
+            config.volume_weight +
+            config.ema_alignment_weight +
+            config.di_weight +
+            config.bb_weight +
+            config.volatility_weight
         )
 
         conditions = {}
@@ -423,55 +528,55 @@ class SignalDetectionEngine:
         try:
             # 1. MACD Crossover
             if previous['macd_hist'] >= 0 and current['macd_hist'] < 0:
-                score += self.config.macd_weight
+                score += config.macd_weight
                 conditions['macd_crossover'] = True
             else:
                 conditions['macd_crossover'] = False
 
             # 2. RSI Range
-            if self.config.short_rsi_min < current['rsi'] < self.config.short_rsi_max:
-                score += self.config.rsi_weight
+            if config.short_rsi_min < current['rsi'] < config.short_rsi_max:
+                score += config.rsi_weight
                 conditions['rsi_favorable'] = True
             elif current['rsi'] < previous['rsi']:
-                score += self.config.rsi_weight * 0.5
+                score += config.rsi_weight * 0.5
                 conditions['rsi_favorable'] = True
             else:
                 conditions['rsi_favorable'] = False
 
             # 3. Price below EMA50
             if current['close'] < current['ema_50']:
-                score += self.config.price_ema_weight
+                score += config.price_ema_weight
                 conditions['price_below_ema'] = True
             else:
                 conditions['price_below_ema'] = False
 
             # 4. ADX Strength
-            if current['adx'] > self.config.short_adx_min:
-                score += self.config.adx_weight
+            if current['adx'] > config.short_adx_min:
+                score += config.adx_weight
                 conditions['strong_trend'] = True
             else:
                 conditions['strong_trend'] = False
 
             # 5. Heikin Ashi Bearish
             if not current['ha_bullish']:
-                score += self.config.ha_weight
+                score += config.ha_weight
                 conditions['ha_bearish'] = True
             else:
                 conditions['ha_bearish'] = False
 
             # 6. Volume Increase
-            if current['volume_trend'] > self.config.short_volume_multiplier:
-                score += self.config.volume_weight
+            if current['volume_trend'] > config.short_volume_multiplier:
+                score += config.volume_weight
                 conditions['volume_spike'] = True
             elif current['volume_trend'] > 1.0:
-                score += self.config.volume_weight * 0.5
+                score += config.volume_weight * 0.5
                 conditions['volume_spike'] = True
             else:
                 conditions['volume_spike'] = False
 
             # 7. EMA Alignment
             if current['ema_9'] < current['ema_21'] < current['ema_50']:
-                score += self.config.ema_alignment_weight
+                score += config.ema_alignment_weight
                 conditions['ema_aligned'] = True
             else:
                 conditions['ema_aligned'] = False
@@ -480,9 +585,9 @@ class SignalDetectionEngine:
             if current['minus_di'] > current['plus_di']:
                 di_diff = current['minus_di'] - current['plus_di']
                 if di_diff > 10:
-                    score += self.config.di_weight
+                    score += config.di_weight
                 else:
-                    score += self.config.di_weight * min(di_diff / 10, 1.0)
+                    score += config.di_weight * min(di_diff / 10, 1.0)
                 conditions['negative_di'] = True
             else:
                 conditions['negative_di'] = False
@@ -492,10 +597,10 @@ class SignalDetectionEngine:
             if bb_range > 0:
                 bb_position = (current['close'] - current['bb_lower']) / bb_range
                 if 0.3 < bb_position < 0.7:
-                    score += self.config.bb_weight
+                    score += config.bb_weight
                     conditions['bb_favorable'] = True
                 elif bb_position > 0.7:
-                    score += self.config.bb_weight * 0.7
+                    score += config.bb_weight * 0.7
                     conditions['bb_favorable'] = True
                 else:
                     conditions['bb_favorable'] = False
@@ -505,10 +610,10 @@ class SignalDetectionEngine:
             # 10. Volatility Adjustment
             atr_percent = (current['atr'] / current['close']) * 100
             if atr_percent < 2.0:
-                score += self.config.volatility_weight
+                score += config.volatility_weight
                 conditions['low_volatility'] = True
             elif atr_percent < 4.0:
-                score += self.config.volatility_weight * 0.5
+                score += config.volatility_weight * 0.5
                 conditions['low_volatility'] = True
             else:
                 conditions['low_volatility'] = False
@@ -525,7 +630,7 @@ class SignalDetectionEngine:
                 confidence = raw_confidence * 0.91  # Map 0.0-0.75 to 0.0-0.68
 
             confidence = min(confidence, 0.92)  # Cap at 92% for realism
-            triggered = score >= (max_score * self.config.min_confidence)
+            triggered = score >= (max_score * config.min_confidence)
 
             return triggered, confidence, conditions
 
@@ -541,18 +646,19 @@ class SignalDetectionEngine:
         current,
         confidence: float,
         conditions: Dict[str, bool],
-        timeframe: str
+        timeframe: str,
+        config: SignalConfig
     ) -> ActiveSignal:
         """Create new active signal."""
         entry = float(current['close'])
         atr = float(current['atr'])
 
         if direction == 'LONG':
-            sl = entry - (self.config.sl_atr_multiplier * atr)
-            tp = entry + (self.config.tp_atr_multiplier * atr)
+            sl = entry - (config.sl_atr_multiplier * atr)
+            tp = entry + (config.tp_atr_multiplier * atr)
         else:
-            sl = entry + (self.config.sl_atr_multiplier * atr)
-            tp = entry - (self.config.tp_atr_multiplier * atr)
+            sl = entry + (config.sl_atr_multiplier * atr)
+            tp = entry - (config.tp_atr_multiplier * atr)
 
         description = self._generate_description(direction, current, conditions)
 

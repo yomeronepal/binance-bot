@@ -58,6 +58,21 @@ const Layout = () => {
                   Auto-Trading
                 </Link>
                 <Link
+                  to="/backtesting"
+                  className="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
+                >
+                  Backtesting
+                </Link>
+                <Link
+                  to="/strategy-dashboard"
+                  className="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
+                >
+                  <span className="flex items-center gap-1">
+                    Strategy Dashboard
+                    <span className="bg-purple-500 text-white text-xs px-1.5 py-0.5 rounded font-semibold">NEW</span>
+                  </span>
+                </Link>
+                <Link
                   to="/bot-performance"
                   className="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
                 >

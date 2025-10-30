@@ -64,4 +64,10 @@ api.interceptors.response.use(
   }
 );
 
+// Strategy Performance API
+export const fetchStrategyPerformance = async (timeRange = '30d') => {
+  const response = await api.get(`/strategy/performance/?time_range=${timeRange}`);
+  return response.data;
+};
+
 export default api;

@@ -18,6 +18,8 @@ import Futures from '../pages/Futures';
 import PaperTrading from '../pages/PaperTrading';
 import AutoTrading from '../pages/AutoTrading';
 import BotPerformance from '../pages/BotPerformance';
+import Backtesting from '../pages/Backtesting';
+import StrategyDashboard from '../pages/StrategyDashboard';
 
 const AppRouter = () => {
   return (
@@ -56,6 +58,16 @@ const AppRouter = () => {
           <Route path="auto-trading" element={
             <ErrorBoundary>
               <AutoTrading />
+            </ErrorBoundary>
+          } />
+          <Route path="backtesting" element={
+            <ErrorBoundary>
+              <Backtesting />
+            </ErrorBoundary>
+          } />
+          <Route path="strategy-dashboard" element={
+            <ErrorBoundary>
+              <StrategyDashboard />
             </ErrorBoundary>
           } />
         </Route>

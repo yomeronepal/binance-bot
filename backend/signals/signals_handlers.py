@@ -12,6 +12,81 @@ from .services.realtime import realtime_signal_service
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# Paper Trade Signal Handlers (for optimization tracking)
+# ============================================================================
+
+@receiver(post_save, sender='signals.PaperTrade')
+def track_closed_paper_trade(sender, instance, created, **kwargs):
+    """
+    Track closed paper trades and increment trade counter for optimization.
+
+    When a paper trade closes (status changes to CLOSED), increment the trade
+    counter for its volatility level. When threshold is reached, trigger optimization.
+
+    Args:
+        sender: PaperTrade model class
+        instance: PaperTrade instance that was saved
+        created: Boolean indicating if this is a new instance
+        **kwargs: Additional keyword arguments
+    """
+    # Skip if this is a new trade (not closed yet)
+    if created:
+        return
+
+    # Only track CLOSED trades
+    if instance.status != 'CLOSED':
+        return
+
+    # Skip if we already counted this trade
+    if hasattr(instance, '_already_counted_for_optimization'):
+        return
+
+    try:
+        from .services.optimizer_service import TradeCounterService
+        from .tasks_optimization import auto_optimize_strategy
+
+        # Determine volatility level based on symbol
+        volatility_level = _determine_volatility_from_symbol(instance.symbol)
+
+        # Increment counter and check if optimization should trigger
+        should_optimize = TradeCounterService.increment_and_check(volatility_level)
+
+        # Mark as counted to avoid double counting
+        instance._already_counted_for_optimization = True
+
+        if should_optimize:
+            logger.info(f"🎯 Trade threshold reached! Triggering optimization for {volatility_level}")
+
+            # Trigger optimization asynchronously
+            auto_optimize_strategy.delay(
+                volatility_level=volatility_level,
+                lookback_days=30,
+                trigger='TRADE_COUNT'
+            )
+
+    except Exception as e:
+        logger.error(f"Error tracking closed paper trade: {str(e)}", exc_info=True)
+
+
+def _determine_volatility_from_symbol(symbol):
+    """Determine volatility level from trading symbol"""
+    high_vol = {'DOGEUSDT', 'SHIBUSDT', 'PEPEUSDT', 'FLOKIUSDT', 'WIFUSDT', 'BONKUSDT'}
+    low_vol = {'BTCUSDT', 'ETHUSDT', 'BNBUSDT'}
+
+    if symbol in high_vol:
+        return 'HIGH'
+    elif symbol in low_vol:
+        return 'LOW'
+    else:
+        return 'MEDIUM'
+
+
+# ============================================================================
+# Signal Handlers (existing)
+# ============================================================================
+
+
 @receiver(post_save, sender=Signal)
 def signal_post_save_handler(sender, instance, created, **kwargs):
     """

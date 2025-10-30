@@ -44,12 +44,21 @@ chmod +x start.sh
 - **Trading Type Classification** - Scalping (⚡), Day (📊), Swing (📈)
 - **Dynamic Risk-Reward Ratios** - Optimized by trading type (1.2-3.0)
 
-### Paper Trading 🆕
+### Paper Trading ✅
 - **Simulated Trading** - No real money at risk
 - **Auto Entry/Exit** - SL/TP monitoring
 - **Performance Metrics** - Win rate, P/L, duration
 - **Real-time Updates** - WebSocket integration
-- **Foundation Complete** - See [docs/PAPER_TRADING_IMPLEMENTATION.md](docs/PAPER_TRADING_IMPLEMENTATION.md)
+- **Public Dashboard** - See your trades live
+- See [docs/PAPER_TRADING_IMPLEMENTATION.md](docs/PAPER_TRADING_IMPLEMENTATION.md)
+
+### Backtesting & Strategy Optimization ✅
+- **Historical Testing** - Test strategies on real market data
+- **Volatility-Aware Configs** - Auto-adjust parameters by coin type
+- **Multiple Optimization Methods** - Walk-forward, Monte Carlo, ML tuning
+- **Strategy Dashboard** - Visual performance analytics
+- **Configuration Comparison** - Find optimal parameters
+- See [docs/PHASE5_FRONTEND_DASHBOARD_COMPLETE.md](docs/PHASE5_FRONTEND_DASHBOARD_COMPLETE.md)
 
 ### User Experience ✅
 - **Real-time Dashboard** - WebSocket updates
@@ -106,13 +115,23 @@ All documentation is in the [`docs/`](./docs/) folder:
 - **[Quick Reference](docs/QUICK_REFERENCE.md)** - Commands & troubleshooting
 - **[Docker Deployment](docs/DOCKER_DEPLOYMENT.md)** - Production setup
 
-### Features
+### Features & Implementations
 - **[Feature Overview](docs/FEATURE_COMPLETE_SUMMARY.md)** - All features
 - **[Session Summary](docs/SESSION_SUMMARY.md)** - Latest updates
 - **[Trading Types](docs/TRADING_TYPES_IMPLEMENTATION.md)** - Scalping/Day/Swing
 - **[Risk-Reward System](docs/RISK_REWARD_OPTIMIZATION.md)** - R/R optimization
 - **[Paper Trading](docs/PAPER_TRADING_IMPLEMENTATION.md)** - Simulation guide
+- **[Auto Trading](docs/AUTO_TRADING_IMPLEMENTATION_COMPLETE.md)** - Automated execution
 - **[Scan Coverage](docs/INCREASED_SCAN_COVERAGE.md)** - 966 coins
+
+### Backtesting & Optimization
+- **[Backtesting System](docs/BACKTESTING_SYSTEM_COMPLETE.md)** - Full guide
+- **[Walk-Forward Optimization](docs/WALK_FORWARD_IMPLEMENTATION_COMPLETE.md)** - Advanced testing
+- **[Monte Carlo Simulation](docs/MONTE_CARLO_IMPLEMENTATION_COMPLETE.md)** - Risk analysis
+- **[ML Tuning](docs/ML_TUNING_IMPLEMENTATION_COMPLETE.md)** - AI optimization
+- **[Strategy Dashboard](docs/PHASE5_FRONTEND_DASHBOARD_COMPLETE.md)** - Visual analytics
+- **[Volatility-Aware Strategy](docs/PHASE1_VOLATILITY_AWARE_COMPLETE.md)** - Adaptive configs
+- **[Backtest Results Analysis](docs/BACKTEST_RESULTS_ANALYSIS.md)** - Performance review
 
 ### Technical
 - **[Signal Engine](docs/SIGNAL_ENGINE_INTEGRATION.md)** - How signals work
@@ -146,11 +165,23 @@ All documentation is in the [`docs/`](./docs/) folder:
 - `GET /api/signals/:id/` - Get signal detail
 - `GET /api/symbols/` - Get available symbols
 
-### Paper Trading 🆕
+### Paper Trading
 - `GET /api/paper-trades/` - List paper trades
 - `POST /api/paper-trades/create_from_signal/` - Create trade
 - `POST /api/paper-trades/:id/close_trade/` - Close trade
 - `GET /api/paper-trades/performance/` - Get metrics
+
+### Backtesting
+- `GET /api/backtest/` - List backtests
+- `POST /api/backtest/` - Create backtest
+- `GET /api/backtest/:id/` - Get backtest details
+- `GET /api/backtest/:id/trades/` - Get backtest trades
+- `GET /api/walkforward/` - Walk-forward optimizations
+- `GET /api/montecarlo/` - Monte Carlo simulations
+- `GET /api/mltuning/` - ML tuning jobs
+
+### Strategy Performance
+- `GET /api/strategy/performance/` - Aggregated performance analytics
 
 ### WebSocket
 - `ws://localhost:8000/ws/signals/` - Real-time updates
@@ -251,25 +282,31 @@ docker-compose exec backend python manage.py shell
 
 ## 🚦 System Status
 
-**Version:** 3.0.0
+**Version:** 4.0.0
 **Status:** ✅ Production Ready
-**Last Updated:** October 29, 2025
+**Last Updated:** October 30, 2025
 
 ### What's Working ✅
 - Signal generation (966 coins)
 - Real-time WebSocket updates
 - Trading type classification
 - Risk-reward optimization
-- Paper trading foundation
+- Paper trading (full stack)
+- Auto trading execution
+- Backtesting engine
+- Walk-forward optimization
+- Monte Carlo simulation
+- ML parameter tuning
+- Volatility-aware strategies
+- Strategy performance dashboard
 - Comprehensive UI/UX
 - Docker deployment
 - Celery background tasks
 
 ### Coming Soon 🔄
-- Paper trading frontend (40 min implementation)
-- Performance charts
 - Email notifications
-- Backtesting engine
+- Mobile app
+- Kubernetes deployment
 
 ## 🛣️ Roadmap
 
@@ -287,25 +324,27 @@ docker-compose exec backend python manage.py shell
 - [x] Trading type classification
 - [x] Risk-reward optimization
 
-### Phase 3: Paper Trading 🔄
+### Phase 3: Paper Trading ✅
 - [x] Database model & service
 - [x] Performance metrics
-- [ ] Frontend implementation (40 min)
-- [ ] WebSocket updates
-- [ ] Performance charts
+- [x] Frontend implementation
+- [x] WebSocket updates
+- [x] Public dashboard
 
-### Phase 4: Advanced Features
-- [ ] Backtesting engine
+### Phase 4: Backtesting & Optimization ✅
+- [x] Backtesting engine
+- [x] Walk-forward optimization
+- [x] Monte Carlo simulation
+- [x] ML-based parameter tuning
+- [x] Volatility-aware configurations
+- [x] Strategy performance dashboard
+
+### Phase 5: Production Features
+- [x] Strategy analytics dashboard
 - [ ] Email notifications
 - [ ] Mobile app
-- [ ] Copy trading
-- [ ] Portfolio tracking
-
-### Phase 5: Production
 - [ ] Kubernetes deployment
 - [ ] Monitoring & alerting
-- [ ] Load balancing
-- [ ] Rate limiting
 
 ## 🐛 Troubleshooting
 

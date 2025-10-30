@@ -4,6 +4,7 @@ Signal serializers following DRY principles and clean architecture.
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import Symbol, Signal, UserSubscription, PaperTrade, PaperAccount
+from .models_optimization import StrategyConfigHistory, OptimizationRun, TradeCounter
 
 
 User = get_user_model()
@@ -569,3 +570,132 @@ class PaperAccountSerializer(BaseModelSerializer):
         if value < 0 or value > 1:
             raise serializers.ValidationError("Minimum confidence must be between 0.0 and 1.0")
         return value
+
+
+# =============================================================================
+# OPTIMIZATION SERIALIZERS (Phase 6 - Auto-Optimization)
+# =============================================================================
+
+class StrategyConfigHistorySerializer(BaseModelSerializer):
+    """Serializer for strategy configuration history with fitness scoring."""
+    fitness_score = serializers.SerializerMethodField()
+    baseline_config_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StrategyConfigHistory
+        fields = [
+            "id",
+            "config_name",
+            "volatility_level",
+            "version",
+            "parameters",
+            "metrics",
+            "improved",
+            "improvement_percentage",
+            "baseline_config",
+            "baseline_config_name",
+            "status",
+            "applied_at",
+            "trades_evaluated",
+            "fitness_score",
+            "notes",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at", "version", "fitness_score"]
+
+    def get_fitness_score(self, obj):
+        """Calculate and return fitness score."""
+        return obj.calculate_fitness_score()
+
+    def get_baseline_config_name(self, obj):
+        """Get baseline config name if exists."""
+        if obj.baseline_config:
+            return obj.baseline_config.config_name
+        return None
+
+
+class OptimizationRunSerializer(BaseModelSerializer):
+    """Serializer for optimization run details."""
+    baseline_config_name = serializers.SerializerMethodField()
+    winning_config_name = serializers.SerializerMethodField()
+    duration_formatted = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OptimizationRun
+        fields = [
+            "id",
+            "run_id",
+            "volatility_level",
+            "trigger",
+            "status",
+            "baseline_config",
+            "baseline_config_name",
+            "baseline_score",
+            "winning_config",
+            "winning_config_name",
+            "winning_score",
+            "improvement_percentage",
+            "improvement_found",
+            "candidates_tested",
+            "trades_analyzed",
+            "lookback_days",
+            "error_message",
+            "started_at",
+            "completed_at",
+            "duration_seconds",
+            "duration_formatted",
+            "created_at",
+        ]
+        read_only_fields = ["id", "run_id", "created_at"]
+
+    def get_baseline_config_name(self, obj):
+        """Get baseline config name."""
+        if obj.baseline_config:
+            return obj.baseline_config.config_name
+        return None
+
+    def get_winning_config_name(self, obj):
+        """Get winning config name."""
+        if obj.winning_config:
+            return obj.winning_config.config_name
+        return None
+
+    def get_duration_formatted(self, obj):
+        """Format duration as human-readable string."""
+        if obj.duration_seconds:
+            minutes = obj.duration_seconds // 60
+            seconds = obj.duration_seconds % 60
+            return f"{minutes}m {seconds}s"
+        return None
+
+
+class TradeCounterSerializer(BaseModelSerializer):
+    """Serializer for trade counter status."""
+    percentage_complete = serializers.SerializerMethodField()
+    trades_remaining = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TradeCounter
+        fields = [
+            "id",
+            "volatility_level",
+            "trade_count",
+            "threshold",
+            "percentage_complete",
+            "trades_remaining",
+            "last_reset",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_percentage_complete(self, obj):
+        """Calculate percentage towards threshold."""
+        if obj.threshold > 0:
+            return round((obj.trade_count / obj.threshold) * 100, 1)
+        return 0.0
+
+    def get_trades_remaining(self, obj):
+        """Calculate trades remaining until threshold."""
+        return max(0, obj.threshold - obj.trade_count)

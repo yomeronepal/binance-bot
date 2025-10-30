@@ -880,3 +880,36 @@ class PaperAccount(models.Model):
         # Ensure minimum position size
         min_size = Decimal('10.00')
         return max(base_size, min_size)
+
+
+# Import backtesting models
+from .models_backtest import (
+    BacktestRun,
+    BacktestTrade,
+    StrategyOptimization,
+    OptimizationRecommendation,
+    BacktestMetric,
+)
+
+# Import walk-forward optimization models
+from .models_walkforward import (
+    WalkForwardOptimization,
+    WalkForwardWindow,
+    WalkForwardMetric,
+)
+
+# Import Monte Carlo simulation models
+from .models_montecarlo import (
+    MonteCarloSimulation,
+    MonteCarloRun,
+    MonteCarloDistribution,
+)
+
+
+# Import ML-based tuning models
+from .models_mltuning import (
+    MLTuningJob,
+    MLTuningSample,
+    MLPrediction,
+    MLModel,
+)

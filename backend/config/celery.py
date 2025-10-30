@@ -78,6 +78,45 @@ app.conf.beat_schedule = {
             'expires': 25.0,  # Expire if not executed within 25 seconds
         }
     },
+
+    # Aggregate strategy performance data every hour
+    'aggregate-strategy-performance': {
+        'task': 'signals.aggregate_strategy_performance',
+        'schedule': crontab(minute=5),  # Every hour at minute 5
+        'options': {
+            'expires': 3000.0,
+        }
+    },
+
+    # Check for stale cache every 30 minutes
+    'check-stale-cache': {
+        'task': 'signals.check_stale_cache',
+        'schedule': crontab(minute='*/30'),  # Every 30 minutes
+    },
+
+    # Check trade thresholds for auto-optimization every hour
+    'check-trade-threshold': {
+        'task': 'signals.check_trade_threshold',
+        'schedule': crontab(minute=10),  # Every hour at minute 10
+    },
+
+    # Scheduled optimization - runs weekly on Sundays at 3 AM
+    'scheduled-optimization': {
+        'task': 'signals.scheduled_optimization',
+        'schedule': crontab(hour=3, minute=0, day_of_week=0),  # Sunday 3 AM
+    },
+
+    # Monitor config performance every 6 hours
+    'monitor-config-performance': {
+        'task': 'signals.monitor_config_performance',
+        'schedule': crontab(minute=0, hour='*/6'),  # Every 6 hours
+    },
+
+    # Cleanup old optimization runs monthly
+    'cleanup-old-optimization-runs': {
+        'task': 'signals.cleanup_old_optimization_runs',
+        'schedule': crontab(hour=2, minute=0, day_of_month=1),  # 1st of month at 2 AM
+    },
 }
 
 # Celery Configuration
@@ -111,6 +150,16 @@ app.conf.update(
         'scanner.tasks.celery_tasks.cleanup_expired_signals': {'queue': 'maintenance'},
         'scanner.tasks.celery_tasks.system_health_check': {'queue': 'maintenance'},
         'scanner.tasks.celery_tasks.check_and_close_paper_trades': {'queue': 'paper_trading'},
+        # Backtesting tasks
+        'scanner.tasks.backtest_tasks.run_backtest_async': {'queue': 'backtesting'},
+        'scanner.tasks.backtest_tasks.run_optimization_async': {'queue': 'backtesting'},
+        'scanner.tasks.backtest_tasks.generate_recommendations_async': {'queue': 'backtesting'},
+        # Walk-Forward Optimization tasks
+        'scanner.tasks.walkforward_tasks.run_walkforward_optimization_async': {'queue': 'backtesting'},
+        # Monte Carlo Simulation tasks
+        'scanner.tasks.montecarlo_tasks.run_montecarlo_simulation_async': {'queue': 'backtesting'},
+        # ML-Based Tuning tasks
+        'scanner.tasks.mltuning_tasks.run_ml_tuning_async': {'queue': 'backtesting'},
     },
 )
 
