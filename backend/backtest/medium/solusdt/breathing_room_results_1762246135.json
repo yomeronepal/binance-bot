@@ -1,0 +1,46 @@
+[
+  {
+    "name": "SOLUSDT 4h BR1 - Wider SL (2.5x ATR)",
+    "sl_multiplier": 2.5,
+    "tp_multiplier": 7.0,
+    "trades": 35,
+    "win_rate": 22.86,
+    "roi": -0.19,
+    "pnl": -18.94996257,
+    "sharpe": "-0.0443",
+    "profit_factor": "0.8979"
+  },
+  {
+    "name": "SOLUSDT 4h BR2 - Even Wider SL (3.0x ATR)",
+    "sl_multiplier": 3.0,
+    "tp_multiplier": 8.0,
+    "trades": 35,
+    "win_rate": 22.86,
+    "roi": -0.38,
+    "pnl": -37.95769123,
+    "sharpe": "-0.0778",
+    "profit_factor": "0.8308"
+  },
+  {
+    "name": "SOLUSDT 4h BR3 - Balanced (2.0x ATR)",
+    "sl_multiplier": 2.0,
+    "tp_multiplier": 6.0,
+    "trades": 35,
+    "win_rate": 14.29,
+    "roi": -0.76,
+    "pnl": -76.47673724,
+    "sharpe": "-0.2459",
+    "profit_factor": "0.5398"
+  },
+  {
+    "name": "SOLUSDT 4h BR4 - Conservative (3.5x ATR)",
+    "sl_multiplier": 3.5,
+    "tp_multiplier": 9.0,
+    "trades": 47,
+    "win_rate": 29.79,
+    "roi": 0.4,
+    "pnl": 40.30191352,
+    "sharpe": "0.0531",
+    "profit_factor": "1.1332"
+  }
+]

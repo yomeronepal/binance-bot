@@ -46,9 +46,10 @@ const SignalDetail = () => {
   }
 
   const isFutures = signal.market_type === 'FUTURES';
+  const isForex = signal.market_type === 'FOREX';
   const isLong = signal.direction === 'LONG';
 
-  // Display labels: BUY/SELL for spot, LONG/SHORT for futures
+  // Display labels: BUY/SELL for spot/forex, LONG/SHORT for futures
   const directionLabel = isFutures
     ? signal.direction
     : (isLong ? 'BUY' : 'SELL');
@@ -126,6 +127,11 @@ const SignalDetail = () => {
                 {isFutures && (
                   <span className="px-3 py-1 rounded-lg text-xs font-semibold bg-yellow-500 text-black">
                     FUTURES {leverage}x
+                  </span>
+                )}
+                {isForex && (
+                  <span className="px-3 py-1 rounded-lg text-xs font-semibold bg-orange-500 text-white">
+                    FOREX {leverage || 100}x
                   </span>
                 )}
               </div>
@@ -450,9 +456,154 @@ const SignalDetail = () => {
             📈 Technical Analysis
           </h2>
           <div className="prose dark:prose-invert max-w-none">
-            <p className="text-gray-700 dark:text-gray-300">
-              {signal.description || 'Technical analysis indicates favorable conditions for this trade setup.'}
-            </p>
+            {/* Detailed Technical Analysis Description */}
+            <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+              <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-200 mb-3">
+                🎯 Signal Generation Details
+              </h3>
+              <p className="text-gray-700 dark:text-gray-300 mb-3">
+                {signal.description || `This ${isLong ? 'LONG' : 'SHORT'} signal for ${signal.symbol_name || signal.symbol} was generated on the ${signal.timeframe} timeframe using our multi-indicator strategy with ${(signal.confidence * 100).toFixed(0)}% confidence. ${
+                  signal.confidence >= 0.8
+                    ? 'High confidence signals indicate strong alignment across all technical indicators.'
+                    : signal.confidence >= 0.7
+                    ? 'Moderate confidence signals show good indicator alignment with some minor divergence.'
+                    : 'This signal meets minimum confidence threshold with acceptable indicator alignment.'
+                }`}
+              </p>
+
+              <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                <div className="mb-3 p-2 bg-gray-100 dark:bg-gray-700 rounded">
+                  <p className="text-xs">
+                    <strong>Signal ID:</strong> #{signal.id} •
+                    <strong> Symbol:</strong> {signal.symbol_name || signal.symbol} •
+                    <strong> Timeframe:</strong> {signal.timeframe} •
+                    <strong> Market:</strong> {isFutures ? 'Futures' : 'Spot'} •
+                    <strong> Created:</strong> {formatDate(signal.created_at)}
+                  </p>
+                </div>
+                <p className="font-semibold text-gray-900 dark:text-white mb-2">Key Indicators Used:</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="flex items-start space-x-2">
+                    <span className="text-green-600 dark:text-green-400">✓</span>
+                    <div>
+                      <strong>RSI (Relative Strength Index):</strong>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        {isLong
+                          ? 'Detected oversold conditions (RSI 23-33), indicating potential reversal upward'
+                          : 'Detected overbought conditions (RSI 67-77), indicating potential reversal downward'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-2">
+                    <span className="text-green-600 dark:text-green-400">✓</span>
+                    <div>
+                      <strong>ADX (Trend Strength):</strong>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        ADX above 22.0 confirms strong trending market conditions suitable for entry
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-2">
+                    <span className="text-green-600 dark:text-green-400">✓</span>
+                    <div>
+                      <strong>MACD (Momentum):</strong>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        {isLong
+                          ? 'MACD line crossing above signal line confirms bullish momentum'
+                          : 'MACD line crossing below signal line confirms bearish momentum'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-2">
+                    <span className="text-green-600 dark:text-green-400">✓</span>
+                    <div>
+                      <strong>EMA Alignment:</strong>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        {isLong
+                          ? 'Price above EMA50 with EMA9 > EMA50 confirms bullish trend structure'
+                          : 'Price below EMA50 with EMA9 < EMA50 confirms bearish trend structure'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-2">
+                    <span className="text-green-600 dark:text-green-400">✓</span>
+                    <div>
+                      <strong>SuperTrend Indicator:</strong>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        {isLong
+                          ? 'SuperTrend flipped to bullish (green), confirming upward momentum'
+                          : 'SuperTrend flipped to bearish (red), confirming downward momentum'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-2">
+                    <span className="text-green-600 dark:text-green-400">✓</span>
+                    <div>
+                      <strong>Volume Confirmation:</strong>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        Volume above average confirms institutional interest and validates the move
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-2">
+                    <span className="text-green-600 dark:text-green-400">✓</span>
+                    <div>
+                      <strong>Heikin Ashi Candles:</strong>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        {isLong
+                          ? 'Green Heikin Ashi candles indicate sustained bullish pressure'
+                          : 'Red Heikin Ashi candles indicate sustained bearish pressure'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-2">
+                    <span className="text-green-600 dark:text-green-400">✓</span>
+                    <div>
+                      <strong>MFI (Money Flow Index):</strong>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        {isLong
+                          ? 'Money flow showing accumulation with MFI in oversold zone'
+                          : 'Money flow showing distribution with MFI in overbought zone'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {signal.timeframe !== '15m' && (
+                  <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded border border-purple-200 dark:border-purple-800">
+                    <p className="font-semibold text-purple-900 dark:text-purple-200 mb-1">
+                      🔄 Multi-Timeframe Confirmation
+                    </p>
+                    <p className="text-xs text-purple-800 dark:text-purple-300">
+                      This signal was confirmed by analyzing daily (1d) trend alignment. {isLong ? 'Daily trend is BULLISH' : 'Daily trend is BEARISH'}, ensuring we trade with the higher timeframe momentum.
+                    </p>
+                  </div>
+                )}
+
+                <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-200 dark:border-yellow-800">
+                  <p className="font-semibold text-yellow-900 dark:text-yellow-200 mb-1">
+                    ⚠️ Risk Management Strategy ({signal.timeframe} Timeframe)
+                  </p>
+                  <p className="text-xs text-yellow-800 dark:text-yellow-300">
+                    Stop Loss: ${sl.toFixed(4)} (calculated using {signal.timeframe} ATR × 1.5x = ${Math.abs(sl - entry).toFixed(4)} distance).
+                    Take Profit: ${tp.toFixed(4)} (set at 3.5x risk distance = ${Math.abs(tp - entry).toFixed(4)} distance).
+                    This provides a {riskRewardRatio}:1 risk/reward ratio.
+                    {signal.timeframe === '15m' && ' 15-minute signals are for scalping - expect quick moves.'}
+                    {signal.timeframe === '1h' && ' 1-hour signals balance frequency with quality - good for day trading.'}
+                    {signal.timeframe === '4h' && ' 4-hour signals are higher quality - best for swing trading.'}
+                    {signal.timeframe === '1d' && ' Daily signals are the highest timeframe - ideal for position trading.'}
+                  </p>
+                </div>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
               <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">

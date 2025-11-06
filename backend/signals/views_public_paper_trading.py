@@ -319,10 +319,60 @@ def public_summary(request):
         user__isnull=True
     ).order_by('-exit_time')[:10]
 
+    # Calculate unrealized P/L from open positions
+    try:
+        from scanner.services.binance_client import BinanceClient
+
+        if open_trades:
+            symbols = set(trade.symbol for trade in open_trades)
+            binance_client = BinanceClient()
+
+            async def fetch_prices():
+                prices = {}
+                for symbol in symbols:
+                    try:
+                        price_data = await binance_client.get_price(symbol)
+                        if price_data and 'price' in price_data:
+                            prices[symbol] = Decimal(str(price_data['price']))
+                    except Exception:
+                        pass
+                return prices
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                current_prices = loop.run_until_complete(fetch_prices())
+            finally:
+                loop.close()
+
+            # Calculate unrealized P/L
+            total_unrealized_pnl = Decimal('0')
+            for trade in open_trades:
+                current_price = current_prices.get(trade.symbol)
+                if current_price:
+                    unrealized_pnl, _ = trade.calculate_profit_loss(current_price)
+                    total_unrealized_pnl += Decimal(str(unrealized_pnl))
+
+            metrics['unrealized_pnl'] = float(total_unrealized_pnl)
+            metrics['total_pnl'] = float(Decimal(str(metrics['total_profit_loss'])) + total_unrealized_pnl)
+        else:
+            metrics['unrealized_pnl'] = 0.0
+            metrics['total_pnl'] = metrics['total_profit_loss']
+    except Exception:
+        metrics['unrealized_pnl'] = 0.0
+        metrics['total_pnl'] = metrics['total_profit_loss']
+
     summary = {
         'performance': metrics,
         'open_trades_count': len(open_trades),
         'recent_closed_trades': PaperTradeSerializer(recent_closed, many=True).data,
+
+        # Add bot-wide metrics at top level for easier access
+        'bot_total_pnl': metrics['total_pnl'],
+        'bot_win_rate': metrics['win_rate'],
+        'bot_total_trades': metrics['total_trades'],
+        'bot_realized_pnl': metrics['total_profit_loss'],
+        'bot_unrealized_pnl': metrics['unrealized_pnl'],
     }
 
     return Response(summary)

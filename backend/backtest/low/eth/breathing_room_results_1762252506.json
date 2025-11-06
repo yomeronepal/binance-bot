@@ -1,0 +1,46 @@
+[
+  {
+    "name": "ETHUSDT 1d BR1 - Wider SL (2.5x ATR)",
+    "sl_multiplier": 2.5,
+    "tp_multiplier": 7.0,
+    "trades": 2,
+    "win_rate": 0.0,
+    "roi": -0.08,
+    "pnl": -8.15250239,
+    "sharpe": "-1.1518",
+    "profit_factor": "0.0000"
+  },
+  {
+    "name": "ETHUSDT 1d BR2 - Even Wider SL (3.0x ATR)",
+    "sl_multiplier": 3.0,
+    "tp_multiplier": 8.0,
+    "trades": 2,
+    "win_rate": 0.0,
+    "roi": -0.1,
+    "pnl": -9.67554744,
+    "sharpe": "-1.1249",
+    "profit_factor": "0.0000"
+  },
+  {
+    "name": "ETHUSDT 1d BR3 - Balanced (2.0x ATR)",
+    "sl_multiplier": 2.0,
+    "tp_multiplier": 6.0,
+    "trades": 2,
+    "win_rate": 0.0,
+    "roi": -0.07,
+    "pnl": -6.62945734,
+    "sharpe": "-1.1934",
+    "profit_factor": "0.0000"
+  },
+  {
+    "name": "ETHUSDT 1d BR4 - Conservative (3.5x ATR)",
+    "sl_multiplier": 3.5,
+    "tp_multiplier": 9.0,
+    "trades": 2,
+    "win_rate": 0.0,
+    "roi": -0.11,
+    "pnl": -11.19859249,
+    "sharpe": "-1.1061",
+    "profit_factor": "0.0000"
+  }
+]

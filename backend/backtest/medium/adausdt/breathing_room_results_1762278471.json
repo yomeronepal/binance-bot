@@ -1,0 +1,13 @@
+[
+  {
+    "name": "ADAUSDT 1d BR2 - Even Wider SL (3.0x ATR)",
+    "sl_multiplier": 3.0,
+    "tp_multiplier": 8.0,
+    "trades": 2,
+    "win_rate": 0.0,
+    "roi": -0.36,
+    "pnl": -35.68446018,
+    "sharpe": "-15.1089",
+    "profit_factor": "0.0000"
+  }
+]

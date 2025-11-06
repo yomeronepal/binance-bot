@@ -1,0 +1,13 @@
+[
+  {
+    "name": "SOLUSDT 1d Tunes ATR",
+    "sl_multiplier": 3.0,
+    "tp_multiplier": 8.0,
+    "trades": 3,
+    "win_rate": 33.33,
+    "roi": 0.4,
+    "pnl": 40.02463989,
+    "sharpe": "0.3252",
+    "profit_factor": "2.2791"
+  }
+]

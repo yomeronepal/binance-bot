@@ -15,7 +15,7 @@ class EnhancedPollingWorker:
 
     def __init__(
         self,
-        interval: str = '5m',
+        interval: str = '1h',
         batch_size: int = 20,
         poll_interval: int = 60,
         min_confidence: float = 0.7,
@@ -315,7 +315,7 @@ async def run_enhanced_worker():
     django.setup()
 
     worker = EnhancedPollingWorker(
-        interval=os.getenv('BINANCE_INTERVAL', '5m'),
+        interval=os.getenv('BINANCE_INTERVAL', '1h'),
         batch_size=int(os.getenv('BINANCE_BATCH_SIZE', '20')),
         poll_interval=int(os.getenv('POLLING_INTERVAL', '60')),
         min_confidence=float(os.getenv('MIN_CONFIDENCE', '0.7')),

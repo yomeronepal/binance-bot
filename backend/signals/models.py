@@ -14,6 +14,7 @@ class Symbol(models.Model):
     MARKET_TYPE_CHOICES = [
         ('SPOT', _('Spot')),
         ('FUTURES', _('Futures')),
+        ('FOREX', _('Forex')),
     ]
 
     symbol = models.CharField(
@@ -86,6 +87,7 @@ class Signal(models.Model):
     MARKET_TYPE_CHOICES = [
         ('SPOT', _('Spot')),
         ('FUTURES', _('Futures')),
+        ('FOREX', _('Forex')),
     ]
 
     TRADING_TYPE_CHOICES = [

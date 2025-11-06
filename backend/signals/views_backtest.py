@@ -5,7 +5,7 @@ REST API endpoints for backtesting system.
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from decimal import Decimal
 from datetime import datetime
 import logging
@@ -42,11 +42,11 @@ class BacktestViewSet(viewsets.ModelViewSet):
 
     queryset = BacktestRun.objects.all()
     serializer_class = BacktestRunSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]  # Allow public access
 
     def get_queryset(self):
-        """Filter backtests for current user."""
-        return BacktestRun.objects.filter(user=self.request.user).order_by('-created_at')
+        """Return all backtests (public access)."""
+        return BacktestRun.objects.all().order_by('-created_at')
 
     def create(self, request):
         """
@@ -74,7 +74,7 @@ class BacktestViewSet(viewsets.ModelViewSet):
 
             # Create backtest run
             backtest_run = BacktestRun.objects.create(
-                user=request.user,
+                user=request.user if request.user.is_authenticated else None,
                 name=data.get('name', 'Unnamed Backtest'),
                 symbols=data.get('symbols', []),
                 timeframe=data.get('timeframe', '5m'),
@@ -153,7 +153,7 @@ class BacktestViewSet(viewsets.ModelViewSet):
                 'total_profit_loss': float(backtest_run.total_profit_loss),
                 'roi': float(backtest_run.roi),
                 'max_drawdown': float(backtest_run.max_drawdown),
-                'max_drawdown_percentage': float(backtest_run.max_drawdown_percentage),
+                'max_drawdown_amount': float(backtest_run.max_drawdown_amount),
                 'avg_trade_duration_hours': float(backtest_run.avg_trade_duration_hours),
                 'avg_profit_per_trade': float(backtest_run.avg_profit_per_trade),
                 'sharpe_ratio': float(backtest_run.sharpe_ratio) if backtest_run.sharpe_ratio else None,
@@ -251,11 +251,11 @@ class OptimizationViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = StrategyOptimization.objects.all()
     serializer_class = StrategyOptimizationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]  # Allow public access
 
     def get_queryset(self):
-        """Filter optimizations for current user."""
-        return StrategyOptimization.objects.filter(user=self.request.user).order_by('-optimization_score')
+        """Return all optimizations (public access)."""
+        return StrategyOptimization.objects.all().order_by('-optimization_score')
 
     @action(detail=False, methods=['post'])
     def run(self, request):
@@ -286,7 +286,7 @@ class OptimizationViewSet(viewsets.ReadOnlyModelViewSet):
             # Queue optimization task
             from scanner.tasks.backtest_tasks import run_optimization_async
             task = run_optimization_async.delay(
-                user_id=request.user.id,
+                user_id=request.user.id if request.user.is_authenticated else None if request.user.is_authenticated else None,
                 name=data.get('name', 'Optimization Run'),
                 symbols=data.get('symbols', []),
                 timeframe=data.get('timeframe', '5m'),
@@ -340,11 +340,11 @@ class RecommendationViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = OptimizationRecommendation.objects.all()
     serializer_class = OptimizationRecommendationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]  # Allow public access
 
     def get_queryset(self):
-        """Filter recommendations for current user."""
-        queryset = OptimizationRecommendation.objects.filter(user=self.request.user)
+        """Return all recommendations (public access)."""
+        queryset = OptimizationRecommendation.objects.all()
 
         # Filter by status
         status_filter = self.request.query_params.get('status')
@@ -373,7 +373,7 @@ class RecommendationViewSet(viewsets.ReadOnlyModelViewSet):
             # Queue task to generate recommendations
             from scanner.tasks.backtest_tasks import generate_recommendations_async
             task = generate_recommendations_async.delay(
-                user_id=request.user.id,
+                user_id=request.user.id if request.user.is_authenticated else None,
                 lookback_days=lookback_days,
                 min_samples=min_samples
             )
@@ -404,7 +404,7 @@ class RecommendationViewSet(viewsets.ReadOnlyModelViewSet):
         recommendation.status = 'ACCEPTED'
         recommendation.save()
 
-        logger.info(f"Recommendation {pk} accepted by user {request.user.id}")
+        logger.info(f"Recommendation {pk} accepted by user {request.user.id if request.user.is_authenticated else None}")
 
         return Response({
             'message': 'Recommendation accepted',
@@ -428,7 +428,7 @@ class RecommendationViewSet(viewsets.ReadOnlyModelViewSet):
         recommendation.feedback_notes = request.data.get('feedback_notes', '')
         recommendation.save()
 
-        logger.info(f"Recommendation {pk} rejected by user {request.user.id}")
+        logger.info(f"Recommendation {pk} rejected by user {request.user.id if request.user.is_authenticated else None}")
 
         return Response({
             'message': 'Recommendation rejected',
@@ -447,7 +447,7 @@ class RecommendationViewSet(viewsets.ReadOnlyModelViewSet):
         recommendation.applied_at = datetime.now()
         recommendation.save()
 
-        logger.info(f"Recommendation {pk} applied by user {request.user.id}")
+        logger.info(f"Recommendation {pk} applied by user {request.user.id if request.user.is_authenticated else None}")
 
         return Response({
             'message': 'Recommendation marked as applied',

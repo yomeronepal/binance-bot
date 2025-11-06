@@ -1,0 +1,46 @@
+[
+  {
+    "name": "DOGEUSDT 4h BR1 - Wider SL (2.5x ATR)",
+    "sl_multiplier": 2.5,
+    "tp_multiplier": 7.0,
+    "trades": 33,
+    "win_rate": 21.21,
+    "roi": 0.03,
+    "pnl": 3.16927484,
+    "sharpe": "0.0077",
+    "profit_factor": "1.0232"
+  },
+  {
+    "name": "DOGEUSDT 4h BR2 - Even Wider SL (3.0x ATR)",
+    "sl_multiplier": 3.0,
+    "tp_multiplier": 8.0,
+    "trades": 33,
+    "win_rate": 21.21,
+    "roi": -0.04,
+    "pnl": -4.13314836,
+    "sharpe": "-0.0087",
+    "profit_factor": "0.9747"
+  },
+  {
+    "name": "DOGEUSDT 4h BR3 - Balanced (2.0x ATR)",
+    "sl_multiplier": 2.0,
+    "tp_multiplier": 6.0,
+    "trades": 33,
+    "win_rate": 15.15,
+    "roi": -0.16,
+    "pnl": -15.71690211,
+    "sharpe": "-0.0464",
+    "profit_factor": "0.8641"
+  },
+  {
+    "name": "DOGEUSDT 4h BR4 - Conservative (3.5x ATR)",
+    "sl_multiplier": 3.5,
+    "tp_multiplier": 9.0,
+    "trades": 52,
+    "win_rate": 30.77,
+    "roi": 0.74,
+    "pnl": 73.68812544,
+    "sharpe": "0.0873",
+    "profit_factor": "1.2616"
+  }
+]

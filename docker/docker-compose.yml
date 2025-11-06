@@ -39,7 +39,13 @@ services:
       context: ../backend
       dockerfile: ../docker/Dockerfile
     container_name: binancebot_web
-    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    command: >
+      sh -c "
+       
+        python manage.py migrate;
+        echo 'Migrations complete. Starting Daphne...';
+        daphne -b 0.0.0.0 -p 8000 config.asgi:application
+      "
     volumes:
       - ../backend:/app
       - static_volume:/app/staticfiles
@@ -61,6 +67,8 @@ services:
       start_period: 40s
     networks:
       - binancebot_network
+
+
 
   # React Frontend Application
   frontend:
@@ -89,7 +97,7 @@ services:
       context: ../backend
       dockerfile: ../docker/Dockerfile
     container_name: binancebot_celery
-    command: celery -A config worker -l info
+    command: celery -A config worker -l info -Q celery,backtesting,scanner,notifications,maintenance,paper_trading
     volumes:
       - ../backend:/app
     env_file:

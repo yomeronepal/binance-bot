@@ -10,6 +10,16 @@ const BotPerformance = () => {
   const [recentTrades, setRecentTrades] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [tradesPerPage] = useState(20); // Show 20 trades per page
+  const [positionsPerPage] = useState(12); // Show 12 positions per page
+
+  // Reset pagination when switching tabs
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab]);
+
   // Fetch data without authentication - with LIVE prices
   const fetchData = async () => {
     try {
@@ -62,13 +72,11 @@ const BotPerformance = () => {
 
   useEffect(() => {
     fetchData();
-
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
+    // Note: Auto-refresh removed - user can manually refresh the page
   }, []);
 
-  if (loading) {
+  // Show loading only on initial load (when summary is null)
+  if (loading && !summary) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
         <div className="text-center">
@@ -91,13 +99,20 @@ const BotPerformance = () => {
     );
   }
 
-  // Extract performance data with live unrealized PNL
+  // Extract bot-wide performance metrics from API
+  const botTotalPnl = parseFloat(summary?.bot_total_pnl || summary?.performance?.total_pnl || 0);
+  const botWinRate = parseFloat(summary?.bot_win_rate || summary?.performance?.win_rate || 0);
+  const botTotalTrades = parseInt(summary?.bot_total_trades || summary?.performance?.total_trades || 0);
+  const botRealizedPnl = parseFloat(summary?.bot_realized_pnl || summary?.performance?.total_profit_loss || 0);
+  const botUnrealizedPnl = parseFloat(summary?.bot_unrealized_pnl || summary?.total_unrealized_pnl || 0);
+
+  // For backward compatibility
   const performance = summary?.performance || {};
-  const realizedPnl = parseFloat(performance.total_profit_loss || 0);
-  const unrealizedPnl = parseFloat(summary?.total_unrealized_pnl || 0);
-  const totalPnl = realizedPnl + unrealizedPnl;
-  const winRate = parseFloat(performance.win_rate || 0);
-  const totalTrades = parseInt(performance.total_trades || 0);
+  const realizedPnl = botRealizedPnl;
+  const unrealizedPnl = botUnrealizedPnl;
+  const totalPnl = botTotalPnl;
+  const winRate = botWinRate;
+  const totalTrades = botTotalTrades;
   const openTradesCount = parseInt(summary?.open_trades_count || 0);
   const totalInvestment = parseFloat(summary?.total_investment || 0);
   const totalCurrentValue = parseFloat(summary?.total_current_value || 0);
@@ -182,9 +197,14 @@ const BotPerformance = () => {
                   LIVE PRICES
                 </span>
               </p>
-              <span className="text-xs text-gray-500">
-                {!loading && '⟳ Auto-refresh: 30s'}
-              </span>
+              <button
+                onClick={fetchData}
+                disabled={loading}
+                className="text-xs text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1 disabled:opacity-50"
+              >
+                <Activity className="w-3 h-3" />
+                {loading ? 'Refreshing...' : 'Manual Refresh'}
+              </button>
             </div>
           </div>
         </div>
@@ -288,11 +308,46 @@ const BotPerformance = () => {
         {activeTab === 'open' && (
           <div>
             {openPositions.length > 0 ? (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {openPositions.map((position) => (
-                  <PositionCard key={position.trade_id} position={position} />
-                ))}
-              </div>
+              <>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-4">
+                  {openPositions
+                    .slice(
+                      (currentPage - 1) * positionsPerPage,
+                      currentPage * positionsPerPage
+                    )
+                    .map((position) => (
+                      <PositionCard key={position.trade_id} position={position} />
+                    ))}
+                </div>
+
+                {/* Pagination Controls for Open Positions */}
+                {openPositions.length > positionsPerPage && (
+                  <div className="flex items-center justify-between px-4 py-3 bg-gray-800/30 border border-gray-700 rounded-lg">
+                    <div className="text-sm text-gray-400">
+                      Showing {((currentPage - 1) * positionsPerPage) + 1} to {Math.min(currentPage * positionsPerPage, openPositions.length)} of {openPositions.length} positions
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                        disabled={currentPage === 1}
+                        className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Previous
+                      </button>
+                      <span className="text-white px-4">
+                        Page {currentPage} of {Math.ceil(openPositions.length / positionsPerPage)}
+                      </span>
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.min(Math.ceil(openPositions.length / positionsPerPage), prev + 1))}
+                        disabled={currentPage >= Math.ceil(openPositions.length / positionsPerPage)}
+                        className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-12 text-center">
                 <Activity className="w-16 h-16 text-gray-600 mx-auto mb-4" />
@@ -305,9 +360,44 @@ const BotPerformance = () => {
         {activeTab === 'history' && (
           <div>
             {recentTrades.length > 0 ? (
-              <div className="bg-gray-800/30 border border-gray-700 rounded-lg overflow-hidden">
-                <TradeHistoryTable trades={recentTrades} />
-              </div>
+              <>
+                <div className="bg-gray-800/30 border border-gray-700 rounded-lg overflow-hidden mb-4">
+                  <TradeHistoryTable
+                    trades={recentTrades.slice(
+                      (currentPage - 1) * tradesPerPage,
+                      currentPage * tradesPerPage
+                    )}
+                  />
+                </div>
+
+                {/* Pagination Controls */}
+                {recentTrades.length > tradesPerPage && (
+                  <div className="flex items-center justify-between px-4 py-3 bg-gray-800/30 border border-gray-700 rounded-lg">
+                    <div className="text-sm text-gray-400">
+                      Showing {((currentPage - 1) * tradesPerPage) + 1} to {Math.min(currentPage * tradesPerPage, recentTrades.length)} of {recentTrades.length} trades
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                        disabled={currentPage === 1}
+                        className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Previous
+                      </button>
+                      <span className="text-white px-4">
+                        Page {currentPage} of {Math.ceil(recentTrades.length / tradesPerPage)}
+                      </span>
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.min(Math.ceil(recentTrades.length / tradesPerPage), prev + 1))}
+                        disabled={currentPage >= Math.ceil(recentTrades.length / tradesPerPage)}
+                        className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-12 text-center">
                 <BarChart3 className="w-16 h-16 text-gray-600 mx-auto mb-4" />

@@ -44,12 +44,14 @@ def run_backtest_async(self, backtest_id: int):
         asyncio.set_event_loop(loop)
 
         try:
+            # Use CSV loader first (faster and uses local data)
             symbols_data = loop.run_until_complete(
-                historical_data_fetcher.fetch_multiple_symbols(
+                historical_data_fetcher.fetch_multiple_symbols_from_csv(
                     backtest_run.symbols,
                     backtest_run.timeframe,
                     backtest_run.start_date,
-                    backtest_run.end_date
+                    backtest_run.end_date,
+                    data_dir="backtest_data"  # Use local CSV files
                 )
             )
         finally:
@@ -64,9 +66,11 @@ def run_backtest_async(self, backtest_id: int):
         logger.info("Generating signals from historical data...")
         signal_config = _dict_to_signal_config(backtest_run.strategy_params)
 
-        # Enable volatility-aware mode for backtest
-        engine = SignalDetectionEngine(signal_config, use_volatility_aware=True)
-        logger.info("Signal engine initialized with volatility-aware mode")
+        # IMPORTANT: Disable volatility-aware mode to respect custom parameters
+        # Volatility-aware mode overrides sl_atr_multiplier, tp_atr_multiplier, adx_min, and min_confidence
+        # which prevents us from testing different parameter combinations
+        engine = SignalDetectionEngine(signal_config, use_volatility_aware=False)
+        logger.info("Signal engine initialized (volatility-aware mode DISABLED for parameter testing)")
 
         signals = []
         for symbol, klines in symbols_data.items():
@@ -89,9 +93,15 @@ def run_backtest_async(self, backtest_id: int):
                 result = engine.process_symbol(symbol, backtest_run.timeframe)
                 if result and result.get('action') == 'created':
                     signal_data = result['signal']
+                    # Get timestamp - handle both dict and list formats
+                    if isinstance(candle, dict):
+                        timestamp = candle.get('timestamp')
+                    else:
+                        timestamp = candle[0]  # Array format
+
                     signals.append({
                         'symbol': symbol,
-                        'timestamp': candle[0],  # Timestamp is first element in kline
+                        'timestamp': timestamp,
                         'direction': signal_data['direction'],
                         'entry': signal_data['entry'],
                         'tp': signal_data['tp'],

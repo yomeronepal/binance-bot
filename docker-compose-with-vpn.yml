@@ -1,0 +1,128 @@
+version: '3.8'
+
+services:
+  # VPN container using Gluetun
+  vpn:
+    image: qmcgaw/gluetun:latest
+    container_name: binance-bot-vpn
+    cap_add:
+      - NET_ADMIN
+    environment:
+      # Using ProtonVPN Free (you can use your existing credentials)
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - OPENVPN_USER=${PROTONVPN_USERNAME}
+      - OPENVPN_PASSWORD=${PROTONVPN_PASSWORD}
+      - SERVER_COUNTRIES=Netherlands  # Free ProtonVPN countries: NL, US, JP
+
+      # Alternative: Use Windscribe Free (10GB/month)
+      # - VPN_SERVICE_PROVIDER=windscribe
+      # - OPENVPN_USER=${WINDSCRIBE_USERNAME}
+      # - OPENVPN_PASSWORD=${WINDSCRIBE_PASSWORD}
+
+      # Alternative: Use Free OpenVPN servers
+      # - VPN_SERVICE_PROVIDER=custom
+      # - OPENVPN_CUSTOM_CONFIG=/gluetun/custom.conf
+
+      - TZ=UTC
+    ports:
+      # Expose your app ports through VPN
+      - "8000:8000"    # Django
+      - "5555:5555"    # Flower
+    volumes:
+      - ./vpn-config:/gluetun
+    restart: unless-stopped
+    networks:
+      - binance-network
+
+  db:
+    image: postgres:15
+    container_name: binance-bot-db
+    environment:
+      POSTGRES_DB: binance_bot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - binance-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: binance-bot-redis
+    networks:
+      - binance-network
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: binance-bot-backend
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/binance_bot
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+      - vpn
+    # Route backend through VPN
+    network_mode: "service:vpn"
+    restart: unless-stopped
+
+  celery-worker:
+    build: ./backend
+    container_name: binance-bot-celery-worker
+    command: celery -A config worker -l info --pool=solo
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/binance_bot
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+      - backend
+      - vpn
+    # Route celery worker through VPN (THIS IS KEY!)
+    network_mode: "service:vpn"
+    restart: unless-stopped
+
+  celery-beat:
+    build: ./backend
+    container_name: binance-bot-celery-beat
+    command: celery -A config beat -l info
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/binance_bot
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    networks:
+      - binance-network
+    restart: unless-stopped
+
+  flower:
+    build: ./backend
+    container_name: binance-bot-flower
+    command: celery -A config flower
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/binance_bot
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    # Flower through VPN
+    network_mode: "service:vpn"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  binance-network:
+    driver: bridge

@@ -253,6 +253,10 @@ def auto_execute_trade_on_signal(sender, instance, created, **kwargs):
                 f"criteria not met or no accounts enabled"
             )
 
+    except ValueError as e:
+        # Duplicate trade - expected during signal upgrades
+        logger.info(f"ℹ️  Skipping auto-trade for signal {instance.id}: {e}")
+
     except Exception as e:
         logger.error(
             f"❌ Failed to auto-execute trade for signal {instance.id}: {e}",
@@ -272,6 +276,7 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
     - Fixed position size of $100 per trade
     - Only executes on new ACTIVE signals
     - Results displayed on public dashboard
+    - Prevents duplicate trades for same symbol+direction
 
     Args:
         sender: Signal model class
@@ -303,6 +308,11 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
             f"🤖 System paper trade created: {trade.direction} {trade.symbol} "
             f"@ {trade.entry_price} (Trade ID: {trade.id}, Signal ID: {instance.id})"
         )
+
+    except ValueError as e:
+        # Duplicate trade - this is expected when signals are upgraded (e.g., 1h -> 4h)
+        # Just log at info level and continue
+        logger.info(f"ℹ️  Skipping paper trade for signal {instance.id}: {e}")
 
     except Exception as e:
         logger.error(

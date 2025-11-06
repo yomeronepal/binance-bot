@@ -26,9 +26,18 @@ def scan_binance_market(self):
         from scanner.services.dispatcher import signal_dispatcher
         from signals.models import Signal, Symbol
 
-        # Initialize components
-        config = SignalConfig(min_confidence=0.7)
-        engine = SignalDetectionEngine(config)
+        # Initialize components with quality-focused thresholds
+        config = SignalConfig(
+            min_confidence=0.70,           # 70% confidence for higher quality signals
+            long_rsi_min=25.0,             # True oversold conditions (tight range)
+            long_rsi_max=35.0,             # Mean reversion buy zone
+            short_rsi_min=65.0,            # True overbought conditions (tight range)
+            short_rsi_max=75.0,            # Mean reversion sell zone
+            long_adx_min=20.0,             # Filter choppy markets (minimum trend strength)
+            short_adx_min=20.0             # Avoid low-confidence ranging conditions
+        )
+        # Enable volatility-aware mode for dynamic SL/TP adjustment per coin
+        engine = SignalDetectionEngine(config, use_volatility_aware=True)
 
         # Run async scanning
         loop = asyncio.new_event_loop()
@@ -78,7 +87,7 @@ async def _scan_market_async(engine):
         # Fetch klines for all pairs
         klines_data = await client.batch_get_klines(
             top_pairs,
-            interval='5m',
+            interval='1h',
             limit=200,
             batch_size=20
         )
@@ -90,7 +99,7 @@ async def _scan_market_async(engine):
                 engine.update_candles(symbol, klines)
 
                 # Process symbol
-                result = engine.process_symbol(symbol, '5m')
+                result = engine.process_symbol(symbol, '1h')
 
                 if result:
                     action = result.get('action')
@@ -582,9 +591,18 @@ def scan_futures_market(self):
         from scanner.services.dispatcher import signal_dispatcher
         from signals.models import Signal, Symbol
 
-        # Initialize components
-        config = SignalConfig(min_confidence=0.7)
-        engine = SignalDetectionEngine(config)
+        # Initialize components with quality-focused thresholds
+        config = SignalConfig(
+            min_confidence=0.70,           # 70% confidence for higher quality signals
+            long_rsi_min=25.0,             # True oversold conditions (tight range)
+            long_rsi_max=35.0,             # Mean reversion buy zone
+            short_rsi_min=65.0,            # True overbought conditions (tight range)
+            short_rsi_max=75.0,            # Mean reversion sell zone
+            long_adx_min=20.0,             # Filter choppy markets (minimum trend strength)
+            short_adx_min=20.0             # Avoid low-confidence ranging conditions
+        )
+        # Enable volatility-aware mode for dynamic SL/TP adjustment per coin
+        engine = SignalDetectionEngine(config, use_volatility_aware=True)
 
         # Run async scanning
         loop = asyncio.new_event_loop()
@@ -633,7 +651,7 @@ async def _scan_futures_market_async(engine):
         # Fetch klines for all pairs
         klines_data = await client.batch_get_klines(
             top_pairs,
-            interval='5m',
+            interval='1h',
             limit=200,
             batch_size=20
         )
@@ -645,7 +663,7 @@ async def _scan_futures_market_async(engine):
                 engine.update_candles(symbol, klines)
 
                 # Process symbol
-                result = engine.process_symbol(symbol, '5m')
+                result = engine.process_symbol(symbol, '1h')
 
                 if result:
                     action = result.get('action')

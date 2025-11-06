@@ -39,19 +39,47 @@ class PaperTradingService:
             Created PaperTrade instance
 
         Raises:
-            ValueError: If duplicate trade exists for this signal
+            ValueError: If duplicate trade exists for this signal or same symbol+direction
         """
-        # Check for duplicate - prevent creating multiple trades for same signal
-        existing_trade = PaperTrade.objects.filter(
+        # Get symbol string - handle both ForeignKey and string cases
+        if hasattr(signal.symbol, 'symbol'):
+            symbol_str = signal.symbol.symbol
+        else:
+            symbol_str = str(signal.symbol)
+
+        # Check 1: Duplicate by signal ID
+        existing_by_signal = PaperTrade.objects.filter(
             signal=signal,
             user=user,
             status__in=['OPEN', 'PENDING']
         ).first()
 
-        if existing_trade:
+        if existing_by_signal:
+            logger.warning(
+                f"⏭️ Duplicate trade for signal #{signal.id}: "
+                f"Trade #{existing_by_signal.id} already exists (Status: {existing_by_signal.status})"
+            )
             raise ValueError(
-                f"Duplicate trade detected: Trade #{existing_trade.id} already exists for this signal. "
-                f"Status: {existing_trade.status}, Entry: {existing_trade.entry_price}"
+                f"Duplicate trade detected: Trade #{existing_by_signal.id} already exists for this signal. "
+                f"Status: {existing_by_signal.status}, Entry: {existing_by_signal.entry_price}"
+            )
+
+        # Check 2: Duplicate by symbol + direction (prevents duplicates during signal upgrades)
+        existing_by_position = PaperTrade.objects.filter(
+            symbol=symbol_str,
+            direction=signal.direction,
+            user=user,
+            status__in=['OPEN', 'PENDING']
+        ).first()
+
+        if existing_by_position:
+            logger.info(
+                f"⏭️ Skipping paper trade: {signal.direction} position for {symbol_str} already open "
+                f"(Trade #{existing_by_position.id}, Signal #{existing_by_position.signal_id})"
+            )
+            raise ValueError(
+                f"Active position exists: {signal.direction} trade for {symbol_str} already open. "
+                f"Trade #{existing_by_position.id} (Entry: {existing_by_position.entry_price})"
             )
 
         if position_size is None:
@@ -62,12 +90,6 @@ class PaperTradingService:
         # Calculate quantity based on position size
         entry_price = Decimal(str(signal.entry))
         quantity = position_size / entry_price
-
-        # Get symbol string - handle both ForeignKey and string cases
-        if hasattr(signal.symbol, 'symbol'):
-            symbol_str = signal.symbol.symbol
-        else:
-            symbol_str = str(signal.symbol)
 
         # Create paper trade
         paper_trade = PaperTrade.objects.create(

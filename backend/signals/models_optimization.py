@@ -3,7 +3,7 @@ Strategy Optimization Models
 Track configuration versions, performance metrics, and learning history
 """
 from django.db import models
-from django.contrib.auth.models import User
+from django.conf import settings
 from django.utils import timezone
 import json
 
@@ -91,7 +91,7 @@ class StrategyConfigHistory(models.Model):
 
     # User & Timestamps
     created_by = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

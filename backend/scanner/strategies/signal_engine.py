@@ -39,7 +39,7 @@ class SignalConfig:
 
     # Stop loss and take profit multipliers (ATR-based)
     sl_atr_multiplier: float = 1.5  # 1.5x ATR for stop loss (good risk management)
-    tp_atr_multiplier: float = 2.5  # 2.5x ATR for take profit (1.67:1 R/R)
+    tp_atr_multiplier: float = 5.25  # 5.25x ATR for take profit (3.5:1 R/R)
 
     # Signal management
     min_confidence: float = 0.75  # Increased to filter marginal signals
@@ -57,6 +57,11 @@ class SignalConfig:
     di_weight: float = 1.0          # Directional movement
     bb_weight: float = 0.8          # Volatility and price extremes
     volatility_weight: float = 0.5  # Market condition adjustment
+
+    # NEW INDICATOR WEIGHTS
+    supertrend_weight: float = 1.9  # Strong trend following indicator
+    mfi_weight: float = 1.3         # Volume-weighted momentum
+    psar_weight: float = 1.1        # Adaptive trailing stop/trend
 
 
 @dataclass
@@ -79,10 +84,14 @@ class ActiveSignal:
         """Convert to dictionary for broadcasting."""
         return {
             'symbol': self.symbol,
-            'direction': self.direction,
-            'entry': float(self.entry),
-            'sl': float(self.sl),
-            'tp': float(self.tp),
+            'signal_type': self.direction,  # Database expects 'signal_type'
+            'direction': self.direction,  # Keep for backward compatibility
+            'entry_price': float(self.entry),  # Database expects 'entry_price'
+            'entry': float(self.entry),  # Keep for backward compatibility
+            'stop_loss': float(self.sl),  # Database expects 'stop_loss'
+            'sl': float(self.sl),  # Keep for backward compatibility
+            'take_profit': float(self.tp),  # Database expects 'take_profit'
+            'tp': float(self.tp),  # Keep for backward compatibility
             'confidence': self.confidence,
             'timeframe': self.timeframe,
             'description': self.description,
@@ -229,6 +238,27 @@ class SignalDetectionEngine:
 
         logger.debug(f"Updated {symbol} cache: {len(cache)} candles")
 
+    def _get_higher_timeframe_trend(self, symbol: str) -> str:
+        """
+        Get daily trend direction using EMA crossover.
+
+        PHASE 2 OPTIMIZATION: Multi-Timeframe Confirmation
+        Only take signals aligned with higher timeframe trend.
+
+        Args:
+            symbol: Trading pair symbol
+
+        Returns:
+            "BULLISH", "BEARISH", or "NEUTRAL"
+
+        NOTE: Currently disabled to avoid event loop conflicts.
+        Returns NEUTRAL to allow all signals through.
+        """
+        # TEMPORARILY DISABLED: Event loop conflict issues
+        # This feature will be re-enabled after refactoring to use proper async context
+        logger.debug(f"{symbol}: Daily trend check disabled, returning NEUTRAL")
+        return "NEUTRAL"
+
     def process_symbol(
         self,
         symbol: str,
@@ -291,17 +321,68 @@ class SignalDetectionEngine:
         current = df.iloc[-1]
         previous = df.iloc[-2]
 
+        # PHASE 1 OPTIMIZATION: Volume Filter (DISABLED - was filtering out winners)
+        # Testing showed 1.5x threshold removed winning trades, keeping only losers
+        # Volume is already factored into the weighted scoring system
+        # if current['volume_trend'] < 1.5:
+        #     logger.debug(
+        #         f"{symbol}: Low volume ({current['volume_trend']:.2f}x average), "
+        #         f"skipping signal detection"
+        #     )
+        #     return None
+
+        # PHASE 3 OPTIMIZATION: Volatility-Based No-Trade Zones
+        # Avoid trading in ranging/choppy markets (low ADX)
+        if current['adx'] < 18:
+            logger.debug(
+                f"{symbol}: Market is ranging (ADX: {current['adx']:.1f} < 18), "
+                f"skipping signal detection to avoid false breakouts"
+            )
+            return None
+
+        # PHASE 3 OPTIMIZATION: Volume Spike Confirmation
+        # For breakout strategies, require above-average volume to confirm momentum
+        # This is different from Phase 1 volume filter - we need volume SPIKE, not just absolute volume
+        volume_ma_20 = df['volume'].rolling(20).mean().iloc[-1]
+        volume_spike_ratio = current['volume'] / volume_ma_20 if volume_ma_20 > 0 else 0
+
+        if volume_spike_ratio < 1.2:
+            logger.debug(
+                f"{symbol}: No volume spike detected ({volume_spike_ratio:.2f}x vs 20-period avg), "
+                f"waiting for stronger momentum confirmation"
+            )
+            return None
+
         # Check LONG conditions
         long_signal, long_conf, long_conditions = self._check_long_conditions(
             df, current, previous, config
         )
 
         if long_signal and long_conf >= config.min_confidence:
+            # PHASE 2 OPTIMIZATION: Multi-Timeframe Confirmation
+            # Only take LONG signals aligned with daily trend
+            daily_trend = self._get_higher_timeframe_trend(symbol)
+
+            if daily_trend == "BEARISH":
+                logger.info(
+                    f"{symbol}: LONG signal detected (Conf: {long_conf:.0%}) but daily trend is BEARISH, "
+                    f"skipping to avoid counter-trend trade"
+                )
+                return None
+            elif daily_trend == "NEUTRAL":
+                logger.info(
+                    f"{symbol}: LONG signal detected (Conf: {long_conf:.0%}), daily trend NEUTRAL, "
+                    f"proceeding with caution"
+                )
+
             signal = self._create_signal(
                 symbol, 'LONG', df, current, long_conf, long_conditions, timeframe, config
             )
             self.active_signals[symbol] = signal
-            logger.info(f"🆕 NEW LONG signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%})")
+            logger.info(
+                f"🆕 NEW LONG signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%}, "
+                f"Daily Trend: {daily_trend})"
+            )
             return {'action': 'created', 'signal': signal.to_dict()}
 
         # Check SHORT conditions
@@ -310,11 +391,30 @@ class SignalDetectionEngine:
         )
 
         if short_signal and short_conf >= config.min_confidence:
+            # PHASE 2 OPTIMIZATION: Multi-Timeframe Confirmation
+            # Only take SHORT signals aligned with daily trend
+            daily_trend = self._get_higher_timeframe_trend(symbol)
+
+            if daily_trend == "BULLISH":
+                logger.info(
+                    f"{symbol}: SHORT signal detected (Conf: {short_conf:.0%}) but daily trend is BULLISH, "
+                    f"skipping to avoid counter-trend trade"
+                )
+                return None
+            elif daily_trend == "NEUTRAL":
+                logger.info(
+                    f"{symbol}: SHORT signal detected (Conf: {short_conf:.0%}), daily trend NEUTRAL, "
+                    f"proceeding with caution"
+                )
+
             signal = self._create_signal(
                 symbol, 'SHORT', df, current, short_conf, short_conditions, timeframe, config
             )
             self.active_signals[symbol] = signal
-            logger.info(f"🆕 NEW SHORT signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%})")
+            logger.info(
+                f"🆕 NEW SHORT signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%}, "
+                f"Daily Trend: {daily_trend})"
+            )
             return {'action': 'created', 'signal': signal.to_dict()}
 
         return None
@@ -388,7 +488,10 @@ class SignalDetectionEngine:
             config.ema_alignment_weight +
             config.di_weight +
             config.bb_weight +
-            config.volatility_weight
+            config.volatility_weight +
+            config.supertrend_weight +
+            config.mfi_weight +
+            config.psar_weight
         )
 
         conditions = {}
@@ -486,6 +589,30 @@ class SignalDetectionEngine:
             else:
                 conditions['low_volatility'] = False
 
+            # 11. SuperTrend Bullish
+            if current['supertrend_direction'] == 1:
+                score += config.supertrend_weight
+                conditions['supertrend_bullish'] = True
+            else:
+                conditions['supertrend_bullish'] = False
+
+            # 12. MFI (Money Flow Index) - Volume-weighted momentum
+            if 20 < current['mfi'] < 50:  # Oversold to neutral
+                score += config.mfi_weight
+                conditions['mfi_favorable'] = True
+            elif current['mfi'] > previous['mfi']:  # Rising MFI
+                score += config.mfi_weight * 0.6
+                conditions['mfi_favorable'] = True
+            else:
+                conditions['mfi_favorable'] = False
+
+            # 13. Parabolic SAR Bullish
+            if current['psar_bullish']:  # Price above SAR
+                score += config.psar_weight
+                conditions['psar_bullish'] = True
+            else:
+                conditions['psar_bullish'] = False
+
             # Calculate realistic confidence
             raw_confidence = score / max_score
 
@@ -508,7 +635,7 @@ class SignalDetectionEngine:
             return False, 0.0, {}
 
     def _check_short_conditions(self, df, current, previous, config: SignalConfig) -> tuple[bool, float, Dict[str, bool]]:
-        """Check SHORT signal conditions with realistic confidence scoring."""
+        """CHECK SHORT signal conditions with realistic confidence scoring."""
         score = 0.0
         max_score = (
             config.macd_weight +
@@ -520,7 +647,10 @@ class SignalDetectionEngine:
             config.ema_alignment_weight +
             config.di_weight +
             config.bb_weight +
-            config.volatility_weight
+            config.volatility_weight +
+            config.supertrend_weight +
+            config.mfi_weight +
+            config.psar_weight
         )
 
         conditions = {}
@@ -617,6 +747,30 @@ class SignalDetectionEngine:
                 conditions['low_volatility'] = True
             else:
                 conditions['low_volatility'] = False
+
+            # 11. SuperTrend Bearish
+            if current['supertrend_direction'] == -1:
+                score += config.supertrend_weight
+                conditions['supertrend_bearish'] = True
+            else:
+                conditions['supertrend_bearish'] = False
+
+            # 12. MFI (Money Flow Index) - Volume-weighted momentum
+            if 50 < current['mfi'] < 80:  # Overbought to neutral
+                score += config.mfi_weight
+                conditions['mfi_favorable'] = True
+            elif current['mfi'] < previous['mfi']:  # Falling MFI
+                score += config.mfi_weight * 0.6
+                conditions['mfi_favorable'] = True
+            else:
+                conditions['mfi_favorable'] = False
+
+            # 13. Parabolic SAR Bearish
+            if not current['psar_bullish']:  # Price below SAR
+                score += config.psar_weight
+                conditions['psar_bearish'] = True
+            else:
+                conditions['psar_bearish'] = False
 
             # Calculate realistic confidence
             raw_confidence = score / max_score

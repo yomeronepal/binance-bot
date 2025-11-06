@@ -8,11 +8,13 @@ export const useSignalStore = create((set, get) => ({
   // State
   signals: [],
   futuresSignals: [],
+  forexSignals: [],
   currentSignal: null,
   isLoading: false,
   error: null,
   spotSymbolsCount: 0,
   futuresSymbolsCount: 0,
+  forexSymbolsCount: 0,
   filters: {
     direction: 'ALL',
     timeframe: 'ALL',
@@ -145,6 +147,22 @@ export const useSignalStore = create((set, get) => ({
   },
 
   /**
+   * Fetch forex signals from API
+   */
+  fetchForexSignals: async (params = {}) => {
+    set({ isLoading: true, error: null });
+    try {
+      const data = await signalService.getAll({ ...params, market_type: 'FOREX' });
+      set({ forexSignals: data.results || data, isLoading: false });
+    } catch (error) {
+      set({
+        error: error.response?.data?.detail || 'Failed to fetch forex signals',
+        isLoading: false,
+      });
+    }
+  },
+
+  /**
    * Fetch spot symbols count
    */
   fetchSpotSymbolsCount: async () => {
@@ -169,6 +187,20 @@ export const useSignalStore = create((set, get) => ({
       set({ futuresSymbolsCount: data.count || 0 });
     } catch (error) {
       console.error('Failed to fetch futures symbols count:', error);
+    }
+  },
+
+  /**
+   * Fetch forex symbols count
+   */
+  fetchForexSymbolsCount: async () => {
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+      const response = await fetch(`${API_URL}/symbols/?market_type=FOREX`);
+      const data = await response.json();
+      set({ forexSymbolsCount: data.count || 0 });
+    } catch (error) {
+      console.error('Failed to fetch forex symbols count:', error);
     }
   },
 
@@ -201,10 +233,12 @@ export const useSignalStore = create((set, get) => ({
    * Handle new signal from WebSocket (signal_created)
    */
   handleSignalCreated: (signal) => {
-    const { signals, futuresSignals } = get();
+    const { signals, futuresSignals, forexSignals } = get();
     const marketType = signal.market_type || 'SPOT';
 
-    if (marketType === 'FUTURES') {
+    if (marketType === 'FOREX') {
+      set({ forexSignals: [signal, ...forexSignals], lastUpdate: new Date() });
+    } else if (marketType === 'FUTURES') {
       // Check if futures signal already exists
       const exists = futuresSignals.some((s) => s.id === signal.id);
       if (!exists) {
@@ -269,9 +303,20 @@ export const useSignalStore = create((set, get) => ({
    * Handle signal deletion from WebSocket (signal_deleted)
    */
   handleSignalDeleted: (signalId, marketType = 'SPOT') => {
-    const { signals, futuresSignals, currentSignal } = get();
+    const { signals, futuresSignals, forexSignals, currentSignal } = get();
 
-    if (marketType === 'FUTURES') {
+    if (marketType === 'FOREX') {
+      const updatedForexSignals = forexSignals.filter((signal) => signal.id !== signalId);
+
+      // Clear current signal if it's the deleted one
+      const newCurrentSignal = currentSignal?.id === signalId ? null : currentSignal;
+
+      set({
+        forexSignals: updatedForexSignals,
+        currentSignal: newCurrentSignal,
+        lastUpdate: new Date().toISOString(),
+      });
+    } else if (marketType === 'FUTURES') {
       const updatedFuturesSignals = futuresSignals.filter((signal) => signal.id !== signalId);
 
       // Clear current signal if it's the deleted one

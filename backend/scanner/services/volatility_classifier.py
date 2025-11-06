@@ -210,7 +210,7 @@ class VolatilityClassifier:
             last_updated=datetime.now(),
             # Recommended parameters for HIGH volatility
             sl_atr_multiplier=2.0,  # Wider stops
-            tp_atr_multiplier=3.5,  # Bigger targets
+            tp_atr_multiplier=7.0,  # Bigger targets (3.5:1 R/R)
             adx_threshold=18.0,  # Lower threshold (more signals)
             min_confidence=0.70  # Accept more signals
         )
@@ -227,7 +227,7 @@ class VolatilityClassifier:
             last_updated=datetime.now(),
             # Recommended parameters for MEDIUM volatility (current optimal)
             sl_atr_multiplier=1.5,  # Standard
-            tp_atr_multiplier=2.5,  # Standard
+            tp_atr_multiplier=5.25,  # 3.5:1 R/R
             adx_threshold=22.0,  # Standard
             min_confidence=0.75  # Standard
         )
@@ -244,7 +244,7 @@ class VolatilityClassifier:
             last_updated=datetime.now(),
             # Recommended parameters for LOW volatility
             sl_atr_multiplier=1.0,  # Tighter stops
-            tp_atr_multiplier=2.0,  # Closer targets
+            tp_atr_multiplier=3.5,  # 3.5:1 R/R
             adx_threshold=20.0,  # Lower threshold (more signals)
             min_confidence=0.70  # Accept more signals
         )

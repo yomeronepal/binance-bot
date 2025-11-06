@@ -404,10 +404,10 @@ class PaperTradeAdmin(BaseModelAdmin):
             color = 'gray'
             sign = ''
         return format_html(
-            '<span style="color: {}; font-weight: bold;">{}{:.2f} USDT</span>',
+            '<span style="color: {}; font-weight: bold;">{}{} USDT</span>',
             color,
             sign,
-            pnl
+            f'{pnl:.2f}'
         )
     profit_loss_display.short_description = 'P/L'
     profit_loss_display.admin_order_field = 'profit_loss'
@@ -1021,9 +1021,10 @@ class MonteCarloSimulationAdmin(admin.ModelAdmin):
         mean_ret = float(obj.mean_return)
         color = "green" if mean_ret > 0 else "red"
         sign = "+" if mean_ret >= 0 else ""
+        formatted_value = f"{sign}{mean_ret:.2f}%"
         return format_html(
-            '<span style="color: {}; font-weight: bold;">{}{:.2f}%</span>',
-            color, sign, mean_ret
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color, formatted_value
         )
     mean_return_display.short_description = 'Mean Return'
 
@@ -1036,9 +1037,10 @@ class MonteCarloSimulationAdmin(admin.ModelAdmin):
             color = "orange"
         else:
             color = "red"
+        formatted_value = f"{prob:.1f}%"
         return format_html(
-            '<span style="color: {}; font-weight: bold;">{:.1f}%</span>',
-            color, prob
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color, formatted_value
         )
     probability_of_profit_display.short_description = 'Prob. of Profit'
 
@@ -1055,10 +1057,11 @@ class MonteCarloSimulationAdmin(admin.ModelAdmin):
             color = "red"
             label = "WEAK"
 
+        formatted_score = f"{score:.1f}"
         return format_html(
             '<span style="background-color: {}; color: white; padding: 3px 8px; '
             'border-radius: 3px; font-weight: bold;">{}</span> ({})',
-            color, label, score
+            color, label, formatted_score
         )
     robustness_display.short_description = 'Robustness'
 
@@ -1103,9 +1106,10 @@ class MonteCarloRunAdmin(admin.ModelAdmin):
         roi = float(obj.roi)
         color = "green" if roi > 0 else "red"
         sign = "+" if roi >= 0 else ""
+        formatted_value = f"{sign}{roi:.2f}%"
         return format_html(
-            '<span style="color: {}; font-weight: bold;">{}{:.2f}%</span>',
-            color, sign, roi
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color, formatted_value
         )
     roi_display.short_description = 'ROI'
 
@@ -1118,9 +1122,10 @@ class MonteCarloRunAdmin(admin.ModelAdmin):
             color = "orange"
         else:
             color = "red"
+        formatted_value = f"{wr:.1f}%"
         return format_html(
-            '<span style="color: {};">{:.1f}%</span>',
-            color, wr
+            '<span style="color: {};">{}</span>',
+            color, formatted_value
         )
     win_rate_display.short_description = 'Win Rate'
 

@@ -134,17 +134,21 @@ class BacktestEngine:
             logger.debug(f"Insufficient cash (${self.state.cash}), skipping {symbol}")
             return
 
-        # Create position
+        # Create position - convert signal floats to Decimal for type safety
+        entry_price = Decimal(str(signal['entry']))
+        stop_loss = Decimal(str(signal['sl']))
+        take_profit = Decimal(str(signal['tp']))
+
         position = BacktestPosition(
             symbol=symbol,
             direction=signal['direction'],
-            entry_price=signal['entry'],
+            entry_price=entry_price,
             entry_time=signal['timestamp'],
-            quantity=self.position_size / signal['entry'],
+            quantity=self.position_size / entry_price,
             position_size=self.position_size,
-            stop_loss=signal['sl'],
-            take_profit=signal['tp'],
-            signal_confidence=signal.get('confidence'),
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            signal_confidence=Decimal(str(signal.get('confidence', 0.7))),
             signal_indicators=signal.get('indicators', {})
         )
 
@@ -186,9 +190,10 @@ class BacktestEngine:
 
             # Check each candle for TP/SL hit
             for candle in relevant_candles:
-                high = candle['high']
-                low = candle['low']
-                close_price = candle['close']
+                # Ensure all price values are Decimal for consistent comparisons
+                high = Decimal(str(candle['high'])) if not isinstance(candle['high'], Decimal) else candle['high']
+                low = Decimal(str(candle['low'])) if not isinstance(candle['low'], Decimal) else candle['low']
+                close_price = Decimal(str(candle['close'])) if not isinstance(candle['close'], Decimal) else candle['close']
                 timestamp = candle['timestamp']
 
                 exit_price = None
@@ -266,6 +271,10 @@ class BacktestEngine:
         risk_reward_ratio = reward / risk if risk > 0 else Decimal('0')
 
         # Record trade
+        # Convert timestamps to datetime objects for Django compatibility
+        opened_at = position.entry_time if isinstance(position.entry_time, datetime) else position.entry_time.to_pydatetime()
+        closed_at = exit_time if isinstance(exit_time, datetime) else exit_time.to_pydatetime()
+
         trade = {
             'symbol': position.symbol,
             'direction': position.direction,
@@ -277,8 +286,8 @@ class BacktestEngine:
             'quantity': position.quantity,
             'profit_loss': pnl,
             'profit_loss_percentage': pnl_percentage,
-            'opened_at': position.entry_time,
-            'closed_at': exit_time,
+            'opened_at': opened_at,
+            'closed_at': closed_at,
             'duration_hours': Decimal(str(duration_hours)),
             'status': status,
             'signal_confidence': position.signal_confidence,
@@ -303,8 +312,10 @@ class BacktestEngine:
                 self.state.max_drawdown = self.state.current_drawdown
 
         # Record metrics snapshot
+        # Convert timestamp to ISO format string for JSON serialization
+        timestamp_str = exit_time.isoformat() if hasattr(exit_time, 'isoformat') else str(exit_time)
         self.metrics_history.append({
-            'timestamp': exit_time,
+            'timestamp': timestamp_str,
             'equity': float(self.state.equity),
             'cash': float(self.state.cash),
             'open_positions': len(self.state.open_positions),
@@ -330,9 +341,10 @@ class BacktestEngine:
                 candles = symbols_data[position.symbol]
                 if candles:
                     last_candle = candles[-1]
+                    close_price = Decimal(str(last_candle['close'])) if not isinstance(last_candle['close'], Decimal) else last_candle['close']
                     self._close_position(
                         position,
-                        last_candle['close'],
+                        close_price,
                         last_candle['timestamp'],
                         'CLOSED_END'
                     )

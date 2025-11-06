@@ -15,7 +15,7 @@ class BinancePollingWorker:
 
     def __init__(
         self,
-        interval: str = '5m',
+        interval: str = '1h',
         batch_size: int = 20,
         poll_interval: int = 60,
         min_confidence: float = 0.7,
@@ -25,7 +25,7 @@ class BinancePollingWorker:
         Initialize polling worker.
 
         Args:
-            interval: Candlestick interval ('5m', '15m', etc.)
+            interval: Candlestick interval ('1h', '4h', etc.)
             batch_size: Number of symbols to process concurrently
             poll_interval: Seconds between polling cycles
             min_confidence: Minimum confidence for signal generation
@@ -269,7 +269,7 @@ async def run_worker():
 
     # Create worker with environment config
     worker = BinancePollingWorker(
-        interval=os.getenv('BINANCE_INTERVAL', '5m'),
+        interval=os.getenv('BINANCE_INTERVAL', '1h'),
         batch_size=int(os.getenv('BINANCE_BATCH_SIZE', '20')),
         poll_interval=int(os.getenv('POLLING_INTERVAL', '60')),
         min_confidence=float(os.getenv('MIN_CONFIDENCE', '0.7')),

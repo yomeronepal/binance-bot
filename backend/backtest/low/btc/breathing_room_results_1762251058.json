@@ -1,0 +1,46 @@
+[
+  {
+    "name": "BTCUSDT 1d BR1 - Wider SL (2.5x ATR)",
+    "sl_multiplier": 2.5,
+    "tp_multiplier": 7.0,
+    "trades": 3,
+    "win_rate": 100.0,
+    "roi": 0.64,
+    "pnl": 63.61550511,
+    "sharpe": "7.4009",
+    "profit_factor": "0.0000"
+  },
+  {
+    "name": "BTCUSDT 1d BR2 - Even Wider SL (3.0x ATR)",
+    "sl_multiplier": 3.0,
+    "tp_multiplier": 8.0,
+    "trades": 3,
+    "win_rate": 100.0,
+    "roi": 0.73,
+    "pnl": 72.70343441,
+    "sharpe": "7.4009",
+    "profit_factor": "0.0000"
+  },
+  {
+    "name": "BTCUSDT 1d BR3 - Balanced (2.0x ATR)",
+    "sl_multiplier": 2.0,
+    "tp_multiplier": 6.0,
+    "trades": 3,
+    "win_rate": 66.67,
+    "roi": 0.26,
+    "pnl": 26.16701523,
+    "sharpe": "0.7762",
+    "profit_factor": "4.6906"
+  },
+  {
+    "name": "BTCUSDT 1d BR4 - Conservative (3.5x ATR)",
+    "sl_multiplier": 3.5,
+    "tp_multiplier": 9.0,
+    "trades": 5,
+    "win_rate": 80.0,
+    "roi": 1.0,
+    "pnl": 99.7110416,
+    "sharpe": "1.4665",
+    "profit_factor": "16.1935"
+  }
+]
