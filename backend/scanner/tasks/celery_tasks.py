@@ -661,13 +661,12 @@ async def _scan_futures_market_async(engine):
         await _save_futures_symbols_to_db(top_pairs)
 
         # Fetch klines for all pairs with optimized rate limiting
-        # Using smaller batch_size (5) and longer delay (1.5s) to prevent timeouts
+        # Using smaller batch_size (5) to prevent timeouts
         klines_data = await client.batch_get_klines(
             top_pairs,
             interval='1h',
             limit=200,
-            batch_size=5,  # Reduced from 20 to 5 concurrent requests
-            delay_between_batches=1.5  # Increased delay to prevent rate limiting
+            batch_size=5  # Reduced from 20 to 5 concurrent requests
         )
 
         # Process each symbol

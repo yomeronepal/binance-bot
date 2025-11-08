@@ -4,6 +4,24 @@
 import { create } from 'zustand';
 import { signalService } from '../services/signalService';
 
+/**
+ * Remove duplicate signals, keeping only the most recent for each symbol/direction/timeframe combination
+ */
+const deduplicateSignals = (signals) => {
+  const signalMap = new Map();
+
+  signals.forEach(signal => {
+    const key = `${signal.symbol_detail?.symbol || signal.symbol}-${signal.direction}-${signal.timeframe}`;
+    const existing = signalMap.get(key);
+
+    if (!existing || new Date(signal.created_at) > new Date(existing.created_at)) {
+      signalMap.set(key, signal);
+    }
+  });
+
+  return Array.from(signalMap.values());
+};
+
 export const useSignalStore = create((set, get) => ({
   // State
   signals: [],
@@ -121,7 +139,9 @@ export const useSignalStore = create((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const data = await signalService.getAll({ ...params, market_type: 'SPOT' });
-      set({ signals: data.results || data, isLoading: false });
+      const rawSignals = data.results || data;
+      const uniqueSignals = deduplicateSignals(rawSignals);
+      set({ signals: uniqueSignals, isLoading: false });
     } catch (error) {
       set({
         error: error.response?.data?.detail || 'Failed to fetch signals',
@@ -137,7 +157,9 @@ export const useSignalStore = create((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const data = await signalService.getAll({ ...params, market_type: 'FUTURES' });
-      set({ futuresSignals: data.results || data, isLoading: false });
+      const rawSignals = data.results || data;
+      const uniqueSignals = deduplicateSignals(rawSignals);
+      set({ futuresSignals: uniqueSignals, isLoading: false });
     } catch (error) {
       set({
         error: error.response?.data?.detail || 'Failed to fetch futures signals',
@@ -153,7 +175,9 @@ export const useSignalStore = create((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const data = await signalService.getAll({ ...params, market_type: 'FOREX' });
-      set({ forexSignals: data.results || data, isLoading: false });
+      const rawSignals = data.results || data;
+      const uniqueSignals = deduplicateSignals(rawSignals);
+      set({ forexSignals: uniqueSignals, isLoading: false });
     } catch (error) {
       set({
         error: error.response?.data?.detail || 'Failed to fetch forex signals',
@@ -358,8 +382,9 @@ export const useSignalStore = create((set, get) => ({
    * Handle active signals list (connection_established)
    */
   handleActiveSignals: (signalsData) => {
+    const uniqueSignals = deduplicateSignals(signalsData);
     set({
-      signals: signalsData,
+      signals: uniqueSignals,
       lastUpdate: new Date().toISOString(),
     });
   },

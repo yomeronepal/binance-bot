@@ -135,148 +135,165 @@ async def _save_signal_async(signal_data: Dict) -> Optional[Signal]:
         @sync_to_async
         def save_signal():
             from signals.models import Symbol as SymbolModel
+            from django.db import transaction
 
             symbol_str = signal_data['symbol']
             direction = signal_data.get('signal_type', signal_data.get('direction'))  # Support both field names
             new_timeframe = signal_data.get('timeframe', '1h')
             new_priority = TIMEFRAME_PRIORITY.get(new_timeframe, 0)
 
-            # Get or create Symbol object
-            symbol_obj, _ = SymbolModel.objects.get_or_create(
-                symbol=symbol_str,
-                defaults={'exchange': 'BINANCE'}
-            )
+            # Use transaction with SELECT FOR UPDATE to prevent race conditions
+            with transaction.atomic():
+                # Get or create Symbol object
+                symbol_obj, _ = SymbolModel.objects.get_or_create(
+                    symbol=symbol_str,
+                    defaults={'exchange': 'BINANCE'}
+                )
 
-            # Check for existing ACTIVE signals for this symbol+direction+market_type
-            # NOTE: We check SPOT and FUTURES separately to prevent cross-market duplicates
-            existing_spot = Signal.objects.filter(
-                symbol=symbol_obj,
-                direction=direction,  # Database uses 'direction' not 'signal_type'
-                status='ACTIVE',
-                market_type='SPOT'
-            ).first()
+                # Check for existing ACTIVE signals for this symbol+direction+market_type
+                # NOTE: We check SPOT and FUTURES separately to prevent cross-market duplicates
+                # Use select_for_update() to lock rows and prevent race conditions
+                existing_spot = Signal.objects.select_for_update().filter(
+                    symbol=symbol_obj,
+                    direction=direction,  # Database uses 'direction' not 'signal_type'
+                    status='ACTIVE',
+                    market_type='SPOT'
+                ).first()
 
-            existing_futures = Signal.objects.filter(
-                symbol=symbol_obj,
-                direction=direction,
-                status='ACTIVE',
-                market_type='FUTURES'
-            ).first()
+                existing_futures = Signal.objects.select_for_update().filter(
+                    symbol=symbol_obj,
+                    direction=direction,
+                    status='ACTIVE',
+                    market_type='FUTURES'
+                ).first()
 
-            # Use SPOT as the reference for timeframe comparison
-            existing = existing_spot
+                # Use SPOT as the reference for timeframe comparison
+                existing = existing_spot
 
-            if existing:
-                existing_timeframe = existing.timeframe
-                existing_priority = TIMEFRAME_PRIORITY.get(existing_timeframe, 0)
+                if existing:
+                    existing_timeframe = existing.timeframe
+                    existing_priority = TIMEFRAME_PRIORITY.get(existing_timeframe, 0)
 
-                # Case 1: Same timeframe - skip duplicate
-                if new_timeframe == existing_timeframe:
+                    # Case 1: Same timeframe - skip duplicate
+                    if new_timeframe == existing_timeframe:
+                        logger.debug(
+                            f"⏭️ Skipping duplicate {direction} signal for {symbol_str} ({new_timeframe}) - "
+                            f"already exists"
+                        )
+                        return None
+
+                    # Case 2: New signal is LOWER priority - skip it
+                    if new_priority < existing_priority:
+                        logger.info(
+                            f"⏭️ Skipping {direction} signal for {symbol_str} ({new_timeframe}) - "
+                            f"higher timeframe signal exists ({existing_timeframe})"
+                        )
+                        return None
+
+                    # Case 3: New signal is HIGHER priority - replace existing
+                    if new_priority > existing_priority:
+                        logger.info(
+                            f"⬆️ UPGRADING {direction} signal for {symbol_str}: "
+                            f"{existing_timeframe} → {new_timeframe} "
+                            f"(Conf: {existing.confidence:.0%} → {signal_data['confidence']:.0%})"
+                        )
+
+                        # Delete lower timeframe SPOT signal
+                        if existing_spot:
+                            Signal.objects.filter(
+                                symbol=symbol_obj,
+                                direction=direction,
+                                timeframe=existing_timeframe,
+                                status='ACTIVE',
+                                market_type='SPOT'
+                            ).delete()
+
+                        # Delete lower timeframe FUTURES signal
+                        if existing_futures:
+                            Signal.objects.filter(
+                                symbol=symbol_obj,
+                                direction=direction,
+                                timeframe=existing_futures.timeframe,
+                                status='ACTIVE',
+                                market_type='FUTURES'
+                            ).delete()
+
+                        # Create new higher timeframe signals (SPOT + FUTURES)
+                        spot_signal = Signal.objects.create(
+                            symbol=symbol_obj,
+                            direction=direction,
+                            entry=signal_data.get('entry_price', signal_data.get('entry')),
+                            sl=signal_data.get('stop_loss', signal_data.get('sl')),
+                            tp=signal_data.get('take_profit', signal_data.get('tp')),
+                            confidence=signal_data['confidence'],
+                            timeframe=new_timeframe,
+                            market_type='SPOT',
+                            status='ACTIVE'
+                        )
+
+                        futures_signal = Signal.objects.create(
+                            symbol=symbol_obj,
+                            direction=direction,
+                            entry=signal_data.get('entry_price', signal_data.get('entry')),
+                            sl=signal_data.get('stop_loss', signal_data.get('sl')),
+                            tp=signal_data.get('take_profit', signal_data.get('tp')),
+                            confidence=signal_data['confidence'],
+                            timeframe=new_timeframe,
+                            market_type='FUTURES',
+                            leverage=10,  # Default 10x leverage for futures
+                            status='ACTIVE'
+                        )
+
+                        logger.info(
+                            f"✅ Upgraded to {new_timeframe} signals for {symbol_str} "
+                            f"@ ${spot_signal.entry} (SPOT + FUTURES, Conf: {spot_signal.confidence:.0%})"
+                        )
+                        return spot_signal  # Return SPOT signal as primary
+
+                # No existing signal - create new ones (SPOT + FUTURES)
+                # Use get_or_create to handle race conditions atomically
+                spot_signal, spot_created = Signal.objects.get_or_create(
+                    symbol=symbol_obj,
+                    direction=direction,
+                    timeframe=new_timeframe,
+                    market_type='SPOT',
+                    status='ACTIVE',
+                    defaults={
+                        'entry': signal_data.get('entry_price', signal_data.get('entry')),
+                        'sl': signal_data.get('stop_loss', signal_data.get('sl')),
+                        'tp': signal_data.get('take_profit', signal_data.get('tp')),
+                        'confidence': signal_data['confidence'],
+                    }
+                )
+
+                futures_signal, futures_created = Signal.objects.get_or_create(
+                    symbol=symbol_obj,
+                    direction=direction,
+                    timeframe=new_timeframe,
+                    market_type='FUTURES',
+                    status='ACTIVE',
+                    defaults={
+                        'entry': signal_data.get('entry_price', signal_data.get('entry')),
+                        'sl': signal_data.get('stop_loss', signal_data.get('sl')),
+                        'tp': signal_data.get('take_profit', signal_data.get('tp')),
+                        'confidence': signal_data['confidence'],
+                        'leverage': 10,  # Default 10x leverage for futures
+                    }
+                )
+
+                if spot_created and futures_created:
+                    logger.info(
+                        f"✅ New {direction} signals: {symbol_str} @ ${spot_signal.entry} "
+                        f"(SPOT + FUTURES, {new_timeframe}, Conf: {spot_signal.confidence:.0%})"
+                    )
+                else:
                     logger.debug(
-                        f"⏭️ Skipping duplicate {direction} signal for {symbol_str} ({new_timeframe}) - "
-                        f"already exists"
-                    )
-                    return None
-
-                # Case 2: New signal is LOWER priority - skip it
-                if new_priority < existing_priority:
-                    logger.info(
-                        f"⏭️ Skipping {direction} signal for {symbol_str} ({new_timeframe}) - "
-                        f"higher timeframe signal exists ({existing_timeframe})"
-                    )
-                    return None
-
-                # Case 3: New signal is HIGHER priority - replace existing
-                if new_priority > existing_priority:
-                    logger.info(
-                        f"⬆️ UPGRADING {direction} signal for {symbol_str}: "
-                        f"{existing_timeframe} → {new_timeframe} "
-                        f"(Conf: {existing.confidence:.0%} → {signal_data['confidence']:.0%})"
+                        f"⏭️ Signal already exists for {symbol_str} {direction} {new_timeframe} "
+                        f"(SPOT: {'created' if spot_created else 'exists'}, "
+                        f"FUTURES: {'created' if futures_created else 'exists'})"
                     )
 
-                    # Delete lower timeframe SPOT signal
-                    if existing_spot:
-                        Signal.objects.filter(
-                            symbol=symbol_obj,
-                            direction=direction,
-                            timeframe=existing_timeframe,
-                            status='ACTIVE',
-                            market_type='SPOT'
-                        ).delete()
-
-                    # Delete lower timeframe FUTURES signal
-                    if existing_futures:
-                        Signal.objects.filter(
-                            symbol=symbol_obj,
-                            direction=direction,
-                            timeframe=existing_futures.timeframe,
-                            status='ACTIVE',
-                            market_type='FUTURES'
-                        ).delete()
-
-                    # Create new higher timeframe signals (SPOT + FUTURES)
-                    spot_signal = Signal.objects.create(
-                        symbol=symbol_obj,
-                        direction=direction,
-                        entry=signal_data.get('entry_price', signal_data.get('entry')),
-                        sl=signal_data.get('stop_loss', signal_data.get('sl')),
-                        tp=signal_data.get('take_profit', signal_data.get('tp')),
-                        confidence=signal_data['confidence'],
-                        timeframe=new_timeframe,
-                        market_type='SPOT',
-                        status='ACTIVE'
-                    )
-
-                    futures_signal = Signal.objects.create(
-                        symbol=symbol_obj,
-                        direction=direction,
-                        entry=signal_data.get('entry_price', signal_data.get('entry')),
-                        sl=signal_data.get('stop_loss', signal_data.get('sl')),
-                        tp=signal_data.get('take_profit', signal_data.get('tp')),
-                        confidence=signal_data['confidence'],
-                        timeframe=new_timeframe,
-                        market_type='FUTURES',
-                        leverage=10,  # Default 10x leverage for futures
-                        status='ACTIVE'
-                    )
-
-                    logger.info(
-                        f"✅ Upgraded to {new_timeframe} signals for {symbol_str} "
-                        f"@ ${spot_signal.entry} (SPOT + FUTURES, Conf: {spot_signal.confidence:.0%})"
-                    )
-                    return spot_signal  # Return SPOT signal as primary
-
-            # No existing signal - create new ones (SPOT + FUTURES)
-            spot_signal = Signal.objects.create(
-                symbol=symbol_obj,
-                direction=direction,
-                entry=signal_data.get('entry_price', signal_data.get('entry')),
-                sl=signal_data.get('stop_loss', signal_data.get('sl')),
-                tp=signal_data.get('take_profit', signal_data.get('tp')),
-                confidence=signal_data['confidence'],
-                timeframe=new_timeframe,
-                market_type='SPOT',
-                status='ACTIVE'
-            )
-
-            futures_signal = Signal.objects.create(
-                symbol=symbol_obj,
-                direction=direction,
-                entry=signal_data.get('entry_price', signal_data.get('entry')),
-                sl=signal_data.get('stop_loss', signal_data.get('sl')),
-                tp=signal_data.get('take_profit', signal_data.get('tp')),
-                confidence=signal_data['confidence'],
-                timeframe=new_timeframe,
-                market_type='FUTURES',
-                leverage=10,  # Default 10x leverage for futures
-                status='ACTIVE'
-            )
-
-            logger.info(
-                f"✅ New {direction} signals: {symbol_str} @ ${spot_signal.entry} "
-                f"(SPOT + FUTURES, {new_timeframe}, Conf: {spot_signal.confidence:.0%})"
-            )
-            return spot_signal  # Return SPOT signal as primary
+                return spot_signal  # Return SPOT signal as primary
 
         return await save_signal()
     except Exception as e:

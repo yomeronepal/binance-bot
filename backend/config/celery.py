@@ -89,7 +89,7 @@ app.conf.beat_schedule = {
     # Paper trading check - KEEP FREQUENT
     'check-paper-trades': {
         'task': 'scanner.tasks.celery_tasks.check_and_close_paper_trades',
-        'schedule': 300.0,  # Every 30 seconds
+        'schedule': 30.0,  # Every 30 seconds
         'options': {'expires': 25.0},
     },
 
