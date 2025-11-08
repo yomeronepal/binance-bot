@@ -66,6 +66,7 @@ const Dashboard = () => {
   } = useSignalStore();
   const [useMockData, setUseMockData] = useState(true);
   const [tradingMode, setTradingMode] = useState('paper'); // 'paper' or 'live'
+  const [successRate, setSuccessRate] = useState(null);
 
   // WebSocket URL
   const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/signals/';
@@ -102,6 +103,28 @@ const Dashboard = () => {
       setUseMockData(true);
     });
   }, [fetchSignals, fetchFuturesSignals]);
+
+  // Fetch success rate from paper trading performance
+  useEffect(() => {
+    const fetchSuccessRate = async () => {
+      try {
+        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        const response = await fetch(`${API_BASE}/api/public/paper-trading/performance/`);
+        if (response.ok) {
+          const data = await response.json();
+          setSuccessRate(data.win_rate);
+        }
+      } catch (error) {
+        console.error('Failed to fetch success rate:', error);
+        // Keep default value (null) if fetch fails
+      }
+    };
+
+    fetchSuccessRate();
+    // Refresh success rate every 30 seconds
+    const interval = setInterval(fetchSuccessRate, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const displaySignals = useMockData ? mockSignals : signals;
   const displayFuturesSignals = useMockData ? [] : futuresSignals;
@@ -211,7 +234,9 @@ const Dashboard = () => {
           <h3 className="text-sm font-medium text-orange-700 dark:text-orange-300">
             Success Rate
           </h3>
-          <p className="mt-2 text-3xl font-bold text-orange-900 dark:text-orange-100">78%</p>
+          <p className="mt-2 text-3xl font-bold text-orange-900 dark:text-orange-100">
+            {successRate !== null ? `${successRate.toFixed(1)}%` : '...'}
+          </p>
           <p className="mt-1 text-xs text-orange-600 dark:text-orange-400">
             Overall performance
           </p>

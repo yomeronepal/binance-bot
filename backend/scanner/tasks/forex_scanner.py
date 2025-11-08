@@ -62,7 +62,7 @@ COMMODITY_PAIRS = [
     # Agricultural Commodities (per bushel or lb)
     'WHEATUSD',    # Wheat
     'CORNUSD',     # Corn
-    'SOYBEANUSД',  # Soybeans
+    'SOYBEANSUSD',  # Soybeans (Fixed typo: was SOYBEANUSД)
     'SUGARUSD',    # Sugar
     'COFFEEUSD',   # Coffee
     'COTTONUSD',   # Cotton
@@ -481,13 +481,8 @@ def scan_forex_signals(self, timeframes: Optional[List[str]] = None, pair_types:
 
             return total_counts
 
-        # Run async scan
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            results = loop.run_until_complete(run_scan())
-        finally:
-            loop.close()
+        # Run async scan using asyncio.run() to prevent memory leaks
+        results = asyncio.run(run_scan())
 
         # Calculate totals
         total_created = sum(c['created'] for c in results.values())

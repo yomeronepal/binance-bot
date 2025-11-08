@@ -40,22 +40,16 @@ def run_backtest_async(self, backtest_id: int):
         # Fetch historical data
         logger.info(f"Fetching historical data for {len(backtest_run.symbols)} symbols...")
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            # Use CSV loader first (faster and uses local data)
-            symbols_data = loop.run_until_complete(
-                historical_data_fetcher.fetch_multiple_symbols_from_csv(
-                    backtest_run.symbols,
-                    backtest_run.timeframe,
-                    backtest_run.start_date,
-                    backtest_run.end_date,
-                    data_dir="backtest_data"  # Use local CSV files
-                )
+        # Use asyncio.run() to prevent memory leaks - properly manages event loop lifecycle
+        symbols_data = asyncio.run(
+            historical_data_fetcher.fetch_multiple_symbols_from_csv(
+                backtest_run.symbols,
+                backtest_run.timeframe,
+                backtest_run.start_date,
+                backtest_run.end_date,
+                data_dir="backtest_data"  # Use local CSV files
             )
-        finally:
-            loop.close()
+        )
 
         if not symbols_data:
             raise Exception("No historical data fetched")
@@ -194,8 +188,8 @@ def run_backtest_async(self, backtest_id: int):
             backtest_run.error_message = str(exc)
             backtest_run.completed_at = timezone.now()
             backtest_run.save()
-        except:
-            pass
+        except Exception as db_error:
+            logger.error(f"Failed to update backtest status to FAILED: {db_error}", exc_info=True)
 
         # Retry
         raise self.retry(exc=exc)

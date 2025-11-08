@@ -39,25 +39,19 @@ def scan_binance_market(self):
         # Enable volatility-aware mode for dynamic SL/TP adjustment per coin
         engine = SignalDetectionEngine(config, use_volatility_aware=True)
 
-        # Run async scanning
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Run async scanning using asyncio.run() to prevent memory leaks
+        # This properly creates, uses, and cleans up the event loop
+        result = asyncio.run(_scan_market_async(engine))
 
-        try:
-            result = loop.run_until_complete(_scan_market_async(engine))
+        logger.info(
+            f"✅ Market scan completed: "
+            f"Created={result['created']}, "
+            f"Updated={result['updated']}, "
+            f"Deleted={result['deleted']}, "
+            f"Active={result['active']}"
+        )
 
-            logger.info(
-                f"✅ Market scan completed: "
-                f"Created={result['created']}, "
-                f"Updated={result['updated']}, "
-                f"Deleted={result['deleted']}, "
-                f"Active={result['active']}"
-            )
-
-            return result
-
-        finally:
-            loop.close()
+        return result
 
     except Exception as exc:
         logger.error(f"❌ Error in market scan: {exc}", exc_info=True)
@@ -66,7 +60,7 @@ def scan_binance_market(self):
 
 
 async def _scan_market_async(engine):
-    """Async helper for market scanning."""
+    """Async helper for market scanning with network error handling."""
     from scanner.services.binance_client import BinanceClient
     from scanner.services.dispatcher import signal_dispatcher
 
@@ -75,6 +69,22 @@ async def _scan_market_async(engine):
     deleted_count = 0
 
     async with BinanceClient() as client:
+        # Pre-flight connectivity check
+        logger.info("🔍 Checking Binance API connectivity...")
+        is_connected = await client.check_connectivity()
+
+        if not is_connected:
+            logger.error(
+                "🔴 Cannot connect to Binance API. "
+                "Please check:\n"
+                "  1. Internet connection is active\n"
+                "  2. DNS servers are reachable (try: ping 8.8.8.8)\n"
+                "  3. Firewall/VPN not blocking api.binance.com\n"
+                "  4. Docker network configuration is correct"
+            )
+            raise ConnectionError(
+                "Failed to connect to Binance API. Check network connectivity."
+            )
         # Get all USDT pairs (maximum coverage)
         usdt_pairs = await client.get_usdt_pairs()
 
@@ -84,12 +94,14 @@ async def _scan_market_async(engine):
         # Save all symbols to database
         await _save_symbols_to_db(top_pairs)
 
-        # Fetch klines for all pairs
+        # Fetch klines for all pairs with optimized rate limiting
+        # Using smaller batch_size (5) and longer delay (1.5s) to prevent timeouts
         klines_data = await client.batch_get_klines(
             top_pairs,
             interval='1h',
             limit=200,
-            batch_size=20
+            batch_size=5,  # Reduced from 20 to 5 concurrent requests
+            delay_between_batches=1.5  # Increased delay to prevent rate limiting
         )
 
         # Process each symbol
@@ -648,12 +660,14 @@ async def _scan_futures_market_async(engine):
         # Save futures symbols to database
         await _save_futures_symbols_to_db(top_pairs)
 
-        # Fetch klines for all pairs
+        # Fetch klines for all pairs with optimized rate limiting
+        # Using smaller batch_size (5) and longer delay (1.5s) to prevent timeouts
         klines_data = await client.batch_get_klines(
             top_pairs,
             interval='1h',
             limit=200,
-            batch_size=20
+            batch_size=5,  # Reduced from 20 to 5 concurrent requests
+            delay_between_batches=1.5  # Increased delay to prevent rate limiting
         )
 
         # Process each symbol
@@ -891,36 +905,33 @@ def check_and_close_paper_trades(self):
                     continue
             return prices
 
-        # Run async price fetching
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            current_prices = loop.run_until_complete(fetch_prices())
-        finally:
-            loop.close()
+        # Run async price fetching using asyncio.run() to prevent memory leaks
+        current_prices = asyncio.run(fetch_prices())
 
         # Check and close trades
         closed_trades = paper_trading_service.check_and_close_trades(current_prices)
 
-        # Update PaperAccounts for closed trades
-        for trade in closed_trades:
-            try:
-                # Import auto_trading_service to update account
-                from signals.services.auto_trader import auto_trading_service
+        # Update PaperAccounts for closed trades - optimized to prevent N+1 queries
+        if closed_trades:
+            from signals.models import PaperAccount
+            from signals.services.auto_trader import auto_trading_service
 
-                # Update account if this trade belongs to an auto-trading account
-                if trade.user:
-                    from signals.models import PaperAccount
-                    try:
-                        account = PaperAccount.objects.get(user=trade.user)
+            # Prefetch all user accounts in single query to avoid N+1 problem
+            user_ids = [trade.user_id for trade in closed_trades if trade.user_id]
+            accounts = {account.user_id: account for account in
+                       PaperAccount.objects.filter(user_id__in=user_ids).select_related('user')}
+
+            for trade in closed_trades:
+                try:
+                    # Update account if this trade belongs to an auto-trading account
+                    if trade.user_id and trade.user_id in accounts:
+                        account = accounts[trade.user_id]
                         # Remove position from account (already done in close_trade_and_update_account)
                         # but we ensure metrics are updated
                         account.update_metrics()
-                        logger.debug(f"Updated account for user {trade.user.id}: Balance=${account.balance}")
-                    except PaperAccount.DoesNotExist:
-                        pass  # User doesn't have auto-trading account
-            except Exception as e:
-                logger.warning(f"Failed to update account for trade {trade.id}: {e}")
+                        logger.debug(f"Updated account for user {trade.user_id}: Balance=${account.balance}")
+                except Exception as e:
+                    logger.warning(f"Failed to update account for trade {trade.id}: {e}")
 
         # Send notifications for closed trades via WebSocket
         for trade in closed_trades:

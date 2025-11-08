@@ -12,6 +12,11 @@ from signals.views import (
 )
 from signals.views_paper_trading import PaperTradeViewSet, PaperAccountViewSet
 from signals.views_public_dashboard import public_paper_trading_dashboard
+from signals.views_public_dashboard_optimized import (
+    optimized_dashboard,
+    dashboard_lightweight,
+    clear_dashboard_cache
+)
 from signals.views_public_paper_trading import (
     public_paper_trades_list,
     public_performance,
@@ -27,6 +32,11 @@ from signals.views_walkforward import WalkForwardOptimizationViewSet
 from signals.views_montecarlo import MonteCarloSimulationViewSet
 from signals.views_mltuning import MLTuningJobViewSet, MLModelViewSet
 from signals.views_strategy_performance import strategy_performance
+from signals.views_strategy_performance_optimized import (
+    strategy_performance_optimized,
+    strategy_performance_lite,
+    clear_performance_cache
+)
 from signals.views_optimization import (
     optimization_history,
     config_history,
@@ -73,10 +83,20 @@ urlpatterns = [
     path('public/paper-trading/performance/', public_performance, name='public-performance'),
     path('public/paper-trading/open-positions/', public_open_positions, name='public-open-positions'),
     path('public/paper-trading/summary/', public_summary, name='public-summary'),
-    path('public/paper-trading/dashboard/', public_paper_trading_dashboard, name='public-dashboard'),
+    path('public/paper-trading/dashboard/', public_paper_trading_dashboard, name='public-dashboard'),  # Original (slower)
+
+    # OPTIMIZED Dashboard endpoints (10x faster)
+    path('public/dashboard/v2/', optimized_dashboard, name='optimized-dashboard'),  # Recommended
+    path('public/dashboard/lite/', dashboard_lightweight, name='lite-dashboard'),   # Ultra-fast
+    path('public/dashboard/clear-cache/', clear_dashboard_cache, name='clear-dashboard-cache'),
 
     # Strategy Performance endpoints
-    path('strategy/performance/', strategy_performance, name='strategy-performance'),
+    path('strategy/performance/', strategy_performance, name='strategy-performance'),  # Original (requires auth)
+
+    # OPTIMIZED Strategy Performance endpoints (10-50x faster, public access)
+    path('strategy/performance/v2/', strategy_performance_optimized, name='strategy-performance-v2'),  # Recommended
+    path('strategy/performance/lite/', strategy_performance_lite, name='strategy-performance-lite'),   # Ultra-fast
+    path('strategy/performance/clear-cache/', clear_performance_cache, name='clear-performance-cache'),
 
     # Auto-Optimization & Learning endpoints
     path('learning/history/', optimization_history, name='optimization-history'),

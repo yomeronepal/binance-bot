@@ -11,6 +11,9 @@ Or using make/run.bat:
     make docker-restart    (Linux/Mac)
     run.bat docker-restart (Windows)
 """
+import logging
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # BINANCE CONFIGURATION (Cryptocurrency Trading)
@@ -386,44 +389,43 @@ def get_config_summary() -> dict:
 
 if __name__ == "__main__":
     # Run validation when file is executed
-    print("=" * 80)
-    print("USER CONFIGURATION VALIDATION")
-    print("=" * 80)
-    print()
+    # Configure logging for standalone execution
+    logging.basicConfig(level=logging.INFO, format='%(message)s')
+
+    logger.info("=" * 80)
+    logger.info("USER CONFIGURATION VALIDATION")
+    logger.info("=" * 80)
 
     summary = get_config_summary()
 
     # Binance validation
-    print("BINANCE Configuration:")
+    logger.info("\nBINANCE Configuration:")
     if summary["binance"]["valid"]:
-        print("  ✅ VALID")
+        logger.info("  ✅ VALID")
     else:
-        print("  ❌ INVALID")
+        logger.error("  ❌ INVALID")
         for error in summary["binance"]["errors"]:
-            print(f"    - {error}")
-    print()
+            logger.error(f"    - {error}")
 
     # Forex validation
-    print("FOREX Configuration:")
+    logger.info("\nFOREX Configuration:")
     if summary["forex"]["valid"]:
-        print("  ✅ VALID")
+        logger.info("  ✅ VALID")
     else:
-        print("  ❌ INVALID")
+        logger.error("  ❌ INVALID")
         for error in summary["forex"]["errors"]:
-            print(f"    - {error}")
-    print()
+            logger.error(f"    - {error}")
 
     # Summary
     if summary["binance"]["valid"] and summary["forex"]["valid"]:
-        print("=" * 80)
-        print("✅ ALL CONFIGURATIONS VALID")
-        print("=" * 80)
-        print()
-        print("To apply changes:")
-        print("  1. Save this file")
-        print("  2. Restart services: docker-compose restart backend celery_worker")
-        print("  3. Verify: python manage.py validate_configs")
+        logger.info("\n" + "=" * 80)
+        logger.info("✅ ALL CONFIGURATIONS VALID")
+        logger.info("=" * 80)
+        logger.info("\nTo apply changes:")
+        logger.info("  1. Save this file")
+        logger.info("  2. Restart services: docker-compose restart backend celery_worker")
+        logger.info("  3. Verify: python manage.py validate_configs")
     else:
-        print("=" * 80)
-        print("❌ CONFIGURATION ERRORS FOUND - PLEASE FIX")
-        print("=" * 80)
+        logger.error("\n" + "=" * 80)
+        logger.error("❌ CONFIGURATION ERRORS FOUND - PLEASE FIX")
+        logger.error("=" * 80)

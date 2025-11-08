@@ -147,12 +147,24 @@ async def _save_signal_async(signal_data: Dict) -> Optional[Signal]:
                 defaults={'exchange': 'BINANCE'}
             )
 
-            # Check for existing ACTIVE signals for this symbol+direction
-            existing = Signal.objects.filter(
+            # Check for existing ACTIVE signals for this symbol+direction+market_type
+            # NOTE: We check SPOT and FUTURES separately to prevent cross-market duplicates
+            existing_spot = Signal.objects.filter(
                 symbol=symbol_obj,
                 direction=direction,  # Database uses 'direction' not 'signal_type'
-                status='ACTIVE'
+                status='ACTIVE',
+                market_type='SPOT'
             ).first()
+
+            existing_futures = Signal.objects.filter(
+                symbol=symbol_obj,
+                direction=direction,
+                status='ACTIVE',
+                market_type='FUTURES'
+            ).first()
+
+            # Use SPOT as the reference for timeframe comparison
+            existing = existing_spot
 
             if existing:
                 existing_timeframe = existing.timeframe
@@ -182,13 +194,25 @@ async def _save_signal_async(signal_data: Dict) -> Optional[Signal]:
                         f"(Conf: {existing.confidence:.0%} → {signal_data['confidence']:.0%})"
                     )
 
-                    # Delete ALL lower timeframe signals (SPOT + FUTURES)
-                    Signal.objects.filter(
-                        symbol=symbol_obj,
-                        direction=direction,
-                        timeframe=existing_timeframe,
-                        status='ACTIVE'
-                    ).delete()
+                    # Delete lower timeframe SPOT signal
+                    if existing_spot:
+                        Signal.objects.filter(
+                            symbol=symbol_obj,
+                            direction=direction,
+                            timeframe=existing_timeframe,
+                            status='ACTIVE',
+                            market_type='SPOT'
+                        ).delete()
+
+                    # Delete lower timeframe FUTURES signal
+                    if existing_futures:
+                        Signal.objects.filter(
+                            symbol=symbol_obj,
+                            direction=direction,
+                            timeframe=existing_futures.timeframe,
+                            status='ACTIVE',
+                            market_type='FUTURES'
+                        ).delete()
 
                     # Create new higher timeframe signals (SPOT + FUTURES)
                     spot_signal = Signal.objects.create(

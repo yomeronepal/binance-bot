@@ -6,6 +6,7 @@ from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 
 # Load environment variables
 load_dotenv()
@@ -18,6 +19,13 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-please-change-this-key')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
+
+# Validate SECRET_KEY in production
+if not DEBUG and SECRET_KEY == 'django-insecure-please-change-this-key':
+    raise ImproperlyConfigured(
+        "SECRET_KEY must be set via environment variable in production. "
+        "Generate a secure key with: python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'"
+    )
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 

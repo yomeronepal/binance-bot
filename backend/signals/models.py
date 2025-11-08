@@ -516,6 +516,10 @@ class PaperTrade(models.Model):
             models.Index(fields=['user', 'status']),
             models.Index(fields=['symbol', 'status']),
             models.Index(fields=['-created_at']),
+            # Optimized composite indexes for common queries
+            models.Index(fields=['status', '-created_at']),  # For filtering by status with ordering
+            models.Index(fields=['user', '-created_at']),    # For user trade history
+            models.Index(fields=['market_type', 'status']),  # For forex/crypto filtering
         ]
 
     def __str__(self):
