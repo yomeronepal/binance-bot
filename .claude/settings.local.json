@@ -49,7 +49,10 @@
       "Bash(timeout 12 bash -c 'while ! docker logs binancebot_celery 2>&1 | grep -q \"\"ready\"\"; do sleep 1; done; echo \"\"Celery ready!\"\"')",
       "Bash(nul)",
       "Bash(dir /b /s d:Projectbinance-botdocs*.md 2)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(timeout 15 docker logs:*)",
+      "Bash(timeout 15 bash -c 'while ! docker logs binancebot_celery 2>&1 | grep -q \"\"ready\"\"; do sleep 1; done; echo \"\"Celery ready!\"\"')",
+      "Bash(timeout 10 docker exec binancebot_web python -c \"\nimport requests\nheaders = {''X-Api-Key'': ''S6/ZD4sRtYvyVvyCX/g3xA==BU9lQvkTu5lEb6Z2''}\nresponse = requests.get(''https://api.api-ninjas.com/v1/commodityprice?name=gold'', headers=headers)\nprint(''Status:'', response.status_code)\nprint(''Response:'', response.text[:200])\n\")"
     ],
     "deny": [],
     "ask": []

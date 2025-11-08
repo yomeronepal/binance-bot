@@ -400,9 +400,9 @@ async def _scan_multi_timeframe_async():
     # Get all USDT pairs
     usdt_pairs = await client.get_usdt_pairs()
 
-    # Get top 200 volume pairs
-    top_pairs = await _get_top_pairs_by_volume(client, usdt_pairs, top_n=200)
-    logger.info(f"📊 Scanning top {len(top_pairs)} pairs by volume with UNIVERSAL CONFIG")
+    # Get all pairs sorted by volume (no limit - scan ALL Binance coins)
+    top_pairs = await _get_top_pairs_by_volume(client, usdt_pairs, top_n=len(usdt_pairs))
+    logger.info(f"📊 Scanning ALL {len(top_pairs)} Binance USDT pairs with UNIVERSAL CONFIG")
 
     # Timeframes to scan (in order of priority: longer to shorter)
     timeframes = ['1d', '4h', '1h', '15m']
@@ -551,8 +551,8 @@ async def _scan_single_timeframe_async(timeframe: str):
     # Get all USDT pairs
     usdt_pairs = await client.get_usdt_pairs()
 
-    # Get top 200 by volume
-    top_pairs = await _get_top_pairs_by_volume(client, usdt_pairs, top_n=200)
+    # Get all pairs sorted by volume (scan ALL coins)
+    top_pairs = await _get_top_pairs_by_volume(client, usdt_pairs, top_n=len(usdt_pairs))
 
     # Determine candle limit based on timeframe
     if timeframe == '15m':

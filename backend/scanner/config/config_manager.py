@@ -46,13 +46,11 @@ class UniversalConfig:
     long_rsi_min: float
     long_rsi_max: float
     long_adx_min: float
-    long_volume_multiplier: float = 1.2
 
     # SHORT signal thresholds (Sell when overbought)
     short_rsi_min: float
     short_rsi_max: float
     short_adx_min: float
-    short_volume_multiplier: float = 1.2
 
     # Stop loss and take profit multipliers (ATR-based)
     sl_atr_multiplier: float
@@ -60,6 +58,10 @@ class UniversalConfig:
 
     # Signal quality threshold
     min_confidence: float
+
+    # Volume multipliers (with defaults)
+    long_volume_multiplier: float = 1.2
+    short_volume_multiplier: float = 1.2
 
     # Preferred timeframes for this market
     preferred_timeframes: list = field(default_factory=lambda: ["4h"])

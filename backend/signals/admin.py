@@ -346,13 +346,13 @@ class PaperTradeAdmin(BaseModelAdmin):
         'profit_loss_display',
         'profit_loss_percentage',
         'user_display',
-        'created_at'
+        # 'created_at'
     )
     list_filter = (
         'status',
         'direction',
         'market_type',
-        'created_at',
+        # 'created_at',
         'exit_time'
     )
     search_fields = (
@@ -360,7 +360,7 @@ class PaperTradeAdmin(BaseModelAdmin):
         'user__username',
         'signal__id'
     )
-    ordering = ('-created_at',)
+    # ordering = ('-created_at',)
     list_per_page = 50
 
     fieldsets = (
@@ -377,12 +377,12 @@ class PaperTradeAdmin(BaseModelAdmin):
             'fields': ('profit_loss', 'profit_loss_percentage')
         }),
         ('Timestamps', {
-            'fields': ('created_at', 'updated_at'),
+            'fields': ('updated_at',),
             'classes': ('collapse',)
         })
     )
 
-    readonly_fields = ('profit_loss', 'profit_loss_percentage', 'exit_time', 'quantity')
+    readonly_fields = ('profit_loss', 'profit_loss_percentage', 'exit_time', 'quantity', 'updated_at')
     autocomplete_fields = ['user', 'signal']
 
     def user_display(self, obj):

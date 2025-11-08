@@ -391,9 +391,11 @@ class PaperTrade(models.Model):
     # Relationships
     signal = models.ForeignKey(
         'Signal',
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='paper_trades',
-        help_text=_("Associated trading signal")
+        help_text=_("Associated trading signal (nullable to preserve trades)")
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

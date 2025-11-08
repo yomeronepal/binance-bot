@@ -11,6 +11,8 @@ from celery import shared_task
 from decimal import Decimal
 
 from scanner.strategies.signal_engine import SignalDetectionEngine, SignalConfig
+from scanner.services.alphavantage_client import AlphaVantageClient
+from scanner.services.commodity_client import CommodityClient
 from signals.models import Signal, Symbol
 from django.db import transaction
 
@@ -37,59 +39,99 @@ EXOTIC_PAIRS = [
     'EURZAR', 'EURTRY', 'GBPTRY', 'JPYTRY'
 ]
 
+# Commodities (traded as pairs against USD)
+# NOTE: Use COMMODITIES_API_KEY for full commodity data access
+COMMODITY_PAIRS = [
+    # Precious Metals (per troy ounce)
+    'GOLDUSD',     # Gold (XAU/USD)
+    'SILVERUSD',   # Silver (XAG/USD)
+    'PLATINUMUSD', # Platinum (XPT/USD)
+    'PALLADIUMUSD',# Palladium (XPD/USD)
 
-# Forex-optimized signal configurations
+    # Energy (per barrel for oil, per MMBtu for gas)
+    'WTIUSD',      # WTI Crude Oil
+    'BRENTUSD',    # Brent Crude Oil
+    'NATGASUSD',   # Natural Gas
+
+    # Base Metals (per metric ton)
+    'COPPERUSD',   # Copper
+    'ALUMINUMUSD', # Aluminum
+    'ZINCUSD',     # Zinc
+    'NICKELUSD',   # Nickel
+
+    # Agricultural Commodities (per bushel or lb)
+    'WHEATUSD',    # Wheat
+    'CORNUSD',     # Corn
+    'SOYBEANUSД',  # Soybeans
+    'SUGARUSD',    # Sugar
+    'COFFEEUSD',   # Coffee
+    'COTTONUSD',   # Cotton
+]
+
+# Alternative symbols for backwards compatibility with Alpha Vantage
+COMMODITY_ALIAS_MAP = {
+    'XAUUSD': 'GOLDUSD',
+    'XAGUSD': 'SILVERUSD',
+    'XPTUSD': 'PLATINUMUSD',
+    'XPDUSD': 'PALLADIUMUSD',
+    'USOIL': 'WTIUSD',
+    'UKOIL': 'BRENTUSD',
+    'NATGAS': 'NATGASUSD',
+}
+
+
+# Forex-optimized signal configurations (using user_config.py FOREX_CONFIG parameters)
 FOREX_CONFIGS = {
     '1d': SignalConfig(
-        # Daily timeframe - Position trading
+        # Daily timeframe - Swing trading
         min_confidence=0.70,
-        long_adx_min=25.0,  # Higher ADX for stronger trends
-        short_adx_min=25.0,
+        long_adx_min=20.0,
+        short_adx_min=20.0,
         long_rsi_min=25.0,
         long_rsi_max=35.0,
         short_rsi_min=65.0,
         short_rsi_max=75.0,
-        sl_atr_multiplier=2.0,   # Tighter stops for forex
-        tp_atr_multiplier=6.0,   # 1:3 R/R
+        sl_atr_multiplier=3.0,   # BREATHING ROOM (matches user_config.py)
+        tp_atr_multiplier=9.0,   # 1:3.0 R/R (matches user_config.py)
         signal_expiry_minutes=1440,  # 24 hours
     ),
     '4h': SignalConfig(
-        # 4-hour timeframe - Swing trading
+        # 4-hour timeframe - Day trading
         min_confidence=0.70,
-        long_adx_min=22.0,
-        short_adx_min=22.0,
+        long_adx_min=20.0,
+        short_adx_min=20.0,
         long_rsi_min=25.0,
         long_rsi_max=35.0,
         short_rsi_min=65.0,
         short_rsi_max=75.0,
-        sl_atr_multiplier=1.8,
-        tp_atr_multiplier=5.5,   # 1:3.05 R/R
+        sl_atr_multiplier=3.0,   # BREATHING ROOM
+        tp_atr_multiplier=9.0,   # 1:3.0 R/R
         signal_expiry_minutes=480,  # 8 hours
     ),
     '1h': SignalConfig(
-        # 1-hour timeframe - Day trading
-        min_confidence=0.72,
+        # 1-hour timeframe - Intraday
+        min_confidence=0.70,
         long_adx_min=20.0,
         short_adx_min=20.0,
-        long_rsi_min=28.0,
+        long_rsi_min=25.0,
         long_rsi_max=35.0,
         short_rsi_min=65.0,
-        short_rsi_max=72.0,
-        sl_atr_multiplier=1.5,
-        tp_atr_multiplier=4.5,   # 1:3 R/R
+        short_rsi_max=75.0,
+        sl_atr_multiplier=3.0,   # BREATHING ROOM
+        tp_atr_multiplier=9.0,   # 1:3.0 R/R
         signal_expiry_minutes=180,  # 3 hours
     ),
     '15m': SignalConfig(
         # 15-minute timeframe - Scalping
-        min_confidence=0.75,
-        long_adx_min=18.0,
-        short_adx_min=18.0,
-        long_rsi_min=30.0,
+        min_confidence=0.70,
+        long_adx_min=20.0,
+        short_adx_min=20.0,
+        long_rsi_min=25.0,
         long_rsi_max=35.0,
         short_rsi_min=65.0,
-        short_rsi_max=70.0,
-        sl_atr_multiplier=1.2,
-        tp_atr_multiplier=3.6,   # 1:3 R/R
+        short_rsi_max=75.0,
+        sl_atr_multiplier=3.0,   # BREATHING ROOM
+        tp_atr_multiplier=9.0,   # 1:3.0 R/R
         signal_expiry_minutes=60,  # 1 hour
     ),
 }
@@ -105,35 +147,95 @@ TIMEFRAME_PRIORITY = {
 
 class ForexDataProvider:
     """
-    Provides forex price data from various sources
-    Can be extended to use OANDA, FXCM, or other forex data providers
-    For now, uses mock data structure - replace with actual API calls
+    Provides forex and commodity price data using multiple APIs
+
+    - Alpha Vantage: Forex pairs (free tier: 500 requests/day)
+    - Commodities API: Commodities data (free tier: 100 requests/month)
+
+    Supported intervals: 1m, 5m, 15m, 30m, 1h, 4h (aggregated), 1d
     """
+
+    def __init__(self):
+        """Initialize with both Alpha Vantage and Commodities API clients"""
+        self.forex_client = AlphaVantageClient()
+        self.commodity_client = CommodityClient()
+
+    def _is_commodity(self, symbol: str) -> bool:
+        """Check if symbol is a commodity"""
+        symbol_upper = symbol.upper()
+
+        # Check if in commodity pairs list
+        if symbol_upper in COMMODITY_PAIRS:
+            return True
+
+        # Check if matches commodity pattern (ends with USD and contains commodity name)
+        commodity_keywords = [
+            'GOLD', 'SILVER', 'PLATINUM', 'PALLADIUM',
+            'WTI', 'BRENT', 'NATGAS', 'OIL',
+            'COPPER', 'ALUMINUM', 'ZINC', 'NICKEL',
+            'WHEAT', 'CORN', 'SOYBEAN', 'SUGAR', 'COFFEE', 'COTTON'
+        ]
+
+        for keyword in commodity_keywords:
+            if keyword in symbol_upper:
+                return True
+
+        return False
 
     async def get_klines(self, symbol: str, interval: str, limit: int = 200) -> List[List]:
         """
-        Fetch forex candlestick data
+        Fetch forex or commodity candlestick data
 
         Args:
-            symbol: Currency pair (e.g., 'EURUSD')
+            symbol: Currency pair (e.g., 'EURUSD') or commodity (e.g., 'GOLDUSD')
             interval: Timeframe ('15m', '1h', '4h', '1d')
             limit: Number of candles
 
         Returns:
             List of klines in Binance-compatible format
         """
-        # TODO: Replace with actual forex data provider (OANDA, FXCM, etc.)
-        # For now, return empty list - you'll need to integrate a real forex data source
-        logger.warning(f"Forex data provider not implemented. Symbol: {symbol}, Interval: {interval}")
-        return []
+        # Route to appropriate API based on symbol type
+        if self._is_commodity(symbol):
+            # Extract commodity name from symbol (e.g., GOLDUSD -> GOLD)
+            commodity_name = symbol.replace('USD', '').replace('USDT', '')
+
+            # Handle aliases
+            if symbol.upper() in COMMODITY_ALIAS_MAP:
+                symbol = COMMODITY_ALIAS_MAP[symbol.upper()]
+                commodity_name = symbol.replace('USD', '')
+
+            logger.info(f"📊 Fetching commodity data: {commodity_name}")
+            return await self.commodity_client.get_klines(commodity_name, interval, limit)
+        else:
+            # Forex pair - use Alpha Vantage
+            logger.info(f"💱 Fetching forex data: {symbol}")
+            return await self.forex_client.get_klines(symbol, interval, limit)
 
     async def batch_get_klines(self, pairs: List[str], interval: str, limit: int = 200) -> Dict[str, List]:
-        """Fetch klines for multiple pairs"""
+        """
+        Fetch klines for multiple pairs with rate limiting
+
+        Routes to appropriate API based on symbol type (forex vs commodity)
+
+        Note: Alpha Vantage free tier is limited to ~5 requests/minute
+        """
         result = {}
+
         for pair in pairs:
-            klines = await self.get_klines(pair, interval, limit)
-            if klines:
-                result[pair] = klines
+            try:
+                # Use get_klines which handles routing automatically
+                klines = await self.get_klines(pair, interval, limit)
+
+                if klines:
+                    result[pair] = klines
+
+                # Rate limiting
+                await asyncio.sleep(2)
+
+            except Exception as e:
+                logger.error(f"Error fetching {pair}: {e}")
+                continue
+
         return result
 
 
@@ -321,11 +423,11 @@ async def scan_forex_timeframe(
 @shared_task(bind=True, name='scanner.tasks.scan_forex_signals')
 def scan_forex_signals(self, timeframes: Optional[List[str]] = None, pair_types: Optional[List[str]] = None):
     """
-    Celery task to scan forex signals across multiple timeframes
+    Celery task to scan forex and commodity signals across multiple timeframes
 
     Args:
         timeframes: List of timeframes to scan (default: ['4h', '1d'])
-        pair_types: List of pair types to scan: 'major', 'minor', 'exotic' (default: ['major'])
+        pair_types: List of pair types to scan: 'major', 'minor', 'exotic', 'commodities' (default: ['major'])
 
     Returns:
         Dict with scan results and counts
@@ -344,6 +446,8 @@ def scan_forex_signals(self, timeframes: Optional[List[str]] = None, pair_types:
         pairs.extend(MINOR_PAIRS)
     if 'exotic' in pair_types:
         pairs.extend(EXOTIC_PAIRS)
+    if 'commodities' in pair_types or 'commodity' in pair_types:
+        pairs.extend(COMMODITY_PAIRS)
 
     if not pairs:
         logger.warning("No forex pairs selected for scanning")
@@ -438,4 +542,31 @@ def scan_forex_scalping(self):
     return scan_forex_signals(
         timeframes=['15m', '1h'],
         pair_types=['major']
+    )
+
+
+@shared_task(bind=True, name='scanner.tasks.scan_commodities')
+def scan_commodities(self):
+    """Scan commodity pairs (Gold, Silver, Oil, etc.) - 4h and 1d timeframes"""
+    return scan_forex_signals(
+        timeframes=['4h', '1d'],
+        pair_types=['commodities']
+    )
+
+
+@shared_task(bind=True, name='scanner.tasks.scan_forex_and_commodities')
+def scan_forex_and_commodities(self):
+    """Scan major forex pairs AND commodities together"""
+    return scan_forex_signals(
+        timeframes=['4h', '1d'],
+        pair_types=['major', 'commodities']
+    )
+
+
+@shared_task(bind=True, name='scanner.tasks.scan_all_markets')
+def scan_all_markets(self):
+    """Scan ALL markets: major forex, minor forex, exotic pairs, and commodities"""
+    return scan_forex_signals(
+        timeframes=['1h', '4h', '1d'],
+        pair_types=['major', 'minor', 'exotic', 'commodities']
     )
