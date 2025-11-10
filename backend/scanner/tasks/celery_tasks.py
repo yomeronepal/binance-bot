@@ -150,7 +150,8 @@ async def _get_top_pairs(client, pairs: List[str], top_n: int = 50) -> List[str]
     try:
         volume_data = []
 
-        for i in range(0, min(len(pairs), 200), 50):
+        # Process ALL pairs, not just first 200
+        for i in range(0, len(pairs), 50):
             batch = pairs[i:i+50]
             tasks = [client.get_24h_ticker(symbol) for symbol in batch]
             results = await asyncio.gather(*tasks, return_exceptions=True)
