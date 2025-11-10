@@ -110,7 +110,7 @@ jobs:
             BINANCE_INTERVAL=1h
             POLLING_INTERVAL=60
             MIN_CONFIDENCE=0.7
-            TOP_PAIRS=50
+            TOP_PAIRS=1000
             JWT_ACCESS_TOKEN_LIFETIME=60
             JWT_REFRESH_TOKEN_LIFETIME=1440
             BINANCE_API_KEY=${{ secrets.BINANCE_API_KEY }}
