@@ -70,6 +70,12 @@ services:
     networks:
       - binancebot_network
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=web"
 
   # React Frontend Application - Using pre-built image
   frontend:
@@ -105,6 +111,12 @@ services:
     networks:
       - binancebot_network
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=celery"
 
   # Celery Beat (Scheduler) - Using pre-built image
   celery-beat:
@@ -124,6 +136,34 @@ services:
     networks:
       - binancebot_network
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=celery-beat"
+
+  # Dozzle - Real-time log monitoring dashboard
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: binancebot_dozzle
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "3000:8080"
+    environment:
+      - DOZZLE_LEVEL=info
+      - DOZZLE_TAILSIZE=300
+      - DOZZLE_FILTER=name=binancebot
+      - DOZZLE_NO_ANALYTICS=true
+    networks:
+      - binancebot_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   postgres_data:
