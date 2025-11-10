@@ -8,12 +8,12 @@ on:
 
 env:
   IMAGE_NAME: binance-bot
-  DOCKER_USERNAME: yomeronepal
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
   DOCKER_REGISTRY: docker.io
 
 jobs:
   build_and_push:
-    name: Build and Push Docker Images
+    name: Build & Push Docker Images
     runs-on: ubuntu-latest
 
     steps:
@@ -29,7 +29,7 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Extract metadata
+      - name: Generate build metadata
         id: meta
         run: |
           SHORT_SHA=$(git rev-parse --short HEAD)
@@ -44,8 +44,8 @@ jobs:
           file: ./docker/Dockerfile
           push: true
           tags: |
-            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:backend-${{ steps.meta.outputs.tag }}
-            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:backend-latest
+            ${{ secrets.DOCKER_USERNAME }}/binance-bot:backend-${{ steps.meta.outputs.tag }}
+            ${{ secrets.DOCKER_USERNAME }}/binance-bot:latest
 
       - name: Build & Push Frontend
         uses: docker/build-push-action@v5
@@ -57,23 +57,23 @@ jobs:
             VITE_API_URL=${{ secrets.REACT_APP_API_URL }}
             VITE_WS_URL=${{ secrets.REACT_APP_WS_URL }}
           tags: |
-            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:frontend-${{ steps.meta.outputs.tag }}
-            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:frontend-latest
+            ${{ secrets.DOCKER_USERNAME }}/binance-bot-frontend:frontend-${{ steps.meta.outputs.tag }}
+            ${{ secrets.DOCKER_USERNAME }}/binance-bot-frontend:latest
 
   deploy:
-    name: Deploy to VPS
+    name: Deploy to Server
     runs-on: ubuntu-latest
     needs: build_and_push
 
     steps:
-      - name: Setup SSH
+      - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: Deploy new version
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.SERVER_IP }}
@@ -83,41 +83,51 @@ jobs:
             set -e
             cd /opt/binance-bot
 
-            echo "==> Updating environment files..."
+            echo "==> Updating backend .env with secrets and fallbacks..."
             cat > .env << EOF
-            DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
-            DEBUG=False
-            ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
-            DATABASE_URL=postgresql://postgres:${{ secrets.POSTGRES_PASSWORD }}@db:5432/trading_bot
+            DEBUG=${DEBUG:-False}
+            DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-django-insecure-default-key}
+            ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+            DATABASE_URL=postgresql://binancebot:binancebot123@db:5432/binancebot
+            POSTGRES_DB=binancebot
+            POSTGRES_USER=binancebot
+            POSTGRES_PASSWORD=binancebot123
             REDIS_URL=redis://redis:6379/0
             CELERY_BROKER_URL=redis://redis:6379/0
             CELERY_RESULT_BACKEND=redis://redis:6379/0
-            BINANCE_API_KEY=${{ secrets.BINANCE_API_KEY }}
-            BINANCE_API_SECRET=${{ secrets.BINANCE_API_SECRET }}
+            BINANCE_INTERVAL=1h
+            POLLING_INTERVAL=60
+            MIN_CONFIDENCE=0.7
+            TOP_PAIRS=50
+            JWT_ACCESS_TOKEN_LIFETIME=60
+            JWT_REFRESH_TOKEN_LIFETIME=1440
+            BINANCE_API_KEY=${BINANCE_API_KEY:-}
+            BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
+            ALPHAVANTAGE_API_KEY=${ALPHAVANTAGE_API_KEY:-}
+            NINJAS_API_KEY=${NINJAS_API_KEY:-}
+            COMMODITIES_API_KEY=${COMMODITIES_API_KEY:-}
+            STRIPE_PUBLIC_KEY=${STRIPE_PUBLIC_KEY:-}
+            STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+            STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
             EOF
 
-            cat > .env.db << EOF
-            POSTGRES_USER=postgres
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-            POSTGRES_DB=trading_bot
+                        echo "==> Updating frontend .env..."
+                        cat > .env.frontend << EOF
+            REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8000}
+            REACT_APP_WS_URL=${REACT_APP_WS_URL:-ws://localhost:8000}
             EOF
 
-            cat > .env.frontend << EOF
-            REACT_APP_API_URL=${{ secrets.REACT_APP_API_URL }}
-            REACT_APP_WS_URL=${{ secrets.REACT_APP_WS_URL }}
-            EOF
+                        echo "==> Pulling latest images..."
+                        docker compose pull backend celery_worker celery_beat frontend
 
-            echo "==> Pulling latest Docker images..."
-            docker compose pull backend celery_worker celery_beat frontend
+                        echo "==> Restarting services..."
+                        docker compose up -d --no-deps --force-recreate backend celery_worker celery_beat frontend
 
-            echo "==> Recreating containers..."
-            docker compose up -d --no-deps --force-recreate backend celery_worker celery_beat frontend
+                        echo "==> Cleanup old images..."
+                        docker image prune -af
 
-            echo "==> Cleaning old images..."
-            docker image prune -af
+                        echo "✅ Deployment complete!"
 
-            echo "✅ Deployment complete!"
-
-      - name: Cleanup local SSH keys
+      - name: Cleanup SSH key
         if: always()
         run: rm -f ~/.ssh/deploy_key
