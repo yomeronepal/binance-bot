@@ -41,7 +41,7 @@ services:
     container_name: binancebot_web
     command: >
       sh -c "
-
+        python manage.py collectstatic --noinput || true
         python manage.py migrate;
         echo 'Migrations complete. Starting Daphne...';
         daphne -b 0.0.0.0 -p 8000 config.asgi:application

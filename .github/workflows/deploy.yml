@@ -44,8 +44,8 @@ jobs:
           file: ./docker/Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/binance-bot:backend-${{ steps.meta.outputs.tag }}
-            ${{ secrets.DOCKER_USERNAME }}/binance-bot:latest
+            ${{ secrets.DOCKER_USERNAME }}/binance-bot-backend:backend-${{ steps.meta.outputs.tag }}
+            ${{ secrets.DOCKER_USERNAME }}/binance-bot-backend:latest
 
       - name: Build & Push Frontend
         uses: docker/build-push-action@v5
@@ -67,6 +67,7 @@ jobs:
 
     steps:
       - name: Setup SSH key
+        if: secrets.SSH_PRIVATE_KEY != ''
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
@@ -79,12 +80,18 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          password: ${{ secrets.SERVER_PASSWORD }}
           script: |
             set -e
-            cd /opt/binance-bot
+            cd /root/binance-bot
 
-            echo "==> Updating backend .env with secrets and fallbacks..."
-            cat > .env << EOF
+            echo "==> Copy docker-compose.prod.yml from repo..."
+            cat > docker-compose.prod.yml << 'EOF'
+            $(cat ./docker/docker-compose.prod.yml)
+            EOF
+
+                        echo "==> Updating unified .env file..."
+                        cat > .env << EOF
             DEBUG=${DEBUG:-False}
             DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-django-insecure-default-key}
             ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
@@ -109,24 +116,20 @@ jobs:
             STRIPE_PUBLIC_KEY=${STRIPE_PUBLIC_KEY:-}
             STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
             STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
-            EOF
-
-                        echo "==> Updating frontend .env..."
-                        cat > .env.frontend << EOF
             REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8000}
-            REACT_APP_WS_URL=${REACT_APP_WS_URL:-ws://localhost:8000}
+            REACT_APP_WS_URL=${REACT_APP_WS_URL:-ws://localhost:8000/ws/signals/}
             EOF
 
-                        echo "==> Pulling latest images..."
-                        docker compose pull backend celery_worker celery_beat frontend
+            echo "==> Pulling latest images..."
+            docker compose pull backend celery celery-beat frontend
 
-                        echo "==> Restarting services..."
-                        docker compose up -d --no-deps --force-recreate backend celery_worker celery_beat frontend
+            echo "==> Restarting services..."
+            docker compose up -d --no-deps --force-recreate backend celery celery-beat frontend
 
-                        echo "==> Cleanup old images..."
-                        docker image prune -af
+            echo "==> Cleanup old images..."
+            docker image prune -af
 
-                        echo "✅ Deployment complete!"
+            echo "✅ Deployment complete!"
 
       - name: Cleanup SSH key
         if: always()

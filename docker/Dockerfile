@@ -27,8 +27,6 @@ COPY . /app/
 # Create directory for static files
 RUN mkdir -p /app/staticfiles
 
-# Collect static files (run during build)
-RUN python manage.py collectstatic --noinput || true
 
 # Expose port
 EXPOSE 8000
