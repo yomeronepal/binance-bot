@@ -127,7 +127,7 @@ jobs:
             docker compose -f docker-compose.prod.yml pull
 
             echo "==> Starting services..."
-            docker compose -f docker-compose.prod.yml up -d
+            docker compose -f docker-compose.prod.yml up -d --no-deps --force-recreate backend celery celery-beat frontend
 
             echo "==> Waiting for services to be healthy..."
             sleep 10
