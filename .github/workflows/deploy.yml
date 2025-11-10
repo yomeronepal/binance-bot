@@ -9,7 +9,6 @@ on:
 env:
   IMAGE_NAME: binance-bot
   DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-  DOCKER_REGISTRY: docker.io
 
 jobs:
   build_and_push:
@@ -44,8 +43,10 @@ jobs:
           file: ./docker/Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/binance-bot-backend:backend-${{ steps.meta.outputs.tag }}
+            ${{ secrets.DOCKER_USERNAME }}/binance-bot-backend:${{ steps.meta.outputs.tag }}
             ${{ secrets.DOCKER_USERNAME }}/binance-bot-backend:latest
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/binance-bot-backend:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/binance-bot-backend:buildcache,mode=max
 
       - name: Build & Push Frontend
         uses: docker/build-push-action@v5
@@ -54,11 +55,13 @@ jobs:
           file: ./docker/Dockerfile.frontend.dev
           push: true
           build-args: |
-            VITE_API_URL=${{ secrets.REACT_APP_API_URL }}
-            VITE_WS_URL=${{ secrets.REACT_APP_WS_URL }}
+            VITE_API_URL=${{ secrets.REACT_APP_API_URL || 'http://localhost:8000/api' }}
+            VITE_WS_URL=${{ secrets.REACT_APP_WS_URL || 'ws://localhost:8000/ws/signals/' }}
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/binance-bot-frontend:frontend-${{ steps.meta.outputs.tag }}
+            ${{ secrets.DOCKER_USERNAME }}/binance-bot-frontend:${{ steps.meta.outputs.tag }}
             ${{ secrets.DOCKER_USERNAME }}/binance-bot-frontend:latest
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/binance-bot-frontend:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/binance-bot-frontend:buildcache,mode=max
 
   deploy:
     name: Deploy to Server
@@ -66,13 +69,18 @@ jobs:
     needs: build_and_push
 
     steps:
-      - name: Setup SSH key
-        if: secrets.SSH_PRIVATE_KEY != ''
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy docker-compose.prod.yml to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          source: "docker-compose.prod.yml"
+          target: "/root/binance-bot/"
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.0
@@ -85,16 +93,11 @@ jobs:
             set -e
             cd /root/binance-bot
 
-            echo "==> Copy docker-compose.prod.yml from repo..."
-            cat > docker-compose.prod.yml << 'EOF'
-            $(cat ./docker/docker-compose.prod.yml)
-            EOF
-
-                        echo "==> Updating unified .env file..."
-                        cat > .env << EOF
-            DEBUG=${DEBUG:-False}
-            DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-django-insecure-default-key}
-            ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+            echo "==> Updating .env file..."
+            cat > .env << ENV_EOF
+            DEBUG=${{ secrets.DEBUG || 'False' }}
+            DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
+            ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS || '*' }}
             DATABASE_URL=postgresql://binancebot:binancebot123@db:5432/binancebot
             POSTGRES_DB=binancebot
             POSTGRES_USER=binancebot
@@ -108,30 +111,47 @@ jobs:
             TOP_PAIRS=50
             JWT_ACCESS_TOKEN_LIFETIME=60
             JWT_REFRESH_TOKEN_LIFETIME=1440
-            BINANCE_API_KEY=${BINANCE_API_KEY:-}
-            BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
-            ALPHAVANTAGE_API_KEY=${ALPHAVANTAGE_API_KEY:-}
-            NINJAS_API_KEY=${NINJAS_API_KEY:-}
-            COMMODITIES_API_KEY=${COMMODITIES_API_KEY:-}
-            STRIPE_PUBLIC_KEY=${STRIPE_PUBLIC_KEY:-}
-            STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
-            STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
-            REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8000}
-            REACT_APP_WS_URL=${REACT_APP_WS_URL:-ws://localhost:8000/ws/signals/}
-            EOF
+            BINANCE_API_KEY=${{ secrets.BINANCE_API_KEY }}
+            BINANCE_API_SECRET=${{ secrets.BINANCE_API_SECRET }}
+            ALPHAVANTAGE_API_KEY=${{ secrets.ALPHAVANTAGE_API_KEY || '' }}
+            NINJAS_API_KEY=${{ secrets.NINJAS_API_KEY || '' }}
+            COMMODITIES_API_KEY=${{ secrets.COMMODITIES_API_KEY || '' }}
+            STRIPE_PUBLIC_KEY=${{ secrets.STRIPE_PUBLIC_KEY || '' }}
+            STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY || '' }}
+            STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET || '' }}
+            REACT_APP_API_URL=${{ secrets.REACT_APP_API_URL || 'http://localhost:8000' }}
+            REACT_APP_WS_URL=${{ secrets.REACT_APP_WS_URL || 'ws://localhost:8000/ws/signals/' }}
+            ENV_EOF
 
-            echo "==> Pulling latest images..."
-            docker compose pull backend celery celery-beat frontend
+            echo "==> Pulling latest images from Docker Hub..."
+            docker compose -f docker-compose.prod.yml pull
 
-            echo "==> Restarting services..."
-            docker compose up -d --no-deps --force-recreate backend celery celery-beat frontend
+            echo "==> Starting services..."
+            docker compose -f docker-compose.prod.yml up -d
 
-            echo "==> Cleanup old images..."
+            echo "==> Waiting for services to be healthy..."
+            sleep 10
+
+            echo "==> Checking service status..."
+            docker compose -f docker-compose.prod.yml ps
+
+            echo "==> Cleaning up old images..."
             docker image prune -af
 
             echo "✅ Deployment complete!"
 
+  notify:
+    name: Deployment Status
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: always()
 
-      - name: Cleanup SSH key
-        if: always()
-        run: rm -f ~/.ssh/deploy_key
+    steps:
+      - name: Report status
+        run: |
+          if [ "${{ needs.deploy.result }}" == "success" ]; then
+            echo "✅ Deployment successful!"
+          else
+            echo "❌ Deployment failed!"
+            exit 1
+          fi

@@ -37,10 +37,11 @@ services:
 
   # Django Web Application (Backend) - Using pre-built image
   web:
-    image: yomeronepal/binance-bot:backend-latest
+    image: yomeronepal/binance-bot-backend:latest
     container_name: binancebot_web
     command: >
       sh -c "
+        python manage.py collectstatic --noinput || true;
         python manage.py migrate;
         echo 'Migrations complete. Starting Daphne...';
         daphne -b 0.0.0.0 -p 8000 config.asgi:application
@@ -48,11 +49,11 @@ services:
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
-      - ./backend/backtest_data:/app/backtest_data
+      - ./backtest_data:/app/backtest_data
     ports:
       - "8000:8000"
     env_file:
-      - ./backend/.env
+      - .env
     environment:
       - DOCKER_CONTAINER=true
     depends_on:
@@ -72,12 +73,12 @@ services:
 
   # React Frontend Application - Using pre-built image
   frontend:
-    image: yomeronepal/binance-bot:frontend-latest
+    image: yomeronepal/binance-bot-frontend:latest
     container_name: binancebot_frontend
     ports:
       - "5173:5173"
     env_file:
-      - ./client/.env
+      - .env
     depends_on:
       - web
     networks:
@@ -88,13 +89,13 @@ services:
 
   # Celery Worker - Using pre-built image
   celery:
-    image: yomeronepal/binance-bot:backend-latest
+    image: yomeronepal/binance-bot-backend:latest
     container_name: binancebot_celery
     command: celery -A config worker -l info -Q celery,backtesting,scanner,notifications,maintenance,paper_trading
     volumes:
-      - ./backend/backtest_data:/app/backtest_data
+      - ./backtest_data:/app/backtest_data
     env_file:
-      - ./backend/.env
+      - .env
     environment:
       - DOCKER_CONTAINER=true
     depends_on:
@@ -107,13 +108,13 @@ services:
 
   # Celery Beat (Scheduler) - Using pre-built image
   celery-beat:
-    image: yomeronepal/binance-bot:backend-latest
+    image: yomeronepal/binance-bot-backend:latest
     container_name: binancebot_celery_beat
     command: celery -A config beat -l info
     volumes:
-      - ./backend/backtest_data:/app/backtest_data
+      - ./backtest_data:/app/backtest_data
     env_file:
-      - ./backend/.env
+      - .env
     environment:
       - DOCKER_CONTAINER=true
     depends_on:
