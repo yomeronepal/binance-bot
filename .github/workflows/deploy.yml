@@ -1,0 +1,123 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: binance-bot
+  DOCKER_USERNAME: yomeronepal
+  DOCKER_REGISTRY: docker.io
+
+jobs:
+  build_and_push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          TAG="${SHORT_SHA}-${TIMESTAMP}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Build & Push Backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./docker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:backend-${{ steps.meta.outputs.tag }}
+            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:backend-latest
+
+      - name: Build & Push Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./client
+          file: ./docker/Dockerfile.frontend.dev
+          push: true
+          build-args: |
+            VITE_API_URL=${{ secrets.REACT_APP_API_URL }}
+            VITE_WS_URL=${{ secrets.REACT_APP_WS_URL }}
+          tags: |
+            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:frontend-${{ steps.meta.outputs.tag }}
+            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:frontend-latest
+
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    needs: build_and_push
+
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy new version
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /opt/binance-bot
+
+            echo "==> Updating environment files..."
+            cat > .env << EOF
+            DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
+            DEBUG=False
+            ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
+            DATABASE_URL=postgresql://postgres:${{ secrets.POSTGRES_PASSWORD }}@db:5432/trading_bot
+            REDIS_URL=redis://redis:6379/0
+            CELERY_BROKER_URL=redis://redis:6379/0
+            CELERY_RESULT_BACKEND=redis://redis:6379/0
+            BINANCE_API_KEY=${{ secrets.BINANCE_API_KEY }}
+            BINANCE_API_SECRET=${{ secrets.BINANCE_API_SECRET }}
+            EOF
+
+            cat > .env.db << EOF
+            POSTGRES_USER=postgres
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+            POSTGRES_DB=trading_bot
+            EOF
+
+            cat > .env.frontend << EOF
+            REACT_APP_API_URL=${{ secrets.REACT_APP_API_URL }}
+            REACT_APP_WS_URL=${{ secrets.REACT_APP_WS_URL }}
+            EOF
+
+            echo "==> Pulling latest Docker images..."
+            docker compose pull backend celery_worker celery_beat frontend
+
+            echo "==> Recreating containers..."
+            docker compose up -d --no-deps --force-recreate backend celery_worker celery_beat frontend
+
+            echo "==> Cleaning old images..."
+            docker image prune -af
+
+            echo "✅ Deployment complete!"
+
+      - name: Cleanup local SSH keys
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
