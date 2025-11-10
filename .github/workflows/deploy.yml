@@ -80,7 +80,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           password: ${{ secrets.SERVER_PASSWORD }}
           source: "docker/docker-compose.prod.yml"
-          target: "/root/binance-bot/"
+          target: "/root/binance-bot/docker-compose.prod.yml"
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.0
@@ -123,14 +123,17 @@ jobs:
             REACT_APP_WS_URL=${{ secrets.REACT_APP_WS_URL || 'ws://localhost:8000/ws/signals/' }}
             ENV_EOF
 
+            echo "==> Stopping existing containers..."
+            docker compose -f docker-compose.prod.yml down || true
+
             echo "==> Pulling latest images from Docker Hub..."
             docker compose -f docker-compose.prod.yml pull
 
-            echo "==> Starting services..."
-            docker compose -f docker-compose.prod.yml up -d --no-deps --force-recreate backend celery celery-beat frontend
+            echo "==> Starting all services..."
+            docker compose -f docker-compose.prod.yml up -d
 
             echo "==> Waiting for services to be healthy..."
-            sleep 10
+            sleep 15
 
             echo "==> Checking service status..."
             docker compose -f docker-compose.prod.yml ps
