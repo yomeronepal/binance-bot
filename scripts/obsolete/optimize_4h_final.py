@@ -5,8 +5,12 @@ Fine-tune parameters on 4h since it's almost profitable (-0.02% ROI)
 """
 import requests
 import time
+import sys
+from pathlib import Path
 
-API_BASE = "http://localhost:8000/api"
+# Add parent directory to path to import config
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from config import API_BASE
 
 # Fine-tuned configurations for 4h timeframe
 # Testing slight variations to push into profitability

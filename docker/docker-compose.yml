@@ -41,7 +41,7 @@ services:
     container_name: binancebot_web
     command: >
       sh -c "
-       
+
         python manage.py migrate;
         echo 'Migrations complete. Starting Daphne...';
         daphne -b 0.0.0.0 -p 8000 config.asgi:application
@@ -54,6 +54,8 @@ services:
       - "8000:8000"
     env_file:
       - ../backend/.env
+    environment:
+      - DOCKER_CONTAINER=true
     depends_on:
       db:
         condition: service_healthy
@@ -75,15 +77,17 @@ services:
     build:
       context: ../client
       dockerfile: ../docker/Dockerfile.frontend.dev
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:8000/api}
+        - VITE_WS_URL=${VITE_WS_URL:-ws://localhost:8000/ws/signals/}
     container_name: binancebot_frontend
     volumes:
       - ../client:/app
       - node_modules_volume:/app/node_modules  # Use named volume for node_modules
     ports:
       - "5173:5173"
-    environment:
-      - VITE_API_URL=http://localhost:8000/api
-      - VITE_WS_URL=ws://localhost:8000/ws/signals/
+    env_file:
+      - ../client/.env
     depends_on:
       - web
     networks:
@@ -102,6 +106,8 @@ services:
       - ../backend:/app
     env_file:
       - ../backend/.env
+    environment:
+      - DOCKER_CONTAINER=true
     depends_on:
       - db
       - redis
@@ -120,6 +126,8 @@ services:
       - ../backend:/app
     env_file:
       - ../backend/.env
+    environment:
+      - DOCKER_CONTAINER=true
     depends_on:
       - db
       - redis

@@ -5,8 +5,12 @@ Since we're only $-1.83 away from breakeven, adjusting SL/TP should push us over
 """
 import requests
 import time
+import sys
+from pathlib import Path
 
-API_BASE = "http://localhost:8000/api"
+# Add parent directory to path to import config
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from config import API_BASE
 
 # Adjust Risk/Reward ratios to capture more profit
 CONFIGS = [

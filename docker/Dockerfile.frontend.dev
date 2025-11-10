@@ -5,6 +5,14 @@ FROM node:20-alpine
 # Set working directory
 WORKDIR /app
 
+# Accept build arguments for environment variables
+ARG VITE_API_URL
+ARG VITE_WS_URL
+
+# Set them as environment variables
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_WS_URL=$VITE_WS_URL
+
 # Install dependencies
 # Copy package files first for better caching
 COPY package*.json ./

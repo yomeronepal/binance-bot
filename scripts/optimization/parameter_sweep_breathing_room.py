@@ -18,11 +18,15 @@ Expected: With wider SL, win rate should improve (fewer premature exits)
 import requests
 import time
 import itertools
+import sys
+from pathlib import Path
+
+# Add parent directory to path to import config
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from config import API_BASE
 import json
 from typing import List, Dict
 from datetime import datetime
-
-API_BASE = "http://localhost:8000/api"
 
 # BREATHING ROOM PARAMETERS
 # Focus: Give trades room to breathe, don't choke them with tight stops

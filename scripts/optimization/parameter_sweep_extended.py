@@ -14,10 +14,14 @@ import requests
 import time
 import itertools
 import json
+import sys
+from pathlib import Path
 from typing import List, Dict
 from datetime import datetime
 
-API_BASE = "http://localhost:8000/api"
+# Add parent directory to path to import config
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from config import API_BASE
 
 # Extended Parameter Ranges
 RSI_LONG_MIN = [20, 23, 25]

@@ -6,9 +6,13 @@ Tests the current strategy parameters on different timeframes to identify the be
 import requests
 import json
 import time
+import sys
+from pathlib import Path
 from datetime import datetime
 
-API_BASE = "http://localhost:8000/api"
+# Add parent directory to path to import config
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from config import API_BASE
 
 # Current optimized parameters from November 2, 2025
 VOLATILITY_CONFIGS = {

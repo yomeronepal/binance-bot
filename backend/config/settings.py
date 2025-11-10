@@ -27,8 +27,8 @@ if not DEBUG and SECRET_KEY == 'django-insecure-please-change-this-key':
         "Generate a secure key with: python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'"
     )
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
-
+# ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = ['*']
 # Application definition
 INSTALLED_APPS = [
     'daphne',  # Must be first for channels
@@ -171,6 +171,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:5173",  # Vite dev server
     "http://127.0.0.1:5173",  # Vite dev server
+    "http://91.98.146.162:3000",
+    "http://91.98.146.162:5173"
+
 ]
 CORS_ALLOW_CREDENTIALS = True
 
