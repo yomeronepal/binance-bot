@@ -79,7 +79,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           password: ${{ secrets.SERVER_PASSWORD }}
-          source: "docker-compose.prod.yml"
+          source: "docker/docker-compose.prod.yml"
           target: "/root/binance-bot/"
 
       - name: Deploy via SSH
