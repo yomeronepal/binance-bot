@@ -448,7 +448,9 @@ class SignalDetectionEngine:
                 f"🆕 NEW LONG signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%}, "
                 f"Higher TF Trend: {higher_tf_trend})"
             )
-            return {'action': 'created', 'signal': signal.to_dict()}
+            signal_dict = signal.to_dict()
+            logger.debug(f"Returning signal for DB save: {symbol} {signal.direction} @ {signal.entry}")
+            return {'action': 'created', 'signal': signal_dict}
 
         # Check SHORT conditions
         short_signal, short_conf, short_conditions = self._check_short_conditions(
@@ -480,7 +482,9 @@ class SignalDetectionEngine:
                 f"🆕 NEW SHORT signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%}, "
                 f"Higher TF Trend: {higher_tf_trend})"
             )
-            return {'action': 'created', 'signal': signal.to_dict()}
+            signal_dict = signal.to_dict()
+            logger.debug(f"Returning signal for DB save: {symbol} {signal.direction} @ {signal.entry}")
+            return {'action': 'created', 'signal': signal_dict}
 
         return None
 
