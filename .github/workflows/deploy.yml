@@ -121,6 +121,7 @@ jobs:
             STRIPE_PUBLIC_KEY=${{ secrets.STRIPE_PUBLIC_KEY || '' }}
             STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY || '' }}
             STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET || '' }}
+            DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL || '' }}
             REACT_APP_API_URL=${{ secrets.REACT_APP_API_URL || 'http://localhost:8000' }}
             REACT_APP_WS_URL=${{ secrets.REACT_APP_WS_URL || 'ws://localhost:8000/ws/signals/' }}
             ENV_EOF

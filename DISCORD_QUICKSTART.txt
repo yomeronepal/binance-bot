@@ -1,0 +1,146 @@
+═══════════════════════════════════════════════════════════════
+  Discord Notifications - Quick Start (5 Minutes)
+═══════════════════════════════════════════════════════════════
+
+✅ STEP 1: Get Discord Webhook URL
+───────────────────────────────────────────────────────────────
+1. Open Discord → Your Server
+2. Right-click channel → Edit Channel
+3. Integrations → Webhooks → New Webhook
+4. Name it "Trading Bot"
+5. Click "Copy Webhook URL"
+
+Example URL:
+https://discord.com/api/webhooks/123456789012345678/AbCdEf...
+
+
+✅ STEP 2: Add to Environment
+───────────────────────────────────────────────────────────────
+Edit: backend/.env
+
+Add this line:
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_URL_HERE
+
+
+✅ STEP 3: Restart Services
+───────────────────────────────────────────────────────────────
+cd docker
+docker-compose restart celery
+
+
+✅ STEP 4: Test It
+───────────────────────────────────────────────────────────────
+python test_discord.py
+
+
+═══════════════════════════════════════════════════════════════
+  What You'll Get
+═══════════════════════════════════════════════════════════════
+
+📊 Automatic Signal Notifications
+  • Every LONG/SHORT signal posted instantly
+  • Beautiful formatted embeds
+  • Risk/reward calculations
+  • Entry, SL, TP prices
+  • Confidence levels
+
+🎨 Color Coded
+  • 🟢 Green for LONG signals
+  • 🔴 Red for SHORT signals
+  • 📊 SPOT market indicator
+  • ⚡ FUTURES market indicator
+
+📈 Rich Information
+  • Timeframe (5m, 15m, 1h, 4h, 1d)
+  • Market type (SPOT/FUTURES)
+  • Leverage (for futures)
+  • Potential profit/loss %
+
+
+═══════════════════════════════════════════════════════════════
+  Example Signal in Discord
+═══════════════════════════════════════════════════════════════
+
+🟢 LONG Signal - BTCUSDT 📊
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+New LONG opportunity detected on 4h timeframe
+
+📍 Entry Price          🎯 Take Profit         🛑 Stop Loss
+$50,000.0000           $52,000.0000          $49,000.0000
+
+📊 Risk/Reward          ✨ Confidence          ⏰ Timeframe
+1:2.00                  85.0%                 4h
+
+💰 Potential Profit     ⚠️ Potential Loss
++4.00%                  -2.00%
+
+SPOT Market
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+═══════════════════════════════════════════════════════════════
+  Troubleshooting
+═══════════════════════════════════════════════════════════════
+
+Problem: "Webhook URL not configured"
+Solution: Check .env file has DISCORD_WEBHOOK_URL=...
+          Restart: docker-compose restart celery
+
+Problem: Messages not appearing
+Solution: Verify webhook still exists in Discord
+          Test URL with: curl -X POST "YOUR_URL" \
+            -H "Content-Type: application/json" \
+            -d '{"content": "test"}'
+
+Problem: "Failed to send notification"
+Solution: Check webhook URL is complete and correct
+          Recreate webhook if needed
+
+
+═══════════════════════════════════════════════════════════════
+  Advanced Features
+═══════════════════════════════════════════════════════════════
+
+✨ Daily Summaries
+   • Total signals today
+   • LONG vs SHORT breakdown
+   • Average confidence
+   • Most active symbols
+
+⚠️ Custom Alerts
+   • Info, Warning, Error, Success
+   • System status updates
+   • Trade execution notifications
+
+💬 Custom Messages
+   • Market analysis
+   • System announcements
+   • Manual notifications
+
+
+═══════════════════════════════════════════════════════════════
+  Documentation
+═══════════════════════════════════════════════════════════════
+
+📖 Full Guide: DISCORD_SETUP_GUIDE.md
+🧪 Test Script: test_discord.py
+⚙️ Code: backend/scanner/services/discord_notifier.py
+
+
+═══════════════════════════════════════════════════════════════
+  Support
+═══════════════════════════════════════════════════════════════
+
+• Check DISCORD_SETUP_GUIDE.md for detailed instructions
+• Run: python test_discord.py to diagnose issues
+• Verify .env has DISCORD_WEBHOOK_URL set
+• Ensure services restarted after config change
+
+
+═══════════════════════════════════════════════════════════════
+  That's it! 🎉
+═══════════════════════════════════════════════════════════════
+
+Your trading signals will now automatically post to Discord!
+
+Questions? Check DISCORD_SETUP_GUIDE.md for complete documentation.
