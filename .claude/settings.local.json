@@ -56,7 +56,8 @@
       "Bash(timeout 120 docker-compose logs:*)",
       "Bash(timeout 180 docker-compose logs:*)",
       "Bash(timeout 300 docker-compose logs:*)",
-      "Bash(timeout 360 docker-compose logs:*)"
+      "Bash(timeout 360 docker-compose logs:*)",
+      "Bash(backend/.env)"
     ],
     "deny": [],
     "ask": []

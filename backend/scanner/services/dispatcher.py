@@ -8,6 +8,14 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+# Import Discord notifier
+try:
+    from .discord_notifier import discord_notifier
+    DISCORD_AVAILABLE = True
+except ImportError:
+    DISCORD_AVAILABLE = False
+    logger.warning("Discord notifier not available")
+
 
 class SignalDispatcher:
     """Dispatches trading signals via Django Channels WebSocket."""
@@ -78,6 +86,13 @@ class SignalDispatcher:
                 f"Broadcasted {broadcast_data['direction']} signal for {broadcast_data['symbol']} "
                 f"(confidence: {broadcast_data['confidence']:.2%})"
             )
+
+            # Send to Discord if available
+            if DISCORD_AVAILABLE and discord_notifier.is_enabled():
+                try:
+                    discord_notifier.send_signal(signal_data)
+                except Exception as discord_error:
+                    logger.error(f"Failed to send Discord notification: {discord_error}")
 
         except Exception as e:
             logger.error(f"Failed to broadcast signal: {e}", exc_info=True)
