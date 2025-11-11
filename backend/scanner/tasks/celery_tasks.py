@@ -137,10 +137,13 @@ async def _scan_market_async(engine):
 
                     if action == 'created':
                         signal_data = result['signal']
+                        logger.debug(f"Attempting to save signal: {signal_data['symbol']} {signal_data['direction']}")
                         saved_signal = await _save_signal_async(signal_data)
                         if saved_signal:  # Only count if not a duplicate
                             created_count += 1
                             signal_dispatcher.broadcast_signal(signal_data)
+                        else:
+                            logger.debug(f"Signal not saved (likely duplicate): {signal_data['symbol']} {signal_data['direction']}")
 
                     elif action == 'updated':
                         updated_count += 1

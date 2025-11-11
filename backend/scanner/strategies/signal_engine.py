@@ -276,12 +276,21 @@ class SignalDetectionEngine:
         higher_tf = timeframe_map[current_timeframe]
 
         try:
-            # Get higher timeframe candles from cache or fetch
+            # Get higher timeframe candles from cache
             # We need at least 50 candles for EMA calculation
-            higher_candles = self.candle_cache.get(f"{symbol}_{higher_tf}", deque(maxlen=200))
+            cache_key = f"{symbol}_{higher_tf}"
+
+            if cache_key not in self.candle_cache:
+                logger.debug(f"{symbol}: No {higher_tf} candles in cache (key: {cache_key}), returning NEUTRAL")
+                return "NEUTRAL"
+
+            higher_candles = self.candle_cache[cache_key]
 
             if len(higher_candles) < 50:
-                logger.debug(f"{symbol}: Not enough {higher_tf} candles for MTF check, returning NEUTRAL")
+                logger.debug(
+                    f"{symbol}: Not enough {higher_tf} candles for MTF check "
+                    f"({len(higher_candles)}/50 required), returning NEUTRAL"
+                )
                 return "NEUTRAL"
 
             # Convert to DataFrame and calculate indicators
