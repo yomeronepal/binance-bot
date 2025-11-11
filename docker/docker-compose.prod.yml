@@ -97,7 +97,7 @@ services:
     container_name: binancebot_celery_prod
     command: sh -c "celery -A config worker -l info --concurrency=4"
     env_file:
-      - ../backend/.env
+      - .env
     depends_on:
       - db
       - redis
@@ -114,7 +114,7 @@ services:
     container_name: binancebot_celery_beat_prod
     command: sh -c "celery -A config beat -l info"
     env_file:
-      - ../backend/.env
+      - .env
     depends_on:
       - db
       - redis

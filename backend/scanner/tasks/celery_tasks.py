@@ -96,7 +96,7 @@ async def _scan_market_async(engine):
 
         # Fetch klines for all pairs with optimized rate limiting
         # Using smaller batch_size (5) and longer delay (1.5s) to prevent timeouts
-        klines_data = await client.batch_get_klines(
+        klines_data_1h = await client.batch_get_klines(
             top_pairs,
             interval='1h',
             limit=200,
@@ -104,11 +104,30 @@ async def _scan_market_async(engine):
             delay_between_batches=1.5  # Increased delay to prevent rate limiting
         )
 
+        # Fetch 4h data for multi-timeframe confirmation
+        klines_data_4h = await client.batch_get_klines(
+            top_pairs,
+            interval='4h',
+            limit=200,
+            batch_size=5,
+            delay_between_batches=1.5
+        )
+
         # Process each symbol
-        for symbol, klines in klines_data.items():
+        for symbol in top_pairs:
             try:
-                # Update engine cache
-                engine.update_candles(symbol, klines)
+                klines_1h = klines_data_1h.get(symbol, [])
+                klines_4h = klines_data_4h.get(symbol, [])
+
+                if not klines_1h:
+                    continue
+
+                # Update engine cache with 1h data
+                engine.update_candles(symbol, klines_1h)
+
+                # Update engine cache with 4h data for MTF confirmation
+                if klines_4h:
+                    engine.update_candles(f"{symbol}_4h", klines_4h)
 
                 # Process symbol
                 result = engine.process_symbol(symbol, '1h')
@@ -269,10 +288,22 @@ async def _save_signal_async(signal_data: Dict):
             }
         )
 
-        # Check for duplicate signals (same symbol, direction, and similar entry price within last 15 minutes)
-        recent_time = timezone.now() - timedelta(minutes=15)
+        # Check for duplicate signals - timeframe-aware deduplication window
+        # For 1h timeframe: check last 55 minutes (allow 1 signal per hour)
+        # For other timeframes: check last 15 minutes
+        timeframe = signal_data['timeframe']
+        if timeframe == '1h':
+            dedup_window_minutes = 55  # Allow new signal every hour
+        elif timeframe == '4h':
+            dedup_window_minutes = 230  # ~3.8 hours - allow 1 per 4h candle
+        elif timeframe == '1d':
+            dedup_window_minutes = 1400  # ~23 hours - allow 1 per day
+        else:
+            dedup_window_minutes = 15  # Default for smaller timeframes
+
+        recent_time = timezone.now() - timedelta(minutes=dedup_window_minutes)
         entry_price = Decimal(str(signal_data['entry']))
-        price_tolerance = entry_price * Decimal('0.005')  # 0.5% tolerance
+        price_tolerance = entry_price * Decimal('0.01')  # 1% tolerance (increased from 0.5%)
 
         existing_signal = Signal.objects.filter(
             symbol=symbol_obj,
@@ -286,7 +317,12 @@ async def _save_signal_async(signal_data: Dict):
         ).first()
 
         if existing_signal:
-            logger.debug(f"⏭️  Skipping duplicate signal for {signal_data['symbol']} {signal_data['direction']}")
+            logger.info(
+                f"⏭️  Skipping duplicate signal for {signal_data['symbol']} {signal_data['direction']} "
+                f"@ ${entry_price} (Existing: ${existing_signal.entry}, "
+                f"Created: {existing_signal.created_at.strftime('%H:%M:%S')}, "
+                f"Window: {dedup_window_minutes}min)"
+            )
             return None
 
         # Determine trading type, estimated duration, and target risk-reward
@@ -324,6 +360,10 @@ async def _save_signal_async(signal_data: Dict):
             market_type='SPOT',
             trading_type=trading_type,
             estimated_duration_hours=estimated_duration
+        )
+        logger.info(
+            f"💾 Saved signal to DB: {signal.direction} {signal.symbol.symbol} @ ${signal.entry} "
+            f"(ID: {signal.id}, Conf: {signal.confidence:.0%})"
         )
         return signal
 
@@ -796,10 +836,20 @@ async def _save_futures_signal_async(signal_data: Dict):
             }
         )
 
-        # Check for duplicate signals (same symbol, direction, and similar entry price within last 15 minutes)
-        recent_time = timezone.now() - timedelta(minutes=15)
+        # Check for duplicate signals - timeframe-aware deduplication window
+        timeframe = signal_data['timeframe']
+        if timeframe == '1h':
+            dedup_window_minutes = 55  # Allow new signal every hour
+        elif timeframe == '4h':
+            dedup_window_minutes = 230  # ~3.8 hours - allow 1 per 4h candle
+        elif timeframe == '1d':
+            dedup_window_minutes = 1400  # ~23 hours - allow 1 per day
+        else:
+            dedup_window_minutes = 15  # Default for smaller timeframes
+
+        recent_time = timezone.now() - timedelta(minutes=dedup_window_minutes)
         entry_price = Decimal(str(signal_data['entry']))
-        price_tolerance = entry_price * Decimal('0.005')  # 0.5% tolerance
+        price_tolerance = entry_price * Decimal('0.01')  # 1% tolerance
 
         existing_signal = Signal.objects.filter(
             symbol=symbol_obj,
@@ -813,7 +863,12 @@ async def _save_futures_signal_async(signal_data: Dict):
         ).first()
 
         if existing_signal:
-            logger.debug(f"⏭️  Skipping duplicate futures signal for {signal_data['symbol']} {signal_data['direction']}")
+            logger.info(
+                f"⏭️  Skipping duplicate futures signal for {signal_data['symbol']} {signal_data['direction']} "
+                f"@ ${entry_price} (Existing: ${existing_signal.entry}, "
+                f"Created: {existing_signal.created_at.strftime('%H:%M:%S')}, "
+                f"Window: {dedup_window_minutes}min)"
+            )
             return None
 
         # Determine trading type, estimated duration, and target risk-reward
@@ -852,6 +907,10 @@ async def _save_futures_signal_async(signal_data: Dict):
             leverage=signal_data.get('leverage', 10),
             trading_type=trading_type,
             estimated_duration_hours=estimated_duration
+        )
+        logger.info(
+            f"💾 Saved FUTURES signal to DB: {signal.direction} {signal.symbol.symbol} @ ${signal.entry} "
+            f"(ID: {signal.id}, Conf: {signal.confidence:.0%}, Leverage: {signal.leverage}x)"
         )
         return signal
 

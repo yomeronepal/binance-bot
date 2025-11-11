@@ -238,26 +238,82 @@ class SignalDetectionEngine:
 
         logger.debug(f"Updated {symbol} cache: {len(cache)} candles")
 
-    def _get_higher_timeframe_trend(self, symbol: str) -> str:
+    def _get_higher_timeframe_trend(self, symbol: str, current_timeframe: str) -> str:
         """
-        Get daily trend direction using EMA crossover.
+        Get higher timeframe trend direction using EMA crossover.
 
         PHASE 2 OPTIMIZATION: Multi-Timeframe Confirmation
         Only take signals aligned with higher timeframe trend.
 
+        Timeframe mapping:
+        - 15m -> check 1h trend
+        - 1h -> check 4h trend
+        - 4h, 1d -> no confirmation needed (return BULLISH to allow)
+
         Args:
             symbol: Trading pair symbol
+            current_timeframe: Current signal timeframe
 
         Returns:
             "BULLISH", "BEARISH", or "NEUTRAL"
-
-        NOTE: Currently disabled to avoid event loop conflicts.
-        Returns NEUTRAL to allow all signals through.
         """
-        # TEMPORARILY DISABLED: Event loop conflict issues
-        # This feature will be re-enabled after refactoring to use proper async context
-        logger.debug(f"{symbol}: Daily trend check disabled, returning NEUTRAL")
-        return "NEUTRAL"
+        from scanner.indicators.indicator_utils import (
+            klines_to_dataframe,
+            calculate_all_indicators
+        )
+
+        # Timeframe mapping: current -> higher timeframe
+        timeframe_map = {
+            '15m': '1h',
+            '1h': '4h'
+        }
+
+        # 4h and 1d don't need confirmation
+        if current_timeframe not in timeframe_map:
+            logger.debug(f"{symbol}: {current_timeframe} doesn't need MTF confirmation, returning BULLISH")
+            return "BULLISH"
+
+        higher_tf = timeframe_map[current_timeframe]
+
+        try:
+            # Get higher timeframe candles from cache or fetch
+            # We need at least 50 candles for EMA calculation
+            higher_candles = self.candle_cache.get(f"{symbol}_{higher_tf}", deque(maxlen=200))
+
+            if len(higher_candles) < 50:
+                logger.debug(f"{symbol}: Not enough {higher_tf} candles for MTF check, returning NEUTRAL")
+                return "NEUTRAL"
+
+            # Convert to DataFrame and calculate indicators
+            df = klines_to_dataframe(list(higher_candles))
+            df = calculate_all_indicators(df)
+
+            if len(df) == 0:
+                logger.debug(f"{symbol}: Empty dataframe for {higher_tf}, returning NEUTRAL")
+                return "NEUTRAL"
+
+            current = df.iloc[-1]
+
+            # EMA9 vs EMA50 trend determination
+            ema_9 = current.get('ema_9', 0)
+            ema_50 = current.get('ema_50', 0)
+            close = current.get('close', 0)
+
+            if ema_9 > ema_50:
+                if close > ema_50:
+                    logger.debug(f"{symbol}: {higher_tf} trend is BULLISH (EMA9 > EMA50, close above EMA50)")
+                    return "BULLISH"
+            elif ema_9 < ema_50:
+                if close < ema_50:
+                    logger.debug(f"{symbol}: {higher_tf} trend is BEARISH (EMA9 < EMA50, close below EMA50)")
+                    return "BEARISH"
+
+            logger.debug(f"{symbol}: {higher_tf} trend is NEUTRAL")
+            return "NEUTRAL"
+
+        except Exception as e:
+            logger.error(f"Error getting {higher_tf} trend for {symbol}: {e}")
+            return "NEUTRAL"
 
     def process_symbol(
         self,
@@ -360,18 +416,18 @@ class SignalDetectionEngine:
 
         if long_signal and long_conf >= config.min_confidence:
             # PHASE 2 OPTIMIZATION: Multi-Timeframe Confirmation
-            # Only take LONG signals aligned with daily trend
-            daily_trend = self._get_higher_timeframe_trend(symbol)
+            # Only take LONG signals aligned with higher timeframe trend
+            higher_tf_trend = self._get_higher_timeframe_trend(symbol, timeframe)
 
-            if daily_trend == "BEARISH":
+            if higher_tf_trend == "BEARISH":
                 logger.info(
-                    f"{symbol}: LONG signal detected (Conf: {long_conf:.0%}) but daily trend is BEARISH, "
+                    f"{symbol}: LONG signal detected (Conf: {long_conf:.0%}) but higher TF trend is BEARISH, "
                     f"skipping to avoid counter-trend trade"
                 )
                 return None
-            elif daily_trend == "NEUTRAL":
+            elif higher_tf_trend == "NEUTRAL":
                 logger.info(
-                    f"{symbol}: LONG signal detected (Conf: {long_conf:.0%}), daily trend NEUTRAL, "
+                    f"{symbol}: LONG signal detected (Conf: {long_conf:.0%}), higher TF trend NEUTRAL, "
                     f"proceeding with caution"
                 )
 
@@ -381,7 +437,7 @@ class SignalDetectionEngine:
             self.active_signals[symbol] = signal
             logger.info(
                 f"🆕 NEW LONG signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%}, "
-                f"Daily Trend: {daily_trend})"
+                f"Higher TF Trend: {higher_tf_trend})"
             )
             return {'action': 'created', 'signal': signal.to_dict()}
 
@@ -392,18 +448,18 @@ class SignalDetectionEngine:
 
         if short_signal and short_conf >= config.min_confidence:
             # PHASE 2 OPTIMIZATION: Multi-Timeframe Confirmation
-            # Only take SHORT signals aligned with daily trend
-            daily_trend = self._get_higher_timeframe_trend(symbol)
+            # Only take SHORT signals aligned with higher timeframe trend
+            higher_tf_trend = self._get_higher_timeframe_trend(symbol, timeframe)
 
-            if daily_trend == "BULLISH":
+            if higher_tf_trend == "BULLISH":
                 logger.info(
-                    f"{symbol}: SHORT signal detected (Conf: {short_conf:.0%}) but daily trend is BULLISH, "
+                    f"{symbol}: SHORT signal detected (Conf: {short_conf:.0%}) but higher TF trend is BULLISH, "
                     f"skipping to avoid counter-trend trade"
                 )
                 return None
-            elif daily_trend == "NEUTRAL":
+            elif higher_tf_trend == "NEUTRAL":
                 logger.info(
-                    f"{symbol}: SHORT signal detected (Conf: {short_conf:.0%}), daily trend NEUTRAL, "
+                    f"{symbol}: SHORT signal detected (Conf: {short_conf:.0%}), higher TF trend NEUTRAL, "
                     f"proceeding with caution"
                 )
 
@@ -413,7 +469,7 @@ class SignalDetectionEngine:
             self.active_signals[symbol] = signal
             logger.info(
                 f"🆕 NEW SHORT signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%}, "
-                f"Daily Trend: {daily_trend})"
+                f"Higher TF Trend: {higher_tf_trend})"
             )
             return {'action': 'created', 'signal': signal.to_dict()}
 
