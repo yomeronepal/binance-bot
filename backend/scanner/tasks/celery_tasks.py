@@ -917,6 +917,8 @@ async def _save_futures_signal_async(signal_data: Dict):
         )
         return signal
 
+    return await save_signal()
+
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def check_and_close_paper_trades(self):
