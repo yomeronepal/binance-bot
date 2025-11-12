@@ -133,14 +133,36 @@ export const useSignalStore = create((set, get) => ({
   },
 
   /**
-   * Fetch all signals from API
+   * Fetch all signals from API with pagination support
    */
   fetchSignals: async (params = {}) => {
     set({ isLoading: true, error: null });
     try {
-      const data = await signalService.getAll({ ...params, market_type: 'SPOT' });
-      const rawSignals = data.results || data;
-      const uniqueSignals = deduplicateSignals(rawSignals);
+      let allSignals = [];
+      let nextPage = 1;
+      let hasMore = true;
+
+      // Fetch all pages
+      while (hasMore) {
+        const data = await signalService.getAll({
+          ...params,
+          market_type: 'SPOT',
+          page: nextPage,
+          page_size: 100  // Request 100 signals per page
+        });
+
+        const rawSignals = data.results || data;
+        allSignals = [...allSignals, ...(Array.isArray(rawSignals) ? rawSignals : [])];
+
+        // Check if there are more pages
+        if (data.next) {
+          nextPage++;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      const uniqueSignals = deduplicateSignals(allSignals);
       set({ signals: uniqueSignals, isLoading: false });
     } catch (error) {
       set({
@@ -151,14 +173,35 @@ export const useSignalStore = create((set, get) => ({
   },
 
   /**
-   * Fetch futures signals from API
+   * Fetch futures signals from API with pagination support
    */
   fetchFuturesSignals: async (params = {}) => {
     set({ isLoading: true, error: null });
     try {
-      const data = await signalService.getAll({ ...params, market_type: 'FUTURES' });
-      const rawSignals = data.results || data;
-      const uniqueSignals = deduplicateSignals(rawSignals);
+      let allSignals = [];
+      let nextPage = 1;
+      let hasMore = true;
+
+      // Fetch all pages
+      while (hasMore) {
+        const data = await signalService.getAll({
+          ...params,
+          market_type: 'FUTURES',
+          page: nextPage,
+          page_size: 100
+        });
+
+        const rawSignals = data.results || data;
+        allSignals = [...allSignals, ...(Array.isArray(rawSignals) ? rawSignals : [])];
+
+        if (data.next) {
+          nextPage++;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      const uniqueSignals = deduplicateSignals(allSignals);
       set({ futuresSignals: uniqueSignals, isLoading: false });
     } catch (error) {
       set({
@@ -169,14 +212,35 @@ export const useSignalStore = create((set, get) => ({
   },
 
   /**
-   * Fetch forex signals from API
+   * Fetch forex signals from API with pagination support
    */
   fetchForexSignals: async (params = {}) => {
     set({ isLoading: true, error: null });
     try {
-      const data = await signalService.getAll({ ...params, market_type: 'FOREX' });
-      const rawSignals = data.results || data;
-      const uniqueSignals = deduplicateSignals(rawSignals);
+      let allSignals = [];
+      let nextPage = 1;
+      let hasMore = true;
+
+      // Fetch all pages
+      while (hasMore) {
+        const data = await signalService.getAll({
+          ...params,
+          market_type: 'FOREX',
+          page: nextPage,
+          page_size: 100
+        });
+
+        const rawSignals = data.results || data;
+        allSignals = [...allSignals, ...(Array.isArray(rawSignals) ? rawSignals : [])];
+
+        if (data.next) {
+          nextPage++;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      const uniqueSignals = deduplicateSignals(allSignals);
       set({ forexSignals: uniqueSignals, isLoading: false });
     } catch (error) {
       set({
