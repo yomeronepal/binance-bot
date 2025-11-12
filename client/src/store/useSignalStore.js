@@ -5,17 +5,16 @@ import { create } from 'zustand';
 import { signalService } from '../services/signalService';
 
 /**
- * Remove duplicate signals, keeping only the most recent for each symbol/direction/timeframe combination
+ * Remove duplicate signals by ID (in case same signal appears multiple times in pagination)
  */
 const deduplicateSignals = (signals) => {
   const signalMap = new Map();
 
   signals.forEach(signal => {
-    const key = `${signal.symbol_detail?.symbol || signal.symbol}-${signal.direction}-${signal.timeframe}`;
-    const existing = signalMap.get(key);
-
-    if (!existing || new Date(signal.created_at) > new Date(existing.created_at)) {
-      signalMap.set(key, signal);
+    // Use signal ID as the unique key instead of symbol+direction+timeframe
+    // This ensures we don't remove different signals for the same trading pair
+    if (!signalMap.has(signal.id)) {
+      signalMap.set(signal.id, signal);
     }
   });
 
