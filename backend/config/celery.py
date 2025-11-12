@@ -53,14 +53,45 @@ app.conf.beat_schedule = {
         'schedule': crontab(minute='*/15'),  # Every 15min during active hours only
         'options': {'expires': 900.0},
     },
-    # Scan Binance FUTURES market every minute
-    'scan-futures-market': {
-        'task': 'scanner.tasks.celery_tasks.scan_futures_market',
-        'schedule': crontab(minute='*/5'),  # Every 60 seconds
-        'options': {
-            'expires': 50.0,  # Expire if not executed within 50 seconds
-        }
+    # ============================================================================
+    # FUTURES SCANNING - MULTI-TIMEFRAME (DEDICATED)
+    # ============================================================================
+
+    # Scan Futures 1-day timeframe - ONCE DAILY (swing trading with leverage)
+    'scan-futures-1d-timeframe': {
+        'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1d',
+        'schedule': crontab(minute=15, hour=0),  # 00:15 UTC daily
+        'options': {'expires': 3600.0},  # 1 hour expiry
     },
+
+    # Scan Futures 4-hour timeframe - AT 4H CANDLE CLOSES
+    'scan-futures-4h-timeframe': {
+        'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_4h',
+        'schedule': crontab(minute=15, hour='0,4,8,12,16,20'),  # 15 mins after 4h closes
+        'options': {'expires': 1800.0},  # 30 minutes expiry
+    },
+
+    # Scan Futures 1-hour timeframe - EVERY HOUR (intraday with leverage)
+    'scan-futures-1h-timeframe': {
+        'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1h',
+        'schedule': crontab(minute=15),  # Every hour at :15
+        'options': {'expires': 1800.0},
+    },
+
+    # Scan Futures 15-minute timeframe - EVERY 15 MINUTES (scalping with leverage)
+    'scan-futures-15m-timeframe': {
+        'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_15m',
+        'schedule': crontab(minute='*/15'),  # Every 15 minutes
+        'options': {'expires': 900.0},
+    },
+
+    # OPTIONAL: Scan Futures 5-minute timeframe - EVERY 5 MINUTES (ultra-scalping)
+    # Uncomment if you want very high frequency signals
+    # 'scan-futures-5m-timeframe': {
+    #     'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_5m',
+    #     'schedule': crontab(minute='*/5'),  # Every 5 minutes
+    #     'options': {'expires': 300.0},
+    # },
 
     # ============================================================================
     # SYSTEM MAINTENANCE - OPTIMIZED
@@ -191,6 +222,12 @@ app.conf.update(
         'scanner.tasks.forex_scanner.scan_commodities': {'queue': 'scanner'},
         'scanner.tasks.forex_scanner.scan_forex_and_commodities': {'queue': 'scanner'},
         'scanner.tasks.forex_scanner.scan_all_markets': {'queue': 'scanner'},
+        # Futures multi-timeframe scanning tasks
+        'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1d': {'queue': 'scanner'},
+        'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_4h': {'queue': 'scanner'},
+        'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1h': {'queue': 'scanner'},
+        'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_15m': {'queue': 'scanner'},
+        'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_5m': {'queue': 'scanner'},
     },
 )
 
