@@ -125,6 +125,8 @@ def public_performance(request):
             try:
                 current_prices = loop.run_until_complete(fetch_prices())
             finally:
+                # Properly close the client session
+                loop.run_until_complete(binance_client.close())
                 loop.close()
 
             # Calculate unrealized P/L
@@ -194,6 +196,8 @@ def public_open_positions(request):
         try:
             current_prices = loop.run_until_complete(fetch_prices())
         finally:
+            # Properly close the client session
+            loop.run_until_complete(binance_client.close())
             loop.close()
 
     except Exception:
@@ -343,6 +347,8 @@ def public_summary(request):
             try:
                 current_prices = loop.run_until_complete(fetch_prices())
             finally:
+                # Properly close the client session
+                loop.run_until_complete(binance_client.close())
                 loop.close()
 
             # Calculate unrealized P/L

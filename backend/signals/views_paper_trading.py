@@ -241,6 +241,8 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
                 try:
                     current_prices = loop.run_until_complete(fetch_prices())
                 finally:
+                    # Properly close the client session
+                    loop.run_until_complete(binance_client.close())
                     loop.close()
 
                 # Calculate unrealized P/L
@@ -331,6 +333,8 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
             try:
                 current_prices = loop.run_until_complete(fetch_prices())
             finally:
+                # Properly close the client session
+                loop.run_until_complete(binance_client.close())
                 loop.close()
 
         except Exception as e:
@@ -632,6 +636,8 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
                         from signals.services.auto_trader import auto_trading_service
                         auto_trading_service.update_account_equity(account, current_prices)
                     finally:
+                        # Properly close the client session
+                        loop.run_until_complete(binance_client.close())
                         loop.close()
 
             except Exception as e:
