@@ -88,6 +88,8 @@ def public_paper_trading_dashboard(request):
             try:
                 current_prices = loop.run_until_complete(fetch_prices())
             finally:
+                # Properly close the client session
+                loop.run_until_complete(binance_client.close())
                 loop.close()
         else:
             current_prices = {}
