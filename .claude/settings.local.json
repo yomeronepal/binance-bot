@@ -57,7 +57,8 @@
       "Bash(timeout 180 docker-compose logs:*)",
       "Bash(timeout 300 docker-compose logs:*)",
       "Bash(timeout 360 docker-compose logs:*)",
-      "Bash(backend/.env)"
+      "Bash(backend/.env)",
+      "Bash(git remote set-url:*)"
     ],
     "deny": [],
     "ask": []
