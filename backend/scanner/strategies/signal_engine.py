@@ -523,36 +523,34 @@ class SignalDetectionEngine:
 
         # Update signal if confidence changed significantly
         conf_change = abs(conf - signal.confidence)
-        if conf_change > 0.05:  # 5% change threshold
+        if conf_change > 0.05:
             signal.confidence = conf
             signal.last_updated = datetime.now()
             signal.conditions_met = conditions
 
-            # Update SL/TP with STRICT 1:3 R/R ratio
-            atr = float(current['atr'])
             entry = float(signal.entry)
+            risk_percentage = 0.03
+            profit_percentage = 0.09
 
             if signal.direction == 'LONG':
-                sl = entry - (config.sl_atr_multiplier * atr)
-                risk = abs(entry - sl)
-                reward = risk * config.risk_reward_ratio
-                tp = entry + reward
-
-                signal.sl = Decimal(str(sl))
-                signal.tp = Decimal(str(tp))
+                sl = entry * (1 - risk_percentage)
+                tp = entry * (1 + profit_percentage)
             else:
-                sl = entry + (config.sl_atr_multiplier * atr)
-                risk = abs(entry - sl)
-                reward = risk * config.risk_reward_ratio
-                tp = entry - reward
+                sl = entry * (1 + risk_percentage)
+                tp = entry * (1 - profit_percentage)
 
-                signal.sl = Decimal(str(sl))
-                signal.tp = Decimal(str(tp))
+            signal.sl = Decimal(str(sl))
+            signal.tp = Decimal(str(tp))
 
-            rr_ratio = reward / risk if risk > 0 else 0
+            risk_amount = abs(entry - sl)
+            reward_amount = abs(tp - entry)
+            risk_pct = (risk_amount / entry) * 100
+            reward_pct = (reward_amount / entry) * 100
+            rr_ratio = reward_amount / risk_amount if risk_amount > 0 else 0
+
             logger.info(
                 f"🔄 UPDATED {signal.direction} signal: {symbol} "
-                f"(Conf: {signal.confidence:.0%}, Change: {conf_change:+.1%}, R/R=1:{rr_ratio:.2f})"
+                f"(Conf: {signal.confidence:.0%}, Change: {conf_change:+.1%}, Risk={risk_pct:.2f}%, Profit={reward_pct:.2f}%, R/R=1:{rr_ratio:.2f})"
             )
             return {'action': 'updated', 'signal': signal.to_dict()}
 
@@ -887,34 +885,36 @@ class SignalDetectionEngine:
         config: SignalConfig
     ) -> ActiveSignal:
         """
-        Create new active signal with STRICT 1:3 Risk/Reward ratio.
+        Create new active signal with PERCENTAGE-BASED Risk/Reward.
 
-        The TP/SL calculation ALWAYS enforces:
-        - risk = abs(entry_price - stop_loss)
-        - reward = risk * 3
-        - take_profit = entry + reward (LONG) or entry - reward (SHORT)
+        Risk: 3% of position size
+        Profit: 9% of position size (maintaining 1:3 ratio)
 
-        This ensures R/R = 1:3.00 for ALL signals regardless of timeframe,
-        symbol, volatility, or ATR size.
+        SL and TP are calculated to achieve exactly:
+        - 3% loss if SL is hit
+        - 9% gain if TP is hit
         """
         entry = float(current['close'])
-        atr = float(current['atr'])
+
+        risk_percentage = 0.03
+        profit_percentage = 0.09
 
         if direction == 'LONG':
-            sl = entry - (config.sl_atr_multiplier * atr)
-            risk = abs(entry - sl)
-            reward = risk * config.risk_reward_ratio
-            tp = entry + reward
+            sl = entry * (1 - risk_percentage)
+            tp = entry * (1 + profit_percentage)
         else:
-            sl = entry + (config.sl_atr_multiplier * atr)
-            risk = abs(entry - sl)
-            reward = risk * config.risk_reward_ratio
-            tp = entry - reward
+            sl = entry * (1 + risk_percentage)
+            tp = entry * (1 - profit_percentage)
 
-        rr_ratio = reward / risk if risk > 0 else 0
+        risk_amount = abs(entry - sl)
+        reward_amount = abs(tp - entry)
+        risk_pct = (risk_amount / entry) * 100
+        reward_pct = (reward_amount / entry) * 100
+        rr_ratio = reward_amount / risk_amount if risk_amount > 0 else 0
+
         logger.info(
             f"📐 {symbol} {direction} ({timeframe}): Entry={entry:.8f}, SL={sl:.8f}, TP={tp:.8f}, "
-            f"Risk={risk:.8f}, Reward={reward:.8f}, R/R=1:{rr_ratio:.2f}"
+            f"Risk={risk_pct:.2f}%, Profit={reward_pct:.2f}%, R/R=1:{rr_ratio:.2f}"
         )
 
         description = self._generate_description(direction, current, conditions)

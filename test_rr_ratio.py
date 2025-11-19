@@ -1,56 +1,50 @@
 #!/usr/bin/env python3
 """
-Test script to validate STRICT 1:3 Risk/Reward ratio implementation.
+Test script to validate PERCENTAGE-BASED Risk/Reward ratio implementation.
 
-This script tests signal generation across multiple timeframes and
-verifies that ALL signals have exactly 1:3.00 R/R ratio.
+This script tests that all signals enforce:
+- Risk: 3% of position (entry price)
+- Profit: 9% of position (entry price)
+- Maintains 1:3 Risk/Reward ratio
 
 Usage:
     python test_rr_ratio.py
 """
 
-def test_rr_calculation():
-    """Test the R/R calculation logic."""
+def test_percentage_based_calculation():
+    """Test percentage-based R/R calculation logic."""
     print("=" * 70)
-    print("🧪 TESTING RISK/REWARD RATIO CALCULATION")
+    print("🧪 TESTING PERCENTAGE-BASED RISK/REWARD CALCULATION")
     print("=" * 70)
 
     test_cases = [
         {
-            'name': 'LONG Signal Example 1',
+            'name': 'LONG Signal - MANTAUSDT',
             'direction': 'LONG',
             'entry': 0.1236,
-            'sl': 0.1169,
-            'expected_risk': 0.0067,
-            'expected_reward': 0.0201,
-            'expected_tp': 0.1437
+            'expected_risk_pct': 3.0,
+            'expected_profit_pct': 9.0
         },
         {
-            'name': 'SHORT Signal Example 1',
+            'name': 'SHORT Signal - BTC',
             'direction': 'SHORT',
             'entry': 50000.0,
-            'sl': 51000.0,
-            'expected_risk': 1000.0,
-            'expected_reward': 3000.0,
-            'expected_tp': 47000.0
+            'expected_risk_pct': 3.0,
+            'expected_profit_pct': 9.0
         },
         {
-            'name': 'LONG Signal Example 2 (BTC)',
+            'name': 'LONG Signal - BTC',
             'direction': 'LONG',
             'entry': 42500.0,
-            'sl': 41800.0,
-            'expected_risk': 700.0,
-            'expected_reward': 2100.0,
-            'expected_tp': 44600.0
+            'expected_risk_pct': 3.0,
+            'expected_profit_pct': 9.0
         },
         {
-            'name': 'SHORT Signal Example 2 (ETH)',
+            'name': 'SHORT Signal - ETH',
             'direction': 'SHORT',
             'entry': 2300.0,
-            'sl': 2350.0,
-            'expected_risk': 50.0,
-            'expected_reward': 150.0,
-            'expected_tp': 2150.0
+            'expected_risk_pct': 3.0,
+            'expected_profit_pct': 9.0
         },
     ]
 
@@ -61,29 +55,35 @@ def test_rr_calculation():
         print(f"\n📝 Test: {test['name']}")
         print(f"   Direction: {test['direction']}")
         print(f"   Entry: {test['entry']}")
-        print(f"   SL: {test['sl']}")
 
-        risk = abs(test['entry'] - test['sl'])
-        reward = risk * 3.0
+        risk_percentage = 0.03
+        profit_percentage = 0.09
 
         if test['direction'] == 'LONG':
-            tp = test['entry'] + reward
+            sl = test['entry'] * (1 - risk_percentage)
+            tp = test['entry'] * (1 + profit_percentage)
         else:
-            tp = test['entry'] - reward
+            sl = test['entry'] * (1 + risk_percentage)
+            tp = test['entry'] * (1 - profit_percentage)
 
-        rr_ratio = reward / risk if risk > 0 else 0
+        risk_amount = abs(test['entry'] - sl)
+        profit_amount = abs(tp - test['entry'])
 
-        risk_match = abs(risk - test['expected_risk']) < 0.001
-        reward_match = abs(reward - test['expected_reward']) < 0.001
-        tp_match = abs(tp - test['expected_tp']) < 0.001
+        risk_pct = (risk_amount / test['entry']) * 100
+        profit_pct = (profit_amount / test['entry']) * 100
+        rr_ratio = profit_amount / risk_amount if risk_amount > 0 else 0
+
+        risk_match = abs(risk_pct - test['expected_risk_pct']) < 0.01
+        profit_match = abs(profit_pct - test['expected_profit_pct']) < 0.01
         rr_match = abs(rr_ratio - 3.0) < 0.001
 
-        print(f"   Calculated Risk: {risk:.4f} (Expected: {test['expected_risk']:.4f}) {'✅' if risk_match else '❌'}")
-        print(f"   Calculated Reward: {reward:.4f} (Expected: {test['expected_reward']:.4f}) {'✅' if reward_match else '❌'}")
-        print(f"   Calculated TP: {tp:.4f} (Expected: {test['expected_tp']:.4f}) {'✅' if tp_match else '❌'}")
+        print(f"   Calculated SL: {sl:.8f}")
+        print(f"   Calculated TP: {tp:.8f}")
+        print(f"   Risk %: {risk_pct:.2f}% (Expected: {test['expected_risk_pct']:.2f}%) {'✅' if risk_match else '❌'}")
+        print(f"   Profit %: {profit_pct:.2f}% (Expected: {test['expected_profit_pct']:.2f}%) {'✅' if profit_match else '❌'}")
         print(f"   R/R Ratio: 1:{rr_ratio:.2f} (Expected: 1:3.00) {'✅' if rr_match else '❌'}")
 
-        if risk_match and reward_match and tp_match and rr_match:
+        if risk_match and profit_match and rr_match:
             print(f"   ✅ PASSED")
             passed += 1
         else:
@@ -98,59 +98,61 @@ def test_rr_calculation():
 
 
 def test_all_timeframes():
-    """Test that formula works consistently across all timeframes."""
+    """Test that percentage-based formula works consistently across all timeframes."""
     print("=" * 70)
     print("🕐 TESTING ACROSS MULTIPLE TIMEFRAMES")
     print("=" * 70)
 
     timeframes = ['15m', '1h', '4h', '1d']
-    atr_values = [100, 200, 500, 800]
 
-    print("\nSimulating signal generation with varying ATR values:")
-    print("(ATR changes by timeframe, but R/R MUST always be 1:3.00)\n")
+    print("\nVerifying 3% risk / 9% profit across all timeframes:")
+    print("(Timeframe doesn't affect percentage-based calculations)\n")
 
     all_correct = True
 
-    for tf, atr in zip(timeframes, atr_values):
+    for tf in timeframes:
         entry = 50000.0
-        sl_multiplier = 1.5
+        risk_percentage = 0.03
+        profit_percentage = 0.09
 
-        print(f"📅 Timeframe: {tf}, ATR: {atr}")
+        print(f"📅 Timeframe: {tf}")
 
-        sl_long = entry - (sl_multiplier * atr)
-        risk_long = abs(entry - sl_long)
-        reward_long = risk_long * 3.0
-        tp_long = entry + reward_long
-        rr_long = reward_long / risk_long
+        sl_long = entry * (1 - risk_percentage)
+        tp_long = entry * (1 + profit_percentage)
+        risk_pct_long = ((entry - sl_long) / entry) * 100
+        profit_pct_long = ((tp_long - entry) / entry) * 100
+        rr_long = (tp_long - entry) / (entry - sl_long)
 
-        print(f"   LONG: Entry={entry:.2f}, SL={sl_long:.2f}, TP={tp_long:.2f}, R/R=1:{rr_long:.2f}")
+        print(f"   LONG: Entry={entry:.2f}, SL={sl_long:.2f}, TP={tp_long:.2f}")
+        print(f"        Risk={risk_pct_long:.2f}%, Profit={profit_pct_long:.2f}%, R/R=1:{rr_long:.2f}")
 
-        if abs(rr_long - 3.0) > 0.001:
-            print(f"   ❌ LONG R/R is NOT 1:3.00!")
+        if abs(risk_pct_long - 3.0) > 0.01 or abs(profit_pct_long - 9.0) > 0.01:
+            print(f"   ❌ LONG percentages incorrect!")
             all_correct = False
         else:
-            print(f"   ✅ LONG R/R is exactly 1:3.00")
+            print(f"   ✅ LONG: 3% risk, 9% profit")
 
-        sl_short = entry + (sl_multiplier * atr)
-        risk_short = abs(entry - sl_short)
-        reward_short = risk_short * 3.0
-        tp_short = entry - reward_short
-        rr_short = reward_short / risk_short
+        sl_short = entry * (1 + risk_percentage)
+        tp_short = entry * (1 - profit_percentage)
+        risk_pct_short = ((sl_short - entry) / entry) * 100
+        profit_pct_short = ((entry - tp_short) / entry) * 100
+        rr_short = (entry - tp_short) / (sl_short - entry)
 
-        print(f"   SHORT: Entry={entry:.2f}, SL={sl_short:.2f}, TP={tp_short:.2f}, R/R=1:{rr_short:.2f}")
+        print(f"   SHORT: Entry={entry:.2f}, SL={sl_short:.2f}, TP={tp_short:.2f}")
+        print(f"         Risk={risk_pct_short:.2f}%, Profit={profit_pct_short:.2f}%, R/R=1:{rr_short:.2f}")
 
-        if abs(rr_short - 3.0) > 0.001:
-            print(f"   ❌ SHORT R/R is NOT 1:3.00!")
+        if abs(risk_pct_short - 3.0) > 0.01 or abs(profit_pct_short - 9.0) > 0.01:
+            print(f"   ❌ SHORT percentages incorrect!")
             all_correct = False
         else:
-            print(f"   ✅ SHORT R/R is exactly 1:3.00")
+            print(f"   ✅ SHORT: 3% risk, 9% profit")
 
         print()
 
     if all_correct:
-        print("✅ All timeframes produce consistent 1:3.00 R/R ratio")
+        print("✅ All timeframes produce consistent 3% risk / 9% profit")
     else:
-        print("❌ Some timeframes have incorrect R/R ratio")
+        print("❌ Some timeframes have incorrect percentages")
 
     print(f"\n{'=' * 70}\n")
 
@@ -158,37 +160,43 @@ def test_all_timeframes():
 
 
 def test_edge_cases():
-    """Test edge cases and extreme values."""
+    """Test edge cases with different entry prices."""
     print("=" * 70)
     print("⚠️  TESTING EDGE CASES")
     print("=" * 70)
 
     edge_cases = [
-        {'name': 'Very small values', 'entry': 0.0001, 'sl': 0.00009},
-        {'name': 'Very large values', 'entry': 100000.0, 'sl': 99000.0},
-        {'name': 'Crypto precision', 'entry': 0.0123456, 'sl': 0.0120000},
+        {'name': 'Very small values', 'entry': 0.0001},
+        {'name': 'Very large values', 'entry': 100000.0},
+        {'name': 'Crypto precision', 'entry': 0.0123456},
     ]
 
     all_passed = True
 
     for case in edge_cases:
         print(f"\n📝 {case['name']}")
-        print(f"   Entry: {case['entry']}, SL: {case['sl']}")
+        print(f"   Entry: {case['entry']}")
 
-        risk = abs(case['entry'] - case['sl'])
-        reward = risk * 3.0
-        tp = case['entry'] + reward
-        rr = reward / risk if risk > 0 else 0
+        risk_percentage = 0.03
+        profit_percentage = 0.09
 
-        print(f"   Risk: {risk:.10f}")
-        print(f"   Reward: {reward:.10f}")
+        sl = case['entry'] * (1 - risk_percentage)
+        tp = case['entry'] * (1 + profit_percentage)
+
+        risk_pct = ((case['entry'] - sl) / case['entry']) * 100
+        profit_pct = ((tp - case['entry']) / case['entry']) * 100
+        rr = (tp - case['entry']) / (case['entry'] - sl)
+
+        print(f"   SL: {sl:.10f}")
         print(f"   TP: {tp:.10f}")
+        print(f"   Risk %: {risk_pct:.2f}%")
+        print(f"   Profit %: {profit_pct:.2f}%")
         print(f"   R/R: 1:{rr:.2f}")
 
-        if abs(rr - 3.0) < 0.001:
-            print(f"   ✅ R/R is correct (1:3.00)")
+        if abs(risk_pct - 3.0) < 0.01 and abs(profit_pct - 9.0) < 0.01:
+            print(f"   ✅ Percentages correct (3% risk, 9% profit)")
         else:
-            print(f"   ❌ R/R is incorrect (expected 1:3.00, got 1:{rr:.2f})")
+            print(f"   ❌ Percentages incorrect (expected 3% risk, 9% profit)")
             all_passed = False
 
     print(f"\n{'=' * 70}\n")
@@ -197,48 +205,50 @@ def test_edge_cases():
 
 
 def test_leverage_independence():
-    """Test that leverage does NOT affect R/R calculation."""
+    """Test that leverage does NOT affect percentage calculations."""
     print("=" * 70)
     print("📈 TESTING LEVERAGE INDEPENDENCE")
     print("=" * 70)
 
-    print("\nR/R ratio MUST be 1:3.00 regardless of leverage")
-    print("(Leverage affects position size and ROI, NOT the R/R ratio)\n")
+    print("\nPercentages remain 3% risk / 9% profit regardless of leverage")
+    print("(Leverage affects position size and ROI, NOT the risk/profit percentages)\n")
 
     leverages = [1, 5, 10, 20, 50, 100]
     entry = 50000.0
-    sl = 49000.0
-    risk = abs(entry - sl)
-    reward = risk * 3.0
-    tp = entry + reward
+
+    risk_percentage = 0.03
+    profit_percentage = 0.09
+
+    sl = entry * (1 - risk_percentage)
+    tp = entry * (1 + profit_percentage)
 
     all_correct = True
 
     for leverage in leverages:
-        rr = reward / risk
-        position_size = 100.0
-        actual_risk_amount = risk * leverage
-        actual_reward_amount = reward * leverage
-        roi = (actual_reward_amount / position_size) * 100
+        risk_pct = ((entry - sl) / entry) * 100
+        profit_pct = ((tp - entry) / entry) * 100
+
+        effective_risk_pct = risk_pct * leverage
+        effective_profit_pct = profit_pct * leverage
 
         print(f"🔢 Leverage: {leverage}x")
-        print(f"   R/R Ratio: 1:{rr:.2f} (MUST be 1:3.00)")
-        print(f"   Risk Amount: ${actual_risk_amount:.2f}")
-        print(f"   Reward Amount: ${actual_reward_amount:.2f}")
-        print(f"   Potential ROI: {roi:.2f}%")
+        print(f"   Base Risk %: {risk_pct:.2f}% (MUST be 3.00%)")
+        print(f"   Base Profit %: {profit_pct:.2f}% (MUST be 9.00%)")
+        print(f"   Effective Risk on Capital: {effective_risk_pct:.2f}%")
+        print(f"   Effective Profit on Capital: {effective_profit_pct:.2f}%")
 
-        if abs(rr - 3.0) > 0.001:
-            print(f"   ❌ R/R changed with leverage!")
+        if abs(risk_pct - 3.0) > 0.01 or abs(profit_pct - 9.0) > 0.01:
+            print(f"   ❌ Base percentages changed with leverage!")
             all_correct = False
         else:
-            print(f"   ✅ R/R remains 1:3.00")
+            print(f"   ✅ Base percentages remain 3% / 9%")
 
         print()
 
     if all_correct:
-        print("✅ R/R ratio is independent of leverage (correct)")
+        print("✅ Percentages are independent of leverage (correct)")
     else:
-        print("❌ R/R ratio is affected by leverage (incorrect)")
+        print("❌ Percentages are affected by leverage (incorrect)")
 
     print(f"\n{'=' * 70}\n")
 
@@ -248,14 +258,16 @@ def test_leverage_independence():
 def main():
     """Run all tests."""
     print("\n" + "=" * 70)
-    print("🚀 RISK/REWARD RATIO VALIDATION TEST SUITE")
+    print("🚀 PERCENTAGE-BASED RISK/REWARD VALIDATION TEST SUITE")
     print("=" * 70)
-    print("\nThis test validates that ALL signals enforce STRICT 1:3 R/R ratio")
-    print("across all timeframes, symbols, and market conditions.\n")
+    print("\nThis test validates that ALL signals enforce:")
+    print("- Risk: 3% of position (entry price)")
+    print("- Profit: 9% of position (entry price)")
+    print("- R/R Ratio: 1:3.00 (profit is 3x risk)\n")
 
     results = []
 
-    results.append(('Basic R/R Calculation', test_rr_calculation()))
+    results.append(('Percentage-Based Calculation', test_percentage_based_calculation()))
     results.append(('Multiple Timeframes', test_all_timeframes()))
     results.append(('Edge Cases', test_edge_cases()))
     results.append(('Leverage Independence', test_leverage_independence()))
@@ -274,7 +286,11 @@ def main():
     print("\n" + "=" * 70)
 
     if all_passed:
-        print("✅ ALL TESTS PASSED - R/R Ratio Implementation is Correct!")
+        print("✅ ALL TESTS PASSED - Percentage-Based R/R Implementation is Correct!")
+        print("\n📊 Summary:")
+        print("   • Risk: 3% of entry price")
+        print("   • Profit: 9% of entry price")
+        print("   • R/R Ratio: 1:3.00")
     else:
         print("❌ SOME TESTS FAILED - Please review the implementation")
 

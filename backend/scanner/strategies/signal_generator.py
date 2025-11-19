@@ -109,32 +109,38 @@ class SignalGenerator:
     
     def _calculate_long_levels(self, df, entry):
         """
-        Calculate LONG TP/SL with STRICT 1:3 Risk/Reward ratio.
-        - SL is based on 1.5x ATR
-        - TP is calculated as: entry + (risk * 3)
-        - This ensures R/R = 1:3.00 exactly
+        Calculate LONG TP/SL with percentage-based Risk/Reward.
+        Risk: 3% of position (entry price)
+        Profit: 9% of position (entry price)
         """
-        atr = float(df.iloc[-1]['atr'])
-        sl = entry - (1.5 * atr)
-        risk = abs(entry - sl)
-        reward = risk * 3.0
-        tp = entry + reward
-        logger.debug(f"LONG levels: Entry={entry:.8f}, SL={sl:.8f}, TP={tp:.8f}, Risk={risk:.8f}, Reward={reward:.8f}, R/R=1:3.00")
+        risk_percentage = 0.03
+        profit_percentage = 0.09
+
+        sl = entry * (1 - risk_percentage)
+        tp = entry * (1 + profit_percentage)
+
+        risk_pct = ((entry - sl) / entry) * 100
+        profit_pct = ((tp - entry) / entry) * 100
+
+        logger.debug(f"LONG levels: Entry={entry:.8f}, SL={sl:.8f}, TP={tp:.8f}, Risk={risk_pct:.2f}%, Profit={profit_pct:.2f}%")
         return sl, tp
 
     def _calculate_short_levels(self, df, entry):
         """
-        Calculate SHORT TP/SL with STRICT 1:3 Risk/Reward ratio.
-        - SL is based on 1.5x ATR
-        - TP is calculated as: entry - (risk * 3)
-        - This ensures R/R = 1:3.00 exactly
+        Calculate SHORT TP/SL with percentage-based Risk/Reward.
+        Risk: 3% of position (entry price)
+        Profit: 9% of position (entry price)
         """
-        atr = float(df.iloc[-1]['atr'])
-        sl = entry + (1.5 * atr)
-        risk = abs(entry - sl)
-        reward = risk * 3.0
-        tp = entry - reward
-        logger.debug(f"SHORT levels: Entry={entry:.8f}, SL={sl:.8f}, TP={tp:.8f}, Risk={risk:.8f}, Reward={reward:.8f}, R/R=1:3.00")
+        risk_percentage = 0.03
+        profit_percentage = 0.09
+
+        sl = entry * (1 + risk_percentage)
+        tp = entry * (1 - profit_percentage)
+
+        risk_pct = ((sl - entry) / entry) * 100
+        profit_pct = ((entry - tp) / entry) * 100
+
+        logger.debug(f"SHORT levels: Entry={entry:.8f}, SL={sl:.8f}, TP={tp:.8f}, Risk={risk_pct:.2f}%, Profit={profit_pct:.2f}%")
         return sl, tp
     
     def _generate_description(self, direction, df, current):
