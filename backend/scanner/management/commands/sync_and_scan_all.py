@@ -6,7 +6,7 @@ from django.db import transaction
 from scanner.services.binance_client import BinanceClient
 from signals.models import Symbol
 from scanner.strategies.signal_engine import SignalDetectionEngine, SignalConfig
-from scanner.services.klines_to_df import klines_to_dataframe, calculate_all_indicators
+from scanner.indicators.indicator_utils import klines_to_dataframe, calculate_all_indicators
 
 logger = logging.getLogger(__name__)
 
