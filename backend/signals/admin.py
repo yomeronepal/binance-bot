@@ -8,6 +8,7 @@ from collections import defaultdict
 from django.contrib import admin
 from django.utils.html import format_html
 from django.http import HttpResponse
+from django.utils import timezone
 from .models import Symbol, Signal, UserSubscription, PaperTrade, PaperAccount
 from .models_backtest import (
     BacktestRun,
@@ -693,15 +694,16 @@ class PaperTradeAdmin(BaseModelAdmin):
                 pass
 
         time_periods = {'last_7_days': [], 'last_30_days': [], 'last_90_days': [], 'all_time': closed_trades_sorted}
-        now = datetime.now()
+        now = timezone.now()
         for trade in closed_trades_sorted:
             if trade['exit_time']:
                 exit_dt = datetime.fromisoformat(trade['exit_time'].replace('Z', '+00:00'))
-                if (now - exit_dt).days <= 7:
+                days_ago = (now - exit_dt).days
+                if days_ago <= 7:
                     time_periods['last_7_days'].append(trade)
-                if (now - exit_dt).days <= 30:
+                if days_ago <= 30:
                     time_periods['last_30_days'].append(trade)
-                if (now - exit_dt).days <= 90:
+                if days_ago <= 90:
                     time_periods['last_90_days'].append(trade)
 
         performance_by_period = {}
@@ -722,7 +724,7 @@ class PaperTradeAdmin(BaseModelAdmin):
 
         export_data = {
             'export_info': {
-                'generated_at': datetime.now().isoformat(), 'generated_by': request.user.username,
+                'generated_at': timezone.now().isoformat(), 'generated_by': request.user.username,
                 'total_trades_exported': len(closed_trades_sorted), 'open_trades_exported': len(open_trades_list)
             },
             'summary_statistics': {
@@ -741,7 +743,7 @@ class PaperTradeAdmin(BaseModelAdmin):
         }
 
         response = HttpResponse(json.dumps(export_data, indent=2, default=self._decimal_to_float), content_type='application/json')
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
         response['Content-Disposition'] = f'attachment; filename="{filename.replace(".json", "")}_{timestamp}.json"'
         self.message_user(request, f'Successfully exported {total_closed} closed trades and {len(open_trades_list)} open trades. Win Rate: {win_rate:.2f}%, Total P/L: ${total_profit:.2f}')
         return response
