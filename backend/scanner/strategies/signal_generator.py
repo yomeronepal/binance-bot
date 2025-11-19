@@ -108,15 +108,33 @@ class SignalGenerator:
             return False, 0.0
     
     def _calculate_long_levels(self, df, entry):
+        """
+        Calculate LONG TP/SL with STRICT 1:3 Risk/Reward ratio.
+        - SL is based on 1.5x ATR
+        - TP is calculated as: entry + (risk * 3)
+        - This ensures R/R = 1:3.00 exactly
+        """
         atr = float(df.iloc[-1]['atr'])
         sl = entry - (1.5 * atr)
-        tp = entry + (2.5 * atr)
+        risk = abs(entry - sl)
+        reward = risk * 3.0
+        tp = entry + reward
+        logger.debug(f"LONG levels: Entry={entry:.8f}, SL={sl:.8f}, TP={tp:.8f}, Risk={risk:.8f}, Reward={reward:.8f}, R/R=1:3.00")
         return sl, tp
-    
+
     def _calculate_short_levels(self, df, entry):
+        """
+        Calculate SHORT TP/SL with STRICT 1:3 Risk/Reward ratio.
+        - SL is based on 1.5x ATR
+        - TP is calculated as: entry - (risk * 3)
+        - This ensures R/R = 1:3.00 exactly
+        """
         atr = float(df.iloc[-1]['atr'])
         sl = entry + (1.5 * atr)
-        tp = entry - (2.5 * atr)
+        risk = abs(entry - sl)
+        reward = risk * 3.0
+        tp = entry - reward
+        logger.debug(f"SHORT levels: Entry={entry:.8f}, SL={sl:.8f}, TP={tp:.8f}, Risk={risk:.8f}, Reward={reward:.8f}, R/R=1:3.00")
         return sl, tp
     
     def _generate_description(self, direction, df, current):

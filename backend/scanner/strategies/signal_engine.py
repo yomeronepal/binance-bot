@@ -41,6 +41,9 @@ class SignalConfig:
     sl_atr_multiplier: float = 1.5  # 1.5x ATR for stop loss (good risk management)
     tp_atr_multiplier: float = 5.25  # 5.25x ATR for take profit (3.5:1 R/R)
 
+    # STRICT Risk/Reward Ratio - ALWAYS enforced
+    risk_reward_ratio: float = 3.0  # MUST be exactly 1:3 for all signals
+
     # Signal management
     min_confidence: float = 0.75  # Increased to filter marginal signals
     max_candles_cache: int = 200
@@ -525,20 +528,31 @@ class SignalDetectionEngine:
             signal.last_updated = datetime.now()
             signal.conditions_met = conditions
 
-            # Update SL/TP based on current ATR
+            # Update SL/TP with STRICT 1:3 R/R ratio
             atr = float(current['atr'])
             entry = float(signal.entry)
 
             if signal.direction == 'LONG':
-                signal.sl = Decimal(str(entry - (config.sl_atr_multiplier * atr)))
-                signal.tp = Decimal(str(entry + (config.tp_atr_multiplier * atr)))
-            else:
-                signal.sl = Decimal(str(entry + (config.sl_atr_multiplier * atr)))
-                signal.tp = Decimal(str(entry - (config.tp_atr_multiplier * atr)))
+                sl = entry - (config.sl_atr_multiplier * atr)
+                risk = abs(entry - sl)
+                reward = risk * config.risk_reward_ratio
+                tp = entry + reward
 
+                signal.sl = Decimal(str(sl))
+                signal.tp = Decimal(str(tp))
+            else:
+                sl = entry + (config.sl_atr_multiplier * atr)
+                risk = abs(entry - sl)
+                reward = risk * config.risk_reward_ratio
+                tp = entry - reward
+
+                signal.sl = Decimal(str(sl))
+                signal.tp = Decimal(str(tp))
+
+            rr_ratio = reward / risk if risk > 0 else 0
             logger.info(
                 f"🔄 UPDATED {signal.direction} signal: {symbol} "
-                f"(Conf: {signal.confidence:.0%}, Change: {conf_change:+.1%})"
+                f"(Conf: {signal.confidence:.0%}, Change: {conf_change:+.1%}, R/R=1:{rr_ratio:.2f})"
             )
             return {'action': 'updated', 'signal': signal.to_dict()}
 
@@ -872,16 +886,36 @@ class SignalDetectionEngine:
         timeframe: str,
         config: SignalConfig
     ) -> ActiveSignal:
-        """Create new active signal."""
+        """
+        Create new active signal with STRICT 1:3 Risk/Reward ratio.
+
+        The TP/SL calculation ALWAYS enforces:
+        - risk = abs(entry_price - stop_loss)
+        - reward = risk * 3
+        - take_profit = entry + reward (LONG) or entry - reward (SHORT)
+
+        This ensures R/R = 1:3.00 for ALL signals regardless of timeframe,
+        symbol, volatility, or ATR size.
+        """
         entry = float(current['close'])
         atr = float(current['atr'])
 
         if direction == 'LONG':
             sl = entry - (config.sl_atr_multiplier * atr)
-            tp = entry + (config.tp_atr_multiplier * atr)
+            risk = abs(entry - sl)
+            reward = risk * config.risk_reward_ratio
+            tp = entry + reward
         else:
             sl = entry + (config.sl_atr_multiplier * atr)
-            tp = entry - (config.tp_atr_multiplier * atr)
+            risk = abs(entry - sl)
+            reward = risk * config.risk_reward_ratio
+            tp = entry - reward
+
+        rr_ratio = reward / risk if risk > 0 else 0
+        logger.info(
+            f"📐 {symbol} {direction} ({timeframe}): Entry={entry:.8f}, SL={sl:.8f}, TP={tp:.8f}, "
+            f"Risk={risk:.8f}, Reward={reward:.8f}, R/R=1:{rr_ratio:.2f}"
+        )
 
         description = self._generate_description(direction, current, conditions)
 
