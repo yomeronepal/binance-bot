@@ -1038,5 +1038,27 @@ def check_and_close_paper_trades(self):
 
     except Exception as e:
         logger.error(f"❌ Error in check_and_close_paper_trades: {str(e)}", exc_info=True)
-        # Retry on error
         raise self.retry(exc=e)
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=10)
+def monitor_fibonacci_pullbacks(self):
+    """
+    Monitor Fibonacci pullback signals and trigger entries when price enters golden zone.
+
+    Runs every 30 seconds via Celery Beat.
+    Checks signals with status='WAITING_FOR_PULLBACK'.
+    """
+    try:
+        logger.info("🔍 Monitoring Fibonacci pullback signals...")
+
+        from scanner.services.fib_watcher import FibonacciPullbackWatcher
+
+        watcher = FibonacciPullbackWatcher()
+        watcher.monitor()
+
+        logger.info("✅ Fibonacci monitoring complete")
+
+    except Exception as e:
+        logger.error(f"❌ Error in Fibonacci monitoring: {e}", exc_info=True)
+        raise self.retry(exc=e, countdown=30)

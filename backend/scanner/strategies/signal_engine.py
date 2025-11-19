@@ -13,6 +13,13 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+try:
+    from scanner.services.fib_utils import check_fibonacci_pullback
+    FIBONACCI_AVAILABLE = True
+except ImportError:
+    logger.warning("Fibonacci utils not available - pullback detection disabled")
+    FIBONACCI_AVAILABLE = False
+
 # Import volatility classifier
 try:
     from scanner.services.volatility_classifier import get_volatility_classifier
@@ -66,6 +73,13 @@ class SignalConfig:
     mfi_weight: float = 1.3         # Volume-weighted momentum
     psar_weight: float = 1.1        # Adaptive trailing stop/trend
 
+    # FIBONACCI PULLBACK PARAMETERS
+    fibonacci_weight: float = 2.5    # Strong pullback confirmation
+    fib_lookback_candles: int = 50   # How many candles to search for swing high/low
+    fib_entry_zone_min: float = 0.5  # 50% Fibonacci retracement
+    fib_entry_zone_max: float = 0.618  # Golden ratio (61.8%)
+    fib_enable_pullback: bool = True  # Enable Fibonacci pullback detection
+
 
 @dataclass
 class ActiveSignal:
@@ -82,6 +96,8 @@ class ActiveSignal:
     last_updated: datetime
     db_id: Optional[int] = None
     conditions_met: Dict[str, bool] = field(default_factory=dict)
+    meta: Dict = field(default_factory=dict)  # Fibonacci & strategy metadata
+    status: str = 'ACTIVE'  # ACTIVE, WAITING_FOR_PULLBACK, ENTRY_ZONE_REACHED
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for broadcasting."""
@@ -100,6 +116,8 @@ class ActiveSignal:
             'description': self.description,
             'created_at': self.created_at.isoformat(),
             'last_updated': self.last_updated.isoformat(),
+            'meta': self.meta,  # Fibonacci & strategy metadata
+            'status': self.status,  # Signal status
         }
 
 
@@ -572,10 +590,12 @@ class SignalDetectionEngine:
             config.volatility_weight +
             config.supertrend_weight +
             config.mfi_weight +
-            config.psar_weight
+            config.psar_weight +
+            (config.fibonacci_weight if config.fib_enable_pullback else 0)
         )
 
         conditions = {}
+        fib_meta = {}
 
         try:
             # 1. MACD Crossover
@@ -694,6 +714,34 @@ class SignalDetectionEngine:
             else:
                 conditions['psar_bullish'] = False
 
+            # 14. Fibonacci Pullback (Golden Ratio Zone)
+            if config.fib_enable_pullback and FIBONACCI_AVAILABLE:
+                try:
+                    in_zone, fib_data = check_fibonacci_pullback(
+                        df, current, 'LONG',
+                        lookback=config.fib_lookback_candles,
+                        entry_zone_min=config.fib_entry_zone_min,
+                        entry_zone_max=config.fib_entry_zone_max
+                    )
+                    if in_zone:
+                        score += config.fibonacci_weight
+                        conditions['fibonacci_pullback'] = True
+                        conditions['_fib_meta'] = fib_data
+                        logger.info(
+                            f"🎯 Fibonacci pullback confirmed: "
+                            f"Price {fib_data.get('current_price'):.2f} in golden zone "
+                            f"[{fib_data.get('fib_61_8'):.2f} - {fib_data.get('fib_50'):.2f}]"
+                        )
+                    else:
+                        conditions['fibonacci_pullback'] = False
+                        if fib_data:
+                            conditions['_fib_meta'] = fib_data
+                except Exception as e:
+                    logger.warning(f"Fibonacci pullback check failed: {e}")
+                    conditions['fibonacci_pullback'] = False
+            else:
+                conditions['fibonacci_pullback'] = False
+
             # Calculate realistic confidence
             raw_confidence = score / max_score
 
@@ -731,10 +779,12 @@ class SignalDetectionEngine:
             config.volatility_weight +
             config.supertrend_weight +
             config.mfi_weight +
-            config.psar_weight
+            config.psar_weight +
+            (config.fibonacci_weight if config.fib_enable_pullback else 0)
         )
 
         conditions = {}
+        fib_meta = {}
 
         try:
             # 1. MACD Crossover
@@ -853,6 +903,34 @@ class SignalDetectionEngine:
             else:
                 conditions['psar_bearish'] = False
 
+            # 14. Fibonacci Pullback (Golden Ratio Zone) for SHORT
+            if config.fib_enable_pullback and FIBONACCI_AVAILABLE:
+                try:
+                    in_zone, fib_data = check_fibonacci_pullback(
+                        df, current, 'SHORT',
+                        lookback=config.fib_lookback_candles,
+                        entry_zone_min=config.fib_entry_zone_min,
+                        entry_zone_max=config.fib_entry_zone_max
+                    )
+                    if in_zone:
+                        score += config.fibonacci_weight
+                        conditions['fibonacci_pullback'] = True
+                        conditions['_fib_meta'] = fib_data
+                        logger.info(
+                            f"🎯 Fibonacci pullback confirmed (SHORT): "
+                            f"Price {fib_data.get('current_price'):.2f} in golden zone "
+                            f"[{fib_data.get('fib_50'):.2f} - {fib_data.get('fib_61_8'):.2f}]"
+                        )
+                    else:
+                        conditions['fibonacci_pullback'] = False
+                        if fib_data:
+                            conditions['_fib_meta'] = fib_data
+                except Exception as e:
+                    logger.warning(f"Fibonacci pullback check failed (SHORT): {e}")
+                    conditions['fibonacci_pullback'] = False
+            else:
+                conditions['fibonacci_pullback'] = False
+
             # Calculate realistic confidence
             raw_confidence = score / max_score
 
@@ -919,6 +997,26 @@ class SignalDetectionEngine:
 
         description = self._generate_description(direction, current, conditions)
 
+        fib_meta = conditions.get('_fib_meta', {})
+        has_fib_pullback = conditions.get('fibonacci_pullback', False)
+
+        meta = {}
+        if has_fib_pullback and fib_meta:
+            meta = {
+                'strategy': 'fibonacci_pullback',
+                'swing_high': fib_meta.get('swing_high'),
+                'swing_low': fib_meta.get('swing_low'),
+                'fib_38_2': fib_meta.get('fib_38_2'),
+                'fib_50': fib_meta.get('fib_50'),
+                'fib_61_8': fib_meta.get('fib_61_8'),
+                'fib_78_6': fib_meta.get('fib_78_6'),
+                'pullback_depth': fib_meta.get('pullback_depth'),
+                'entry_zone': fib_meta.get('entry_zone'),
+                'in_entry_zone': fib_meta.get('in_entry_zone')
+            }
+
+        conditions_copy = {k: v for k, v in conditions.items() if not k.startswith('_')}
+
         signal = ActiveSignal(
             symbol=symbol,
             direction=direction,
@@ -930,7 +1028,9 @@ class SignalDetectionEngine:
             description=description,
             created_at=datetime.now(),
             last_updated=datetime.now(),
-            conditions_met=conditions
+            conditions_met=conditions_copy,
+            meta=meta,
+            status='WAITING_FOR_PULLBACK' if has_fib_pullback else 'ACTIVE'
         )
 
         return signal

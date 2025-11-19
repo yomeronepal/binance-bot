@@ -124,6 +124,13 @@ app.conf.beat_schedule = {
         'options': {'expires': 25.0},
     },
 
+    # Fibonacci pullback monitoring - FREQUENT
+    'monitor-fibonacci-pullbacks': {
+        'task': 'scanner.tasks.celery_tasks.monitor_fibonacci_pullbacks',
+        'schedule': 30.0,  # Every 30 seconds
+        'options': {'expires': 25.0},
+    },
+
     # Cache maintenance - OPTIMIZED
     'check-stale-cache': {
         'task': 'signals.check_stale_cache',
