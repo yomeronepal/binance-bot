@@ -98,7 +98,7 @@ jobs:
             echo "==> Updating .env file..."
             cat > .env << ENV_EOF
             DEBUG=${{ secrets.DEBUG || 'False' }}
-            DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
+            SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
             ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS || '*' }}
             DATABASE_URL=postgresql://binancebot:binancebot123@db:5432/binancebot
             POSTGRES_DB=binancebot
