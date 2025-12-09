@@ -346,19 +346,20 @@ class PaperTradeAdmin(BaseModelAdmin):
         'symbol',
         'direction',
         'market_type',
+        'timeframe',
+        'confidence_display',
         'entry_price',
         'exit_price',
         'status_badge',
         'profit_loss_display',
         'profit_loss_percentage',
         'user_display',
-        # 'created_at'
     )
     list_filter = (
         'status',
         'direction',
         'market_type',
-        # 'created_at',
+        'timeframe',
         'exit_time'
     )
     search_fields = (
@@ -371,7 +372,7 @@ class PaperTradeAdmin(BaseModelAdmin):
 
     fieldsets = (
         ('Trade Information', {
-            'fields': ('user', 'signal', 'symbol', 'direction', 'market_type', 'status')
+            'fields': ('user', 'signal', 'symbol', 'direction', 'market_type', 'timeframe', 'confidence', 'status')
         }),
         ('Entry Details', {
             'fields': ('entry_price', 'entry_time', 'position_size', 'quantity', 'leverage')
@@ -397,6 +398,25 @@ class PaperTradeAdmin(BaseModelAdmin):
         return obj.user.username if obj.user else 'System'
     user_display.short_description = 'User'
     user_display.admin_order_field = 'user__username'
+
+    def confidence_display(self, obj):
+        """Display confidence as percentage."""
+        if obj.confidence is None:
+            return '-'
+        pct = obj.confidence * 100
+        if pct >= 80:
+            color = 'green'
+        elif pct >= 70:
+            color = 'orange'
+        else:
+            color = 'gray'
+        return format_html(
+            '<span style="color: {};">{:.0f}%</span>',
+            color,
+            pct
+        )
+    confidence_display.short_description = 'Confidence'
+    confidence_display.admin_order_field = 'confidence'
 
     def profit_loss_display(self, obj):
         """Display profit/loss with color."""
