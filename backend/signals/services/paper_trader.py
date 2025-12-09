@@ -91,15 +91,16 @@ class PaperTradingService:
         entry_price = Decimal(str(signal.entry))
         quantity = position_size / entry_price
 
-        # Create paper trade
         paper_trade = PaperTrade.objects.create(
             signal=signal,
             user=user,
             symbol=symbol_str,
             direction=signal.direction,
             market_type=signal.market_type,
+            timeframe=signal.timeframe,
+            confidence=signal.confidence,
             entry_price=entry_price,
-            entry_time=timezone.now(),  # Immediate entry for paper trading
+            entry_time=timezone.now(),
             position_size=position_size,
             quantity=quantity,
             stop_loss=Decimal(str(signal.sl)),

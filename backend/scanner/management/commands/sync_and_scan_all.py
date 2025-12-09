@@ -3,6 +3,7 @@ import asyncio
 import logging
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from asgiref.sync import sync_to_async
 from scanner.services.binance_client import BinanceClient
 from signals.models import Symbol
 from scanner.strategies.signal_engine import SignalDetectionEngine, SignalConfig
@@ -136,15 +137,16 @@ class Command(BaseCommand):
 
         # Save to database
         self.stdout.write('\n💾 Saving symbols to database...')
-        saved, updated = self.save_symbols_with_upsert(sorted_symbols)
+        saved, updated = await self.save_symbols_with_upsert(sorted_symbols)
 
+        total_count = await sync_to_async(Symbol.objects.count)()
         self.stdout.write(
             self.style.SUCCESS(
                 f'\n📊 Database Update:\n'
                 f'  ├─ New symbols: {saved}\n'
                 f'  ├─ Updated symbols: {updated}\n'
                 f'  ├─ Total symbols: {len(sorted_symbols)}\n'
-                f'  └─ Database total: {Symbol.objects.count()}'
+                f'  └─ Database total: {total_count}'
             )
         )
 
@@ -182,35 +184,39 @@ class Command(BaseCommand):
 
         return volume_data
 
-    def save_symbols_with_upsert(self, symbols):
+    async def save_symbols_with_upsert(self, symbols):
         """Save symbols using bulk upsert for performance."""
         saved_count = 0
         updated_count = 0
 
-        # Use transaction for better performance
-        with transaction.atomic():
-            for symbol in symbols:
-                try:
-                    symbol_obj, created = Symbol.objects.update_or_create(
-                        symbol=symbol,
-                        defaults={
-                            'exchange': 'BINANCE',
-                            'active': True
-                        }
-                    )
+        @sync_to_async
+        def save_symbol(symbol):
+            with transaction.atomic():
+                symbol_obj, created = Symbol.objects.update_or_create(
+                    symbol=symbol,
+                    defaults={
+                        'exchange': 'BINANCE',
+                        'active': True
+                    }
+                )
+                return created
 
-                    if created:
-                        saved_count += 1
-                        if saved_count <= 10:  # Only show first 10
-                            self.stdout.write(f'    ✅ Created: {symbol}')
-                    else:
-                        updated_count += 1
+        for symbol in symbols:
+            try:
+                created = await save_symbol(symbol)
 
-                except Exception as e:
-                    self.stdout.write(
-                        self.style.WARNING(f'    ⚠️  Error with {symbol}: {e}')
-                    )
-                    continue
+                if created:
+                    saved_count += 1
+                    if saved_count <= 10:
+                        self.stdout.write(f'    ✅ Created: {symbol}')
+                else:
+                    updated_count += 1
+
+            except Exception as e:
+                self.stdout.write(
+                    self.style.WARNING(f'    ⚠️  Error with {symbol}: {e}')
+                )
+                continue
 
         if saved_count > 10:
             self.stdout.write(f'    ... and {saved_count - 10} more')

@@ -392,7 +392,7 @@ class PaperTradeSerializer(BaseModelSerializer):
         model = PaperTrade
         fields = [
             'id', 'signal_id', 'signal_direction', 'signal_timeframe', 'signal_confidence',
-            'symbol', 'direction', 'market_type',
+            'symbol', 'direction', 'market_type', 'timeframe', 'confidence',
             'entry_price', 'entry_price_formatted', 'entry_time',
             'position_size', 'quantity',
             'stop_loss', 'take_profit',

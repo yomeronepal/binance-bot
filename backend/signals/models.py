@@ -422,6 +422,18 @@ class PaperTrade(models.Model):
         default='SPOT',
         help_text=_("Market type")
     )
+    timeframe = models.CharField(
+        max_length=5,
+        null=True,
+        blank=True,
+        help_text=_("Signal timeframe (e.g., 1h, 4h)")
+    )
+    confidence = models.FloatField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+        help_text=_("Signal confidence (0.0 - 1.0)")
+    )
 
     # Entry Information
     entry_price = models.DecimalField(
@@ -516,10 +528,11 @@ class PaperTrade(models.Model):
             models.Index(fields=['user', 'status']),
             models.Index(fields=['symbol', 'status']),
             models.Index(fields=['-created_at']),
-            # Optimized composite indexes for common queries
-            models.Index(fields=['status', '-created_at']),  # For filtering by status with ordering
-            models.Index(fields=['user', '-created_at']),    # For user trade history
-            models.Index(fields=['market_type', 'status']),  # For forex/crypto filtering
+            models.Index(fields=['status', '-created_at']),
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['market_type', 'status']),
+            models.Index(fields=['timeframe', 'status']),
+            models.Index(fields=['confidence', 'status']),
         ]
 
     def __str__(self):
