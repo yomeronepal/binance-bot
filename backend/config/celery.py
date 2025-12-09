@@ -143,41 +143,6 @@ app.conf.beat_schedule = {
         'schedule': crontab(minute=0, hour='*/6'),  # Every 6 hours
     },
 
-    # ============================================================================
-    # FOREX SCANNING - MULTI-TIMEFRAME
-    # ============================================================================
-
-    # Scan Forex + Commodities 1-day timeframe - ONCE DAILY
-    'scan-forex-1d-timeframe': {
-        'task': 'scanner.tasks.forex_scanner.scan_forex_signals',
-        'schedule': crontab(minute=10, hour=0),  # 00:10 UTC daily
-        'kwargs': {'timeframes': ['1d'], 'pair_types': ['major', 'commodities']},  # Added commodities
-        'options': {'expires': 3600.0},  # 1 hour expiry
-    },
-
-    # Scan Forex + Commodities 4-hour timeframe - AT 4H CANDLE CLOSES
-    'scan-forex-4h-timeframe': {
-        'task': 'scanner.tasks.forex_scanner.scan_forex_signals',
-        'schedule': crontab(minute=10, hour='0,4,8,12,16,20'),  # 10 mins after 4h closes
-        'kwargs': {'timeframes': ['4h'], 'pair_types': ['major', 'commodities']},  # Added commodities
-        'options': {'expires': 1800.0},  # 30 minutes expiry
-    },
-
-    # Scan Forex + Commodities 1-hour timeframe - EVERY HOUR
-    'scan-forex-1h-timeframe': {
-        'task': 'scanner.tasks.forex_scanner.scan_forex_signals',
-        'schedule': crontab(minute=10),  # Every hour at :10
-        'kwargs': {'timeframes': ['1h'], 'pair_types': ['major', 'commodities']},  # Added commodities
-        'options': {'expires': 1800.0},
-    },
-
-    # Scan Forex 15-minute timeframe - EVERY 15 MINUTES (Forex only, commodities less liquid on 15m)
-    'scan-forex-15m-timeframe': {
-        'task': 'scanner.tasks.forex_scanner.scan_forex_signals',
-        'schedule': crontab(minute='*/15'),  # Every 15 minutes
-        'kwargs': {'timeframes': ['15m'], 'pair_types': ['major']},  # Forex only for scalping
-        'options': {'expires': 900.0},
-    },
 }
 
 # Celery Configuration
@@ -221,14 +186,6 @@ app.conf.update(
         'scanner.tasks.montecarlo_tasks.run_montecarlo_simulation_async': {'queue': 'backtesting'},
         # ML-Based Tuning tasks
         'scanner.tasks.mltuning_tasks.run_ml_tuning_async': {'queue': 'backtesting'},
-        # Forex and Commodity scanning tasks
-        'scanner.tasks.forex_scanner.scan_forex_signals': {'queue': 'scanner'},
-        'scanner.tasks.forex_scanner.scan_major_forex_pairs': {'queue': 'scanner'},
-        'scanner.tasks.forex_scanner.scan_all_forex_pairs': {'queue': 'scanner'},
-        'scanner.tasks.forex_scanner.scan_forex_scalping': {'queue': 'scanner'},
-        'scanner.tasks.forex_scanner.scan_commodities': {'queue': 'scanner'},
-        'scanner.tasks.forex_scanner.scan_forex_and_commodities': {'queue': 'scanner'},
-        'scanner.tasks.forex_scanner.scan_all_markets': {'queue': 'scanner'},
         # Futures multi-timeframe scanning tasks
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1d': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_4h': {'queue': 'scanner'},

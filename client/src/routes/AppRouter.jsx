@@ -15,7 +15,6 @@ import Dashboard from '../pages/dashboard/Dashboard';
 import SignalDetail from '../pages/signals/SignalDetail';
 import SignalList from '../pages/signals/SignalList';
 import Futures from '../pages/Futures';
-import Forex from '../pages/Forex';
 import PaperTrading from '../pages/PaperTrading';
 import AutoTrading from '../pages/AutoTrading';
 import BotPerformance from '../pages/BotPerformance';
@@ -51,7 +50,6 @@ const AppRouter = () => {
           <Route path="signals" element={<Navigate to="/spot-signals" replace />} />
           <Route path="signals/:id" element={<Navigate to="/spot-signals/:id" replace />} />
           <Route path="futures" element={<Futures />} />
-          <Route path="forex" element={<Forex />} />
           <Route path="paper-trading" element={
             <ErrorBoundary>
               <PaperTrading />

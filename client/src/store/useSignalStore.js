@@ -25,13 +25,11 @@ export const useSignalStore = create((set, get) => ({
   // State
   signals: [],
   futuresSignals: [],
-  forexSignals: [],
   currentSignal: null,
   isLoading: false,
   error: null,
   spotSymbolsCount: 0,
   futuresSymbolsCount: 0,
-  forexSymbolsCount: 0,
   filters: {
     direction: 'ALL',
     timeframe: 'ALL',
@@ -211,45 +209,6 @@ export const useSignalStore = create((set, get) => ({
   },
 
   /**
-   * Fetch forex signals from API with pagination support
-   */
-  fetchForexSignals: async (params = {}) => {
-    set({ isLoading: true, error: null });
-    try {
-      let allSignals = [];
-      let nextPage = 1;
-      let hasMore = true;
-
-      // Fetch all pages
-      while (hasMore) {
-        const data = await signalService.getAll({
-          ...params,
-          market_type: 'FOREX',
-          page: nextPage,
-          page_size: 100
-        });
-
-        const rawSignals = data.results || data;
-        allSignals = [...allSignals, ...(Array.isArray(rawSignals) ? rawSignals : [])];
-
-        if (data.next) {
-          nextPage++;
-        } else {
-          hasMore = false;
-        }
-      }
-
-      const uniqueSignals = deduplicateSignals(allSignals);
-      set({ forexSignals: uniqueSignals, isLoading: false });
-    } catch (error) {
-      set({
-        error: error.response?.data?.detail || 'Failed to fetch forex signals',
-        isLoading: false,
-      });
-    }
-  },
-
-  /**
    * Fetch spot symbols count
    */
   fetchSpotSymbolsCount: async () => {
@@ -274,20 +233,6 @@ export const useSignalStore = create((set, get) => ({
       set({ futuresSymbolsCount: data.count || 0 });
     } catch (error) {
       console.error('Failed to fetch futures symbols count:', error);
-    }
-  },
-
-  /**
-   * Fetch forex symbols count
-   */
-  fetchForexSymbolsCount: async () => {
-    try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-      const response = await fetch(`${API_URL}/symbols/?market_type=FOREX`);
-      const data = await response.json();
-      set({ forexSymbolsCount: data.count || 0 });
-    } catch (error) {
-      console.error('Failed to fetch forex symbols count:', error);
     }
   },
 
@@ -320,13 +265,10 @@ export const useSignalStore = create((set, get) => ({
    * Handle new signal from WebSocket (signal_created)
    */
   handleSignalCreated: (signal) => {
-    const { signals, futuresSignals, forexSignals } = get();
+    const { signals, futuresSignals } = get();
     const marketType = signal.market_type || 'SPOT';
 
-    if (marketType === 'FOREX') {
-      set({ forexSignals: [signal, ...forexSignals], lastUpdate: new Date() });
-    } else if (marketType === 'FUTURES') {
-      // Check if futures signal already exists
+    if (marketType === 'FUTURES') {
       const exists = futuresSignals.some((s) => s.id === signal.id);
       if (!exists) {
         set({
@@ -335,7 +277,6 @@ export const useSignalStore = create((set, get) => ({
         });
       }
     } else {
-      // Check if spot signal already exists
       const exists = signals.some((s) => s.id === signal.id);
       if (!exists) {
         set({
@@ -390,23 +331,10 @@ export const useSignalStore = create((set, get) => ({
    * Handle signal deletion from WebSocket (signal_deleted)
    */
   handleSignalDeleted: (signalId, marketType = 'SPOT') => {
-    const { signals, futuresSignals, forexSignals, currentSignal } = get();
+    const { signals, futuresSignals, currentSignal } = get();
 
-    if (marketType === 'FOREX') {
-      const updatedForexSignals = forexSignals.filter((signal) => signal.id !== signalId);
-
-      // Clear current signal if it's the deleted one
-      const newCurrentSignal = currentSignal?.id === signalId ? null : currentSignal;
-
-      set({
-        forexSignals: updatedForexSignals,
-        currentSignal: newCurrentSignal,
-        lastUpdate: new Date().toISOString(),
-      });
-    } else if (marketType === 'FUTURES') {
+    if (marketType === 'FUTURES') {
       const updatedFuturesSignals = futuresSignals.filter((signal) => signal.id !== signalId);
-
-      // Clear current signal if it's the deleted one
       const newCurrentSignal = currentSignal?.id === signalId ? null : currentSignal;
 
       set({
@@ -416,8 +344,6 @@ export const useSignalStore = create((set, get) => ({
       });
     } else {
       const updatedSignals = signals.filter((signal) => signal.id !== signalId);
-
-      // Clear current signal if it's the deleted one
       const newCurrentSignal = currentSignal?.id === signalId ? null : currentSignal;
 
       set({

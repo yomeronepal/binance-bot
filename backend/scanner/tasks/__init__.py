@@ -39,13 +39,6 @@ from .multi_timeframe_scanner import (
     scan_15m_timeframe,
 )
 
-from .forex_scanner import (
-    scan_forex_signals,
-    scan_major_forex_pairs,
-    scan_all_forex_pairs,
-    scan_forex_scalping,
-)
-
 __all__ = [
     'scan_binance_market',
     'scan_futures_market',
@@ -66,8 +59,4 @@ __all__ = [
     'scan_4h_timeframe',
     'scan_1h_timeframe',
     'scan_15m_timeframe',
-    'scan_forex_signals',
-    'scan_major_forex_pairs',
-    'scan_all_forex_pairs',
-    'scan_forex_scalping',
 ]
