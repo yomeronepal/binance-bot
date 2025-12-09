@@ -82,7 +82,7 @@ services:
     image: yomeronepal/binance-bot-frontend:latest
     container_name: binancebot_frontend_prod
     ports:
-      - "80:80"
+      - "5173:5173"
     depends_on:
       - web
     networks:
