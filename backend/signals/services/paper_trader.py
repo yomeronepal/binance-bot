@@ -26,12 +26,20 @@ class PaperTradingService:
         """
         self.default_position_size = Decimal(str(default_position_size))
 
+    def _is_trading_hour(self) -> bool:
+        """
+        Check if current UTC hour is within allowed trading windows.
+        Allowed windows: 17:00-18:00 UTC and 21:00-23:00 UTC (high win rate periods)
+        """
+        current_hour = timezone.now().hour
+        return current_hour == 17 or (21 <= current_hour <= 22)
+
     def create_paper_trade(self, signal: Signal, user=None, position_size=None) -> PaperTrade:
         """
-        Create a new paper trade from a signal.
+        Create a new paper trade from a FUTURES signal during allowed trading hours only.
 
         Args:
-            signal: Trading signal to create trade from
+            signal: Trading signal to create trade from (must be FUTURES)
             user: User owning this trade (None for system-wide)
             position_size: Custom position size in USDT
 
@@ -39,8 +47,26 @@ class PaperTradingService:
             Created PaperTrade instance
 
         Raises:
-            ValueError: If duplicate trade exists for this signal or same symbol+direction
+            ValueError: If signal is not FUTURES, outside trading hours, or duplicate exists
         """
+        if signal.market_type != 'FUTURES':
+            logger.info(
+                f"⏭️ Skipping paper trade: {signal.symbol} is {signal.market_type}, "
+                f"only FUTURES signals allowed"
+            )
+            raise ValueError(f"Only FUTURES signals allowed. Got: {signal.market_type}")
+
+        if not self._is_trading_hour():
+            current_hour = timezone.now().hour
+            logger.info(
+                f"⏭️ Skipping paper trade: Current hour {current_hour}:00 UTC is outside "
+                f"trading windows (17:00-18:00 or 21:00-23:00 UTC)"
+            )
+            raise ValueError(
+                f"Outside trading hours. Current: {current_hour}:00 UTC. "
+                f"Allowed: 17:00-18:00 or 21:00-23:00 UTC"
+            )
+
         # Get symbol string - handle both ForeignKey and string cases
         if hasattr(signal.symbol, 'symbol'):
             symbol_str = signal.symbol.symbol
