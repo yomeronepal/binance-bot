@@ -48,7 +48,8 @@ services:
     image: yomeronepal/binance-bot-backend:latest
     container_name: binancebot_web_prod
     command: >
-      sh -c "python manage.py migrate &&
+      sh -c "python manage.py makemigrations --noinput &&
+             python manage.py migrate &&
              python manage.py collectstatic --noinput &&
              daphne -b 0.0.0.0 -p 8000 config.asgi:application"
     env_file:
