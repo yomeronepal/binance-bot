@@ -126,14 +126,14 @@ jobs:
             REACT_APP_WS_URL=${{ secrets.REACT_APP_WS_URL || 'ws://localhost:8000/ws/signals/' }}
             ENV_EOF
 
-            echo "==> Stopping existing containers..."
-            docker compose -f docker-compose.prod.yml down || true
+            echo "==> Stopping existing containers and removing orphans..."
+            docker compose -f docker-compose.prod.yml down --remove-orphans || true
 
             echo "==> Pulling latest images from Docker Hub..."
             docker compose -f docker-compose.prod.yml pull
 
             echo "==> Starting all services..."
-            docker compose -f docker-compose.prod.yml up -d
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
             echo "==> Waiting for services to be healthy..."
             sleep 15
