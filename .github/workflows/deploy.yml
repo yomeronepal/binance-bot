@@ -141,6 +141,9 @@ jobs:
             echo "==> Checking service status..."
             docker compose -f docker-compose.prod.yml ps
 
+            echo "==> Cleaning up orphaned periodic tasks..."
+            docker compose -f docker-compose.prod.yml exec -T web python manage.py cleanup_periodic_tasks || echo "Warning: Cleanup failed, continuing..."
+
             echo "==> Syncing all Binance symbols..."
             docker compose -f docker-compose.prod.yml exec -T web python manage.py sync_and_scan_all --fetch-only || echo "Warning: Symbol sync failed, continuing..."
 
