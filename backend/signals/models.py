@@ -185,6 +185,12 @@ class Signal(models.Model):
         help_text=_("Estimated time to reach target in hours")
     )
 
+    # Priority flag for high win-rate time windows
+    is_priority = models.BooleanField(
+        default=False,
+        help_text=_("Signal generated during high win-rate hours (17:00-18:00 or 21:00-23:00 UTC)")
+    )
+
     # Additional information
     meta = models.JSONField(
         default=dict,
@@ -265,6 +271,22 @@ class Signal(models.Model):
         position_size = risk_amount / risk_per_unit
 
         return round(position_size, 8)
+
+    @staticmethod
+    def is_high_winrate_hour():
+        """
+        Check if current UTC hour is within high win-rate trading windows.
+        Windows: 17:00-18:00 UTC and 21:00-23:00 UTC (82% win rate)
+        """
+        from django.utils import timezone
+        current_hour = timezone.now().hour
+        return current_hour == 17 or (21 <= current_hour <= 22)
+
+    def save(self, *args, **kwargs):
+        """Auto-set is_priority based on creation time for new signals."""
+        if not self.pk:
+            self.is_priority = self.is_high_winrate_hour()
+        super().save(*args, **kwargs)
 
 
 class UserSubscription(models.Model):

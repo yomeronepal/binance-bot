@@ -85,8 +85,10 @@ class SignalAdmin(BaseModelAdmin):
     """
     list_display = (
         'id',
+        'priority_badge',
         'symbol_display',
         'direction',
+        'market_type',
         'timeframe',
         'entry',
         'sl',
@@ -97,6 +99,8 @@ class SignalAdmin(BaseModelAdmin):
         'created_at'
     )
     list_filter = (
+        'is_priority',
+        'market_type',
         'direction',
         'status',
         'timeframe',
@@ -116,7 +120,7 @@ class SignalAdmin(BaseModelAdmin):
 
     fieldsets = (
         ('Basic Information', {
-            'fields': ('symbol', 'direction', 'timeframe', 'status')
+            'fields': ('symbol', 'direction', 'market_type', 'timeframe', 'status', 'is_priority')
         }),
         ('Price Levels', {
             'fields': ('entry', 'sl', 'tp')
@@ -138,6 +142,17 @@ class SignalAdmin(BaseModelAdmin):
         return f"{obj.symbol.symbol} ({obj.symbol.exchange})"
     symbol_display.short_description = 'Symbol'
     symbol_display.admin_order_field = 'symbol__symbol'
+
+    def priority_badge(self, obj):
+        """Display priority badge for high win-rate signals."""
+        if obj.is_priority:
+            return format_html(
+                '<span style="background-color: #f59e0b; color: white; padding: 2px 6px; '
+                'border-radius: 3px; font-size: 10px; font-weight: bold;">⭐ PRIORITY</span>'
+            )
+        return ''
+    priority_badge.short_description = 'Priority'
+    priority_badge.admin_order_field = 'is_priority'
 
     def confidence_display(self, obj):
         """Display confidence as percentage with color."""
