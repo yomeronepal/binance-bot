@@ -548,11 +548,11 @@ class PaperTrade(models.Model):
             models.Index(fields=['user', 'status']),
             models.Index(fields=['symbol', 'status']),
             models.Index(fields=['-created_at']),
-            models.Index(fields=['status', '-created_at']),
-            models.Index(fields=['user', '-created_at']),
-            models.Index(fields=['market_type', 'status']),
-            models.Index(fields=['timeframe', 'status']),
-            models.Index(fields=['confidence', 'status']),
+            models.Index(fields=['status', '-created_at'], name='paper_trade_status_created_idx'),
+            models.Index(fields=['user', '-created_at'], name='paper_trade_user_created_idx'),
+            models.Index(fields=['market_type', 'status'], name='paper_trade_market_status_idx'),
+            models.Index(fields=['timeframe', 'status'], name='paper_trade_timefra_idx'),
+            models.Index(fields=['confidence', 'status'], name='paper_trade_confide_idx'),
         ]
 
     def __str__(self):
