@@ -124,6 +124,23 @@ services:
       - binancebot_network
     restart: unless-stopped
 
+  # -------------------------
+  # Dozzle - Container Log Viewer
+  # -------------------------
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: binancebot_dozzle
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "9999:8080"
+    environment:
+      - DOZZLE_LEVEL=info
+      - DOZZLE_NO_ANALYTICS=true
+    networks:
+      - binancebot_network
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   static_volume:
