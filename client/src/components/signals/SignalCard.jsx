@@ -71,6 +71,13 @@ const SignalCard = ({ signal, onClick }) => {
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center space-x-2">
+          {/* Priority Badge */}
+          {signal.is_priority && (
+            <span className="bg-amber-500 text-white text-xs font-bold px-2 py-1 rounded animate-pulse">
+              ⭐ PRIORITY
+            </span>
+          )}
+
           {/* Symbol */}
           <h3 className="text-lg font-bold text-gray-800">
             {signal.symbol_detail?.symbol || signal.symbol || 'N/A'}

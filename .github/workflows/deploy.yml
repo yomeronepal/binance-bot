@@ -52,11 +52,11 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./client
-          file: ./docker/Dockerfile.frontend.dev
+          file: ./docker/Dockerfile.frontend.prod
           push: true
           build-args: |
-            VITE_API_URL=${{ secrets.REACT_APP_API_URL || 'http://localhost:8000/api' }}
-            VITE_WS_URL=${{ secrets.REACT_APP_WS_URL || 'ws://localhost:8000/ws/signals/' }}
+            VITE_API_URL=/api
+            VITE_WS_URL=/ws/signals/
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/binance-bot-frontend:${{ steps.meta.outputs.tag }}
             ${{ secrets.DOCKER_USERNAME }}/binance-bot-frontend:latest

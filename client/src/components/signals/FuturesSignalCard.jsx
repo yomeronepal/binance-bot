@@ -44,6 +44,11 @@ const FuturesSignalCard = ({ signal, tradingMode = 'paper' }) => {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-xl font-bold text-white flex items-center">
+              {signal.is_priority && (
+                <span className="mr-2 text-xs bg-amber-500 text-white px-2 py-1 rounded animate-pulse">
+                  ⭐ PRIORITY
+                </span>
+              )}
               {signal.symbol_name || signal.symbol?.symbol || signal.symbol}
               <span className="ml-2 text-xs bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded">
                 FUTURES
