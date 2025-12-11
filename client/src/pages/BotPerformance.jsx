@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity } from 'lucide-react';
+import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X } from 'lucide-react';
 import axios from 'axios';
 
 const BotPerformance = () => {
@@ -9,6 +9,7 @@ const BotPerformance = () => {
   const [openPositions, setOpenPositions] = useState([]);
   const [recentTrades, setRecentTrades] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
+  const [closingTrades, setClosingTrades] = useState({});
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -70,9 +71,30 @@ const BotPerformance = () => {
     }
   };
 
+  const closeTrade = async (tradeId) => {
+    const confirmed = window.confirm('Are you sure you want to close this position at current market price?');
+    if (!confirmed) return;
+
+    try {
+      setClosingTrades(prev => ({ ...prev, [tradeId]: true }));
+      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+      const response = await axios.post(`${baseURL}/public/paper-trading/${tradeId}/close/`);
+
+      if (response.data) {
+        await fetchData();
+        alert(`Trade closed successfully!\nP/L: $${response.data.profit_loss?.toFixed(2) || 0} (${response.data.profit_loss_pct?.toFixed(2) || 0}%)`);
+      }
+    } catch (err) {
+      console.error('Error closing trade:', err);
+      alert(`Failed to close trade: ${err.response?.data?.error || err.message}`);
+    } finally {
+      setClosingTrades(prev => ({ ...prev, [tradeId]: false }));
+    }
+  };
+
   useEffect(() => {
     fetchData();
-    // Note: Auto-refresh removed - user can manually refresh the page
   }, []);
 
   // Show loading only on initial load (when summary is null)
@@ -279,7 +301,12 @@ const BotPerformance = () => {
               {openPositions.length > 0 ? (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {openPositions.slice(0, 6).map((position) => (
-                    <PositionCard key={position.trade_id} position={position} />
+                    <PositionCard
+                      key={position.trade_id}
+                      position={position}
+                      onClose={closeTrade}
+                      isClosing={closingTrades[position.trade_id]}
+                    />
                   ))}
                 </div>
               ) : (
@@ -316,7 +343,12 @@ const BotPerformance = () => {
                       currentPage * positionsPerPage
                     )
                     .map((position) => (
-                      <PositionCard key={position.trade_id} position={position} />
+                      <PositionCard
+                        key={position.trade_id}
+                        position={position}
+                        onClose={closeTrade}
+                        isClosing={closingTrades[position.trade_id]}
+                      />
                     ))}
                 </div>
 
@@ -411,8 +443,7 @@ const BotPerformance = () => {
   );
 };
 
-// Position Card Component
-const PositionCard = ({ position }) => {
+const PositionCard = ({ position, onClose, isClosing }) => {
   const pnl = parseFloat(position.unrealized_pnl || 0);
   const pnlPct = parseFloat(position.unrealized_pnl_pct || 0);
   const priceChangePct = parseFloat(position.price_change_pct || 0);
@@ -436,13 +467,29 @@ const PositionCard = ({ position }) => {
             {position.direction}
           </span>
         </div>
-        <span className={`text-sm px-2 py-1 rounded ${
-          position.market_type === 'FUTURES'
-            ? 'bg-purple-500/20 text-purple-400'
-            : 'bg-blue-500/20 text-blue-400'
-        }`}>
-          {position.market_type}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={`text-sm px-2 py-1 rounded ${
+            position.market_type === 'FUTURES'
+              ? 'bg-purple-500/20 text-purple-400'
+              : 'bg-blue-500/20 text-blue-400'
+          }`}>
+            {position.market_type}
+          </span>
+          {onClose && (
+            <button
+              onClick={() => onClose(position.trade_id)}
+              disabled={isClosing}
+              className="p-1.5 bg-red-500/20 border border-red-500/50 rounded hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Close position at market price"
+            >
+              {isClosing ? (
+                <Activity className="w-4 h-4 text-red-400 animate-spin" />
+              ) : (
+                <X className="w-4 h-4 text-red-400" />
+              )}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-2 text-sm">

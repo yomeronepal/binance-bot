@@ -284,6 +284,68 @@ def public_open_positions(request):
     return Response(positions_data)
 
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def public_close_trade(request, trade_id):
+    """
+    PUBLIC - Manually close a SYSTEM paper trade at current market price.
+
+    POST /api/public/paper-trading/<trade_id>/close/
+    """
+    try:
+        trade = PaperTrade.objects.get(id=trade_id, user__isnull=True, status='OPEN')
+    except PaperTrade.DoesNotExist:
+        return Response(
+            {'error': 'Trade not found or not open'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    try:
+        from scanner.services.binance_client import BinanceClient
+
+        binance_client = BinanceClient()
+
+        async def fetch_price():
+            try:
+                price_data = await binance_client.get_price(trade.symbol)
+                if price_data and 'price' in price_data:
+                    return Decimal(str(price_data['price']))
+            except Exception:
+                pass
+            return None
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            current_price = loop.run_until_complete(fetch_price())
+        finally:
+            loop.run_until_complete(binance_client.close())
+            loop.close()
+
+        if not current_price:
+            return Response(
+                {'error': 'Could not fetch current price'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        trade.close_trade(current_price, status='CLOSED_MANUAL')
+
+        serializer = PaperTradeSerializer(trade)
+        return Response({
+            'message': f'Trade closed successfully at ${float(current_price):.4f}',
+            'trade': serializer.data,
+            'exit_price': float(current_price),
+            'profit_loss': float(trade.profit_loss) if trade.profit_loss else 0,
+            'profit_loss_pct': float(trade.profit_loss_pct) if trade.profit_loss_pct else 0,
+        })
+
+    except Exception as e:
+        return Response(
+            {'error': f'Failed to close trade: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def public_summary(request):

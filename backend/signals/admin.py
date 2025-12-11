@@ -426,15 +426,17 @@ class PaperTradeAdmin(BaseModelAdmin):
         else:
             color = 'gray'
         return format_html(
-            '<span style="color: {};">{:.0f}%</span>',
+            '<span style="color: {};">{}%</span>',
             color,
-            pct
+            f'{pct:.0f}'
         )
     confidence_display.short_description = 'Confidence'
     confidence_display.admin_order_field = 'confidence'
 
     def profit_loss_display(self, obj):
         """Display profit/loss with color."""
+        if obj.profit_loss is None:
+            return '-'
         pnl = float(obj.profit_loss)
         if pnl > 0:
             color = 'green'

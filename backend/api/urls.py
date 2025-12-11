@@ -21,7 +21,8 @@ from signals.views_public_paper_trading import (
     public_paper_trades_list,
     public_performance,
     public_open_positions,
-    public_summary
+    public_summary,
+    public_close_trade
 )
 from signals.views_backtest import (
     BacktestViewSet,
@@ -83,7 +84,8 @@ urlpatterns = [
     path('public/paper-trading/performance/', public_performance, name='public-performance'),
     path('public/paper-trading/open-positions/', public_open_positions, name='public-open-positions'),
     path('public/paper-trading/summary/', public_summary, name='public-summary'),
-    path('public/paper-trading/dashboard/', public_paper_trading_dashboard, name='public-dashboard'),  # Original (slower)
+    path('public/paper-trading/<int:trade_id>/close/', public_close_trade, name='public-close-trade'),
+    path('public/paper-trading/dashboard/', public_paper_trading_dashboard, name='public-dashboard'),
 
     # OPTIMIZED Dashboard endpoints (10x faster)
     path('public/dashboard/v2/', optimized_dashboard, name='optimized-dashboard'),  # Recommended
