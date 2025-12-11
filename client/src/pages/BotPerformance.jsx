@@ -571,8 +571,8 @@ const TradeHistoryTable = ({ trades }) => {
         </thead>
         <tbody className="divide-y divide-gray-700">
           {trades.map((trade) => {
-            const pnl = parseFloat(trade.realized_pnl || 0);
-            const pnlPct = parseFloat(trade.profit_loss_pct || 0);
+            const pnl = parseFloat(trade.profit_loss || 0);
+            const pnlPct = parseFloat(trade.profit_loss_percentage || 0);
 
             return (
               <tr key={trade.id} className="hover:bg-gray-800/30">
@@ -600,9 +600,10 @@ const TradeHistoryTable = ({ trades }) => {
                   <span className={`inline-block px-2 py-1 rounded text-xs ${
                     trade.status === 'CLOSED_TP' ? 'bg-green-500/20 text-green-400' :
                     trade.status === 'CLOSED_SL' ? 'bg-red-500/20 text-red-400' :
+                    trade.status === 'CLOSED_MANUAL' ? 'bg-yellow-500/20 text-yellow-400' :
                     'bg-gray-500/20 text-gray-400'
                   }`}>
-                    {trade.status?.replace('CLOSED_', '')}
+                    {trade.status?.replace('CLOSED_', '') || 'CLOSED'}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-gray-400 text-sm">

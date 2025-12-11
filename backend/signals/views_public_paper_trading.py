@@ -328,7 +328,14 @@ def public_close_trade(request, trade_id):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        trade.close_trade(current_price, status='CLOSED_MANUAL')
+        pnl, _ = trade.calculate_profit_loss(current_price)
+
+        if pnl >= 0:
+            close_status = 'CLOSED_TP'
+        else:
+            close_status = 'CLOSED_SL'
+
+        trade.close_trade(current_price, status=close_status)
 
         serializer = PaperTradeSerializer(trade)
         return Response({

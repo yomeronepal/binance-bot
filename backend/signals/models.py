@@ -188,7 +188,7 @@ class Signal(models.Model):
     # Priority flag for high win-rate time windows
     is_priority = models.BooleanField(
         default=False,
-        help_text=_("Signal generated during high win-rate hours (17:00-18:00 or 21:00-23:00 UTC)")
+        help_text=_("Signal generated during high win-rate hours (17:00-18:00 or 21:00-23:00 Nepal Time)")
     )
 
     # Additional information
@@ -275,12 +275,31 @@ class Signal(models.Model):
     @staticmethod
     def is_high_winrate_hour():
         """
-        Check if current UTC hour is within high win-rate trading windows.
-        Windows: 17:00-18:00 UTC and 21:00-23:00 UTC (82% win rate)
+        Check if current Nepal Time is within high win-rate trading windows.
+        Windows (Nepal Time UTC+5:45):
+        - 17:00-18:00 NPT
+        - 21:00-23:00 NPT
         """
-        from django.utils import timezone
-        current_hour = timezone.now().hour
-        return current_hour == 17 or (21 <= current_hour <= 22)
+        from datetime import datetime, timezone as dt_timezone, timedelta
+
+        NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
+        TRADING_WINDOWS = [
+            (17, 0, 18, 0),
+            (21, 0, 23, 0),
+        ]
+
+        utc_now = datetime.now(dt_timezone.utc)
+        nepal_now = utc_now + NEPAL_TZ_OFFSET
+        current_time_minutes = nepal_now.hour * 60 + nepal_now.minute
+
+        for start_hour, start_min, end_hour, end_min in TRADING_WINDOWS:
+            window_start = start_hour * 60 + start_min
+            window_end = end_hour * 60 + end_min
+
+            if window_start <= current_time_minutes < window_end:
+                return True
+
+        return False
 
     def save(self, *args, **kwargs):
         """Auto-set is_priority based on creation time for new signals."""
