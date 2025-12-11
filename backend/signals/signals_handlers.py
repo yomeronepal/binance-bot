@@ -249,10 +249,10 @@ def signal_post_delete_handler(sender, instance, **kwargs):
 @receiver(post_save, sender=Signal)
 def auto_execute_trade_on_signal(sender, instance, created, **kwargs):
     """
-    Automatically execute a paper trade when a new signal is created.
+    Automatically execute a paper trade when a new FUTURES signal is created.
 
     This handler integrates with the PaperAccount auto-trading system:
-    - Only executes on new signals (created=True)
+    - Only executes on new FUTURES signals (created=True)
     - Only executes if signal is ACTIVE
     - Checks all PaperAccounts with auto_trading_enabled=True
     - Prevents duplicate trades (same symbol + direction)
@@ -269,6 +269,10 @@ def auto_execute_trade_on_signal(sender, instance, created, **kwargs):
 
     if instance.status != 'ACTIVE':
         logger.debug(f"Signal {instance.id} not ACTIVE (status={instance.status}), skipping auto-trade")
+        return
+
+    if instance.market_type != 'FUTURES':
+        logger.debug(f"Signal {instance.id} is {instance.market_type}, skipping auto-trade (FUTURES only)")
         return
 
     if not is_within_trading_window():
