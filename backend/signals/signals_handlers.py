@@ -4,12 +4,50 @@ These handlers trigger WebSocket broadcasts when Signal model instances change,
 and automatically execute paper trades when new signals are created.
 """
 import logging
+from datetime import datetime, timezone, timedelta
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
 from .models import Signal
 from .services.realtime import realtime_signal_service
 
 logger = logging.getLogger(__name__)
+
+NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
+
+TRADING_WINDOWS = [
+    (17, 0, 18, 0),
+    (21, 0, 23, 0),
+]
+
+
+def is_within_trading_window():
+    """
+    Check if current time is within allowed trading windows.
+    Trading windows are in Nepal Time (UTC+5:45):
+    - 17:00-18:00 NPT
+    - 21:00-23:00 NPT
+    """
+    utc_now = datetime.now(timezone.utc)
+    nepal_now = utc_now + NEPAL_TZ_OFFSET
+    current_hour = nepal_now.hour
+    current_minute = nepal_now.minute
+    current_time_minutes = current_hour * 60 + current_minute
+
+    for start_hour, start_min, end_hour, end_min in TRADING_WINDOWS:
+        window_start = start_hour * 60 + start_min
+        window_end = end_hour * 60 + end_min
+
+        if window_start <= current_time_minutes < window_end:
+            return True
+
+    return False
+
+
+def get_nepal_time_str():
+    """Get current Nepal time as formatted string."""
+    utc_now = datetime.now(timezone.utc)
+    nepal_now = utc_now + NEPAL_TZ_OFFSET
+    return nepal_now.strftime("%H:%M NPT")
 
 
 # ============================================================================
@@ -226,20 +264,20 @@ def auto_execute_trade_on_signal(sender, instance, created, **kwargs):
         created: Boolean indicating if this is a new signal
         **kwargs: Additional keyword arguments
     """
-    # Only execute on new signals, not updates
     if not created:
         return
 
-    # Only execute if signal is ACTIVE
     if instance.status != 'ACTIVE':
         logger.debug(f"Signal {instance.id} not ACTIVE (status={instance.status}), skipping auto-trade")
         return
 
+    if not is_within_trading_window():
+        logger.debug(f"Signal {instance.id} outside trading window, skipping auto-trade")
+        return
+
     try:
-        # Import here to avoid circular imports
         from .services.auto_trader import auto_trading_service
 
-        # Execute trade via auto-trading service
         trade = auto_trading_service.execute_signal(instance)
 
         if trade:
@@ -275,6 +313,9 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
     - Creates paper trade with user=None (system-wide)
     - Fixed position size of $100 per trade
     - Only executes on new ACTIVE signals
+    - Only executes within trading windows (Nepal Time):
+      - 17:00-18:00 NPT
+      - 21:00-23:00 NPT
     - Results displayed on public dashboard
     - Prevents duplicate trades for same symbol+direction
 
@@ -284,28 +325,33 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
         created: Boolean indicating if this is a new signal
         **kwargs: Additional keyword arguments
     """
-    # Only execute on new signals
     if not created:
         return
 
-    # Only execute if signal is ACTIVE
     if instance.status != 'ACTIVE':
         logger.debug(f"Signal {instance.id} not ACTIVE, skipping system paper trade")
         return
 
+    if not is_within_trading_window():
+        current_time = get_nepal_time_str()
+        logger.info(
+            f"⏰ Signal {instance.id} ({instance.symbol.symbol}) outside trading window "
+            f"(current: {current_time}). Windows: 17:00-18:00 & 21:00-23:00 NPT"
+        )
+        return
+
     try:
-        # Import here to avoid circular imports
         from .services.paper_trader import paper_trading_service
 
-        # Create system-wide paper trade (user=None)
         trade = paper_trading_service.create_paper_trade(
             signal=instance,
-            user=None,  # System-wide trade
-            position_size=100.0  # Fixed $100 per trade
+            user=None,
+            position_size=100.0
         )
 
+        current_time = get_nepal_time_str()
         logger.info(
-            f"🤖 System paper trade created: {trade.direction} {trade.symbol} "
+            f"🤖 System paper trade created at {current_time}: {trade.direction} {trade.symbol} "
             f"@ {trade.entry_price} (Trade ID: {trade.id}, Signal ID: {instance.id})"
         )
 

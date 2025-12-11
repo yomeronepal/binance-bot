@@ -336,7 +336,7 @@ def public_close_trade(request, trade_id):
             'trade': serializer.data,
             'exit_price': float(current_price),
             'profit_loss': float(trade.profit_loss) if trade.profit_loss else 0,
-            'profit_loss_pct': float(trade.profit_loss_pct) if trade.profit_loss_pct else 0,
+            'profit_loss_pct': float(trade.profit_loss_percentage) if trade.profit_loss_percentage else 0,
         })
 
     except Exception as e:
