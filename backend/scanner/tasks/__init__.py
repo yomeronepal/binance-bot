@@ -39,6 +39,14 @@ from .multi_timeframe_scanner import (
     scan_15m_timeframe,
 )
 
+from .futures_multi_timeframe_scanner import (
+    scan_futures_1d,
+    scan_futures_4h,
+    scan_futures_1h,
+    scan_futures_15m,
+    scan_futures_5m,
+)
+
 __all__ = [
     'scan_binance_market',
     'scan_futures_market',
@@ -59,4 +67,9 @@ __all__ = [
     'scan_4h_timeframe',
     'scan_1h_timeframe',
     'scan_15m_timeframe',
+    'scan_futures_1d',
+    'scan_futures_4h',
+    'scan_futures_1h',
+    'scan_futures_15m',
+    'scan_futures_5m',
 ]

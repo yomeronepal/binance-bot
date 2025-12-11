@@ -305,14 +305,14 @@ def auto_execute_trade_on_signal(sender, instance, created, **kwargs):
 @receiver(post_save, sender=Signal)
 def create_system_paper_trade(sender, instance, created, **kwargs):
     """
-    Automatically create a SYSTEM-WIDE paper trade for every signal.
+    Automatically create a SYSTEM-WIDE paper trade for FUTURES signals only.
 
     This is different from user auto-trading - this creates a public paper trade
     to track the bot's overall accuracy and performance that everyone can see.
 
     - Creates paper trade with user=None (system-wide)
     - Fixed position size of $100 per trade
-    - Only executes on new ACTIVE signals
+    - Only executes on new ACTIVE FUTURES signals
     - Only executes within trading windows (Nepal Time):
       - 17:00-18:00 NPT
       - 21:00-23:00 NPT
@@ -330,6 +330,10 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
 
     if instance.status != 'ACTIVE':
         logger.debug(f"Signal {instance.id} not ACTIVE, skipping system paper trade")
+        return
+
+    if instance.market_type != 'FUTURES':
+        logger.debug(f"Signal {instance.id} is {instance.market_type}, skipping (FUTURES only)")
         return
 
     if not is_within_trading_window():

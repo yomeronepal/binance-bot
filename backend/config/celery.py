@@ -23,78 +23,63 @@ app.autodiscover_tasks()
 # Celery Beat Schedule (Periodic Tasks)
 app.conf.beat_schedule = {
     # ============================================================================
-    # TIMEFRAME SCANNING - OPTIMIZED FOR SIGNAL QUALITY
+    # SPOT SCANNING - MULTI-TIMEFRAME
     # ============================================================================
 
-    # Scan 1-day timeframe - ONCE DAILY (swing trading)
     'scan-1d-timeframe': {
         'task': 'scanner.tasks.multi_timeframe_scanner.scan_1d_timeframe',
-        'schedule': crontab(minute=5, hour=0),  # 00:05 UTC daily
-        'options': {'expires': 3600.0},  # 1 hour expiry
+        'schedule': crontab(minute=5, hour=0),
+        'options': {'expires': 3600.0},
     },
 
-    # Scan 4-hour timeframe - AT 4H CANDLE CLOSES (your profit center)
     'scan-4h-timeframe': {
         'task': 'scanner.tasks.multi_timeframe_scanner.scan_4h_timeframe',
-        'schedule': crontab(minute=5, hour='0,4,8,12,16,20'),  # 5 mins after 4h closes
-        'options': {'expires': 1800.0},  # 30 minutes expiry
+        'schedule': crontab(minute=5, hour='0,4,8,12,16,20'),
+        'options': {'expires': 1800.0},
     },
 
-    # Scan 1-hour timeframe - REDUCED FREQUENCY (intraday)
     'scan-1h-timeframe': {
         'task': 'scanner.tasks.multi_timeframe_scanner.scan_1h_timeframe',
-        'schedule': crontab(minute=5),  # Only during active hours: 08:05-20:05 UTC
+        'schedule': crontab(minute=5),
         'options': {'expires': 1800.0},
     },
 
-    # Scan 15-minute timeframe - REDUCED FREQUENCY (scalping)
     'scan-15m-timeframe': {
         'task': 'scanner.tasks.multi_timeframe_scanner.scan_15m_timeframe',
-        'schedule': crontab(minute='*/15'),  # Every 15min during active hours only
+        'schedule': crontab(minute='*/15'),
         'options': {'expires': 900.0},
     },
+
     # ============================================================================
-    # FUTURES SCANNING - MULTI-TIMEFRAME (DEDICATED)
+    # FUTURES SCANNING - MULTI-TIMEFRAME (ALL PAIRS)
     # ============================================================================
 
-    # Scan Futures 1-day timeframe - ONCE DAILY (swing trading with leverage)
     'scan-futures-1d-timeframe': {
         'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1d',
-        'schedule': crontab(minute=15, hour=0),  # 00:15 UTC daily
-        'options': {'expires': 3600.0},  # 1 hour expiry
+        'schedule': crontab(minute=15, hour=0),
+        'options': {'expires': 3600.0},
     },
 
-    # Scan Futures 4-hour timeframe - AT 4H CANDLE CLOSES
     'scan-futures-4h-timeframe': {
         'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_4h',
-        'schedule': crontab(minute=15, hour='0,4,8,12,16,20'),  # 15 mins after 4h closes
-        'options': {'expires': 1800.0},  # 30 minutes expiry
-    },
-
-    # Scan Futures 1-hour timeframe - EVERY HOUR (intraday with leverage)
-    'scan-futures-1h-timeframe': {
-        'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1h',
-        'schedule': crontab(minute=15),  # Every hour at :15
+        'schedule': crontab(minute=15, hour='0,4,8,12,16,20'),
         'options': {'expires': 1800.0},
     },
 
-    # Scan Futures 15-minute timeframe - EVERY 15 MINUTES (scalping with leverage)
+    'scan-futures-1h-timeframe': {
+        'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1h',
+        'schedule': crontab(minute=15),
+        'options': {'expires': 1800.0},
+    },
+
     'scan-futures-15m-timeframe': {
         'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_15m',
-        'schedule': crontab(minute='*/15'),  # Every 15 minutes
+        'schedule': crontab(minute='*/15'),
         'options': {'expires': 900.0},
     },
 
-    # OPTIONAL: Scan Futures 5-minute timeframe - EVERY 5 MINUTES (ultra-scalping)
-    # Uncomment if you want very high frequency signals
-    # 'scan-futures-5m-timeframe': {
-    #     'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_5m',
-    #     'schedule': crontab(minute='*/5'),  # Every 5 minutes
-    #     'options': {'expires': 300.0},
-    # },
-
     # ============================================================================
-    # SYSTEM MAINTENANCE - OPTIMIZED
+    # SYSTEM MAINTENANCE
     # ============================================================================
 
     # Full data refresh - REDUCED FREQUENCY

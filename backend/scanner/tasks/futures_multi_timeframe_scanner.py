@@ -101,14 +101,17 @@ TIMEFRAME_PRIORITY = {
 async def _get_top_futures_pairs_by_volume(
     client: BinanceFuturesClient,
     pairs: List[str],
-    top_n: int = 200
+    top_n: int = None
 ) -> List[str]:
-    """Get top N futures pairs by 24h volume"""
+    """
+    Get futures pairs sorted by 24h volume.
+    If top_n is None, returns ALL pairs sorted by volume.
+    """
     try:
         volume_data = []
+        total_pairs = len(pairs)
 
-        # Fetch 24h tickers in batches to avoid rate limits
-        for i in range(0, min(len(pairs), 200), 50):
+        for i in range(0, total_pairs, 50):
             batch = pairs[i:i+50]
             tasks = [client.get_24h_ticker(symbol) for symbol in batch]
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -121,18 +124,21 @@ async def _get_top_futures_pairs_by_volume(
                     except (ValueError, TypeError):
                         pass
 
-            await asyncio.sleep(0.5)  # Rate limiting
+            await asyncio.sleep(0.3)
 
-        # Sort by volume descending
         volume_data.sort(key=lambda x: x[1], reverse=True)
 
-        top_pairs = [symbol for symbol, _ in volume_data[:top_n]]
-        logger.info(f"Selected top {len(top_pairs)} futures pairs by 24h volume")
-        return top_pairs
+        if top_n is None:
+            result_pairs = [symbol for symbol, _ in volume_data]
+        else:
+            result_pairs = [symbol for symbol, _ in volume_data[:top_n]]
+
+        logger.info(f"Selected {len(result_pairs)} futures pairs (sorted by 24h volume)")
+        return result_pairs
 
     except Exception as e:
-        logger.error(f"Error getting top futures pairs: {e}")
-        return pairs[:top_n]
+        logger.error(f"Error getting futures pairs by volume: {e}")
+        return pairs if top_n is None else pairs[:top_n]
 
 
 async def _save_futures_signal_with_dedup(signal_data: Dict, timeframe: str) -> Optional[Signal]:
@@ -514,11 +520,10 @@ async def _scan_futures_single_timeframe(timeframe: str) -> Dict:
         # Get all USDT perpetual futures pairs
         futures_pairs = await client.get_usdt_futures_pairs()
 
-        # Get top pairs by volume (all pairs, sorted)
         top_pairs = await _get_top_futures_pairs_by_volume(
             client,
             futures_pairs,
-            top_n=len(futures_pairs)  # Scan all available pairs
+            top_n=None
         )
 
         logger.info(f"📊 Scanning {len(top_pairs)} futures pairs on {timeframe}")
