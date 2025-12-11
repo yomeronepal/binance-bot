@@ -49,6 +49,15 @@ from signals.views_optimization import (
     learning_metrics,
     apply_config
 )
+from signals.views_futures import (
+    futures_settings,
+    toggle_futures_trading,
+    futures_trades_list,
+    futures_open_positions,
+    close_futures_trade,
+    futures_summary,
+    futures_trade_detail
+)
 
 app_name = 'api'
 
@@ -111,6 +120,15 @@ urlpatterns = [
     path('learning/compare/', config_comparison, name='config-comparison'),
     path('learning/metrics/', learning_metrics, name='learning-metrics'),
     path('learning/configs/<int:config_id>/apply/', apply_config, name='apply-config'),
+
+    # Futures Trading endpoints
+    path('futures/settings/', futures_settings, name='futures-settings'),
+    path('futures/toggle/', toggle_futures_trading, name='futures-toggle'),
+    path('futures/trades/', futures_trades_list, name='futures-trades'),
+    path('futures/trades/<int:trade_id>/', futures_trade_detail, name='futures-trade-detail'),
+    path('futures/trades/<int:trade_id>/close/', close_futures_trade, name='futures-close-trade'),
+    path('futures/positions/', futures_open_positions, name='futures-positions'),
+    path('futures/summary/', futures_summary, name='futures-summary'),
 
     # Router URLs (includes user-specific paper-trades)
     path('', include(router.urls)),

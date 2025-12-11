@@ -356,12 +356,63 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
         )
 
     except ValueError as e:
-        # Duplicate trade - this is expected when signals are upgraded (e.g., 1h -> 4h)
-        # Just log at info level and continue
         logger.info(f"ℹ️  Skipping paper trade for signal {instance.id}: {e}")
 
     except Exception as e:
         logger.error(
             f"❌ Failed to create system paper trade for signal {instance.id}: {e}",
+            exc_info=True
+        )
+
+
+@receiver(post_save, sender=Signal)
+def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
+    """
+    Execute a real futures trade on Binance when a new signal is created.
+
+    This handler checks the FuturesTradingSettings and executes real trades
+    on Binance Futures when enabled.
+
+    Settings controlled via database:
+    - is_enabled: Master switch for futures trading
+    - trade_amount: Base USDT amount (default $5)
+    - leverage: Leverage multiplier (default 10x)
+    - max_concurrent_trades: Maximum open trades (default 1)
+    - use_trading_window: Respect trading hours (default True)
+
+    Args:
+        sender: Signal model class
+        instance: Signal instance that was saved
+        created: Boolean indicating if this is a new signal
+        **kwargs: Additional keyword arguments
+    """
+    if not created:
+        return
+
+    if instance.status != 'ACTIVE':
+        logger.debug(f"Signal {instance.id} not ACTIVE, skipping futures trade")
+        return
+
+    try:
+        from .services.futures_trader import futures_trading_service
+
+        trade = futures_trading_service.execute_signal(instance)
+
+        if trade:
+            current_time = get_nepal_time_str()
+            logger.info(
+                f"💰 REAL Futures trade executed at {current_time}: "
+                f"{trade.direction} {trade.quantity} {trade.symbol} @ {trade.entry_price} "
+                f"(Leverage: {trade.leverage}x, Trade ID: {trade.id}, Signal ID: {instance.id})"
+            )
+        else:
+            logger.debug(
+                f"ℹ️  No futures trade for signal {instance.id}: "
+                f"settings disabled or criteria not met"
+            )
+
+    except Exception as e:
+        logger.error(
+            f"❌ Failed to execute futures trade for signal {instance.id}: {e}",
             exc_info=True
         )

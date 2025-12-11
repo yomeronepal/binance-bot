@@ -33,6 +33,10 @@ from .models_mltuning import (
     MLPrediction,
     MLModel
 )
+from .models_futures import (
+    FuturesTradingSettings,
+    FuturesTrade
+)
 
 
 class BaseModelAdmin(admin.ModelAdmin):
@@ -1603,4 +1607,156 @@ class MLModelAdmin(admin.ModelAdmin):
     list_filter = ("ml_algorithm", "is_production_ready", "is_active")
     search_fields = ("name", "user__username")
     ordering = ("-created_at",)
+
+
+@admin.register(FuturesTradingSettings)
+class FuturesTradingSettingsAdmin(admin.ModelAdmin):
+    """Admin interface for Futures Trading Settings."""
+    list_display = (
+        "id", "is_enabled_badge", "trade_amount", "leverage",
+        "effective_position_size_display", "max_concurrent_trades",
+        "min_signal_confidence", "use_trading_window", "updated_at"
+    )
+    readonly_fields = ("created_at", "updated_at")
+
+    fieldsets = (
+        ('Status', {
+            'fields': ('is_enabled',)
+        }),
+        ('Trade Settings', {
+            'fields': ('trade_amount', 'leverage', 'max_concurrent_trades')
+        }),
+        ('Filters', {
+            'fields': (
+                'min_signal_confidence', 'allowed_symbols',
+                'trade_long', 'trade_short', 'use_trading_window'
+            )
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def is_enabled_badge(self, obj):
+        """Display enabled status as badge."""
+        if obj.is_enabled:
+            return format_html(
+                '<span style="background-color: #28a745; color: white; padding: 3px 10px; '
+                'border-radius: 3px; font-weight: bold;">ENABLED</span>'
+            )
+        return format_html(
+            '<span style="background-color: #dc3545; color: white; padding: 3px 10px; '
+            'border-radius: 3px; font-weight: bold;">DISABLED</span>'
+        )
+    is_enabled_badge.short_description = 'Status'
+
+    def effective_position_size_display(self, obj):
+        """Display effective position size."""
+        return format_html(
+            '<span style="font-weight: bold;">${}</span>',
+            f"{float(obj.effective_position_size):.2f}"
+        )
+    effective_position_size_display.short_description = 'Effective Size'
+
+    def has_add_permission(self, request):
+        return not FuturesTradingSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(FuturesTrade)
+class FuturesTradeAdmin(BaseModelAdmin):
+    """Admin interface for Futures Trades."""
+    list_display = (
+        "id", "symbol", "direction_badge", "leverage",
+        "entry_price", "exit_price", "status_badge",
+        "pnl_display", "profit_loss_percentage",
+        "entry_time", "exit_time"
+    )
+    list_filter = ("status", "direction", "symbol", "entry_time")
+    search_fields = ("symbol", "binance_order_id")
+    ordering = ("-created_at",)
+    readonly_fields = (
+        "signal", "binance_order_id", "binance_exit_order_id",
+        "entry_time", "exit_time", "profit_loss", "profit_loss_percentage",
+        "created_at", "updated_at"
+    )
+
+    fieldsets = (
+        ('Trade Information', {
+            'fields': ('signal', 'symbol', 'direction', 'status')
+        }),
+        ('Position Details', {
+            'fields': ('leverage', 'quantity', 'position_size_usdt')
+        }),
+        ('Price Levels', {
+            'fields': ('entry_price', 'stop_loss', 'take_profit', 'exit_price')
+        }),
+        ('Performance', {
+            'fields': ('profit_loss', 'profit_loss_percentage')
+        }),
+        ('Binance Info', {
+            'fields': ('binance_order_id', 'binance_exit_order_id', 'error_message'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('entry_time', 'exit_time', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def direction_badge(self, obj):
+        """Display direction as colored badge."""
+        color = "#28a745" if obj.direction == "LONG" else "#dc3545"
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 8px; '
+            'border-radius: 3px; font-weight: bold;">{}</span>',
+            color, obj.direction
+        )
+    direction_badge.short_description = 'Direction'
+
+    def status_badge(self, obj):
+        """Display status with colored badge."""
+        colors = {
+            'PENDING': '#ffc107',
+            'OPEN': '#007bff',
+            'CLOSED_TP': '#28a745',
+            'CLOSED_SL': '#dc3545',
+            'CLOSED_MANUAL': '#6c757d',
+            'FAILED': '#dc3545',
+            'CANCELLED': '#6c757d'
+        }
+        color = colors.get(obj.status, '#6c757d')
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 8px; '
+            'border-radius: 3px; font-size: 11px;">{}</span>',
+            color, obj.status.replace('_', ' ')
+        )
+    status_badge.short_description = 'Status'
+
+    def pnl_display(self, obj):
+        """Display P/L with color."""
+        if obj.profit_loss is None:
+            return '-'
+        pnl = float(obj.profit_loss)
+        if pnl > 0:
+            color = 'green'
+            sign = '+'
+        elif pnl < 0:
+            color = 'red'
+            sign = ''
+        else:
+            color = 'gray'
+            sign = ''
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{} USDT</span>',
+            color, f"{sign}{pnl:.4f}"
+        )
+    pnl_display.short_description = 'P/L'
+
+    def get_queryset(self, request):
+        """Optimize queryset."""
+        return super().get_queryset(request).select_related('signal')
 

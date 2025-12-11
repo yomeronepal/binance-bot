@@ -973,3 +973,9 @@ from .models_mltuning import (
     MLPrediction,
     MLModel,
 )
+
+# Import futures trading models
+from .models_futures import (
+    FuturesTradingSettings,
+    FuturesTrade,
+)
