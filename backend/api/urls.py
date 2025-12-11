@@ -78,6 +78,7 @@ router.register(r'mlmodels', MLModelViewSet, basename='mlmodel')
 
 urlpatterns = [
     path('health/', views.health_check, name='health-check'),
+    path('trading-session/', views.trading_session_status, name='trading-session'),
 
     # Public paper trading endpoints (no auth required)
     path('public/paper-trading/', public_paper_trades_list, name='public-paper-trades'),
