@@ -497,49 +497,38 @@ def send_signal_notifications(self):
         raise self.retry(exc=exc)
 
 
-@shared_task
-def cleanup_expired_signals():
+@shared_task(bind=True)
+def cleanup_expired_signals(self):
     """
     Cleanup expired signals and remove duplicates from database.
     Runs every 5 minutes via Celery Beat.
+
+    - Signals older than 4 hours: marked as EXPIRED
+    - Signals older than 24 hours: DELETED from database
     """
     try:
-        logger.info("🧹 Cleaning up expired signals...")
-
         from signals.models import Signal
         from django.db.models import Count, Min
 
-        # 1. Delete old signals (older than 24 hours)
-        cutoff_time = timezone.now() - timedelta(hours=24)
+        now = timezone.now()
+        logger.info(f"🧹 Starting signal cleanup at {now.isoformat()}")
+
+        active_before = Signal.objects.filter(status='ACTIVE').count()
+        total_before = Signal.objects.count()
+        logger.info(f"   Before cleanup: {active_before} active, {total_before} total signals")
+
+        delete_cutoff = now - timedelta(hours=24)
         old_deleted, _ = Signal.objects.filter(
-            created_at__lt=cutoff_time
+            created_at__lt=delete_cutoff
         ).delete()
 
-        # 2. Mark signals that hit TP/SL as EXECUTED
-        # Check LONG signals that hit TP (current price >= TP)
-        executed_long = Signal.objects.filter(
-            status='ACTIVE',
-            direction='LONG',
-            market_type='SPOT'
-        ).count()  # Placeholder - would need real-time price data
-
-        # Check SHORT signals that hit TP (current price <= TP)
-        executed_short = Signal.objects.filter(
-            status='ACTIVE',
-            direction='SHORT',
-            market_type='SPOT'
-        ).count()  # Placeholder - would need real-time price data
-
-        # 3. Mark old active signals as EXPIRED (older than 4 hours)
-        expire_time = timezone.now() - timedelta(hours=4)
+        expire_cutoff = now - timedelta(hours=4)
         expired_count = Signal.objects.filter(
             status='ACTIVE',
-            created_at__lt=expire_time
+            created_at__lt=expire_cutoff
         ).update(status='EXPIRED')
 
-        # 4. Remove duplicate signals (keep the most recent one)
         duplicates_removed = 0
-        # Find duplicate groups (same symbol, direction, timeframe, market_type)
         duplicate_groups = Signal.objects.filter(
             status='ACTIVE'
         ).values(
@@ -549,7 +538,6 @@ def cleanup_expired_signals():
             first_id=Min('id')
         ).filter(count__gt=1)
 
-        # For each duplicate group, keep only the most recent signal
         for group in duplicate_groups:
             old_duplicates = Signal.objects.filter(
                 symbol_id=group['symbol'],
@@ -557,23 +545,29 @@ def cleanup_expired_signals():
                 timeframe=group['timeframe'],
                 market_type=group['market_type'],
                 status='ACTIVE'
-            ).order_by('-created_at')[1:]  # Keep first (most recent), delete rest
+            ).order_by('-created_at')[1:]
 
             for signal in old_duplicates:
                 signal.status = 'CANCELLED'
                 signal.save()
                 duplicates_removed += 1
 
+        active_after = Signal.objects.filter(status='ACTIVE').count()
+        total_after = Signal.objects.count()
+
         logger.info(
-            f"✅ Cleanup complete: {old_deleted} old deleted, "
-            f"{expired_count} expired, {duplicates_removed} duplicates removed"
+            f"✅ Cleanup complete: deleted={old_deleted}, expired={expired_count}, "
+            f"duplicates={duplicates_removed} | Active: {active_before}→{active_after}, "
+            f"Total: {total_before}→{total_after}"
         )
 
         return {
             'old_deleted': old_deleted,
             'expired_count': expired_count,
             'duplicates_removed': duplicates_removed,
-            'timestamp': timezone.now().isoformat()
+            'active_before': active_before,
+            'active_after': active_after,
+            'timestamp': now.isoformat()
         }
 
     except Exception as e:

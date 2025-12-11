@@ -173,8 +173,8 @@ app.conf.update(
         'scanner.tasks.celery_tasks.scan_futures_market': {'queue': 'scanner'},
         'scanner.tasks.celery_tasks.full_data_refresh': {'queue': 'scanner'},
         'scanner.tasks.celery_tasks.send_signal_notifications': {'queue': 'notifications'},
-        'scanner.tasks.celery_tasks.cleanup_expired_signals': {'queue': 'maintenance'},
-        'scanner.tasks.celery_tasks.system_health_check': {'queue': 'maintenance'},
+        'scanner.tasks.celery_tasks.cleanup_expired_signals': {'queue': 'celery'},
+        'scanner.tasks.celery_tasks.system_health_check': {'queue': 'celery'},
         'scanner.tasks.celery_tasks.check_and_close_paper_trades': {'queue': 'paper_trading'},
         # Backtesting tasks
         'scanner.tasks.backtest_tasks.run_backtest_async': {'queue': 'backtesting'},
