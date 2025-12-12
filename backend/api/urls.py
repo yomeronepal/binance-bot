@@ -59,6 +59,7 @@ from signals.views_futures import (
     futures_trade_detail
 )
 from signals.views_market import get_order_book
+from signals.views_chart import chart_annotations, delete_annotation, fibonacci_setup
 
 app_name = 'api'
 
@@ -134,7 +135,14 @@ urlpatterns = [
     # Market Data endpoints
     path('market/orderbook/<str:symbol>/', get_order_book, name='orderbook'),
 
+    # Chart Annotations endpoints
+    path('chart/annotations/<str:symbol>/', chart_annotations, name='chart-annotations'),
+    path('chart/annotations/', chart_annotations, name='chart-annotations-create'),
+    path('chart/annotations/<int:annotation_id>/delete/', delete_annotation, name='delete-annotation'),
+    path('chart/fib/<str:symbol>/', fibonacci_setup, name='fibonacci-setup'),
+
     # Router URLs (includes user-specific paper-trades)
     path('', include(router.urls)),
 ]
+
 

@@ -10,6 +10,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { format } from 'date-fns';
 import TradingViewWidget from '../../components/charts/TradingViewWidget';
 import LiquidityHeatmap from '../../components/charts/LiquidityHeatmap';
+import FibLevelsManager from '../../components/charts/FibLevelsManager';
 
 const SignalDetail = () => {
   const { id } = useParams();
@@ -244,6 +245,11 @@ const SignalDetail = () => {
         {/* Liquidity Heatmap */}
         <div className="mb-6">
           <LiquidityHeatmap symbol={signal.symbol_name || signal.symbol} />
+        </div>
+
+        {/* Fibonacci Levels Manager */}
+        <div className="mb-6">
+          <FibLevelsManager symbol={signal.symbol_name || signal.symbol} />
         </div>
 
         {/* Fullscreen Modal */}
