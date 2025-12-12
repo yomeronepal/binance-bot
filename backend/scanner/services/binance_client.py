@@ -363,6 +363,26 @@ class BinanceClient:
         """Get latest price for a symbol."""
         params = {'symbol': symbol}
         return await self._request('GET', '/api/v3/ticker/price', params)
+
+    async def get_order_book(self, symbol: str, limit: int = 100) -> Dict:
+        """
+        Get order book (market depth) for a symbol.
+        
+        Args:
+            symbol: Trading pair symbol (e.g., 'BTCUSDT')
+            limit: Number of price levels (5, 10, 20, 50, 100, 500, 1000)
+        
+        Returns:
+            Dict with 'bids' and 'asks' arrays:
+            {
+                'lastUpdateId': 123456,
+                'bids': [[price, quantity], ...],  # Buy orders (descending by price)
+                'asks': [[price, quantity], ...]   # Sell orders (ascending by price)
+            }
+        """
+        params = {'symbol': symbol, 'limit': limit}
+        return await self._request('GET', '/api/v3/depth', params)
+
     
     async def batch_get_klines(
         self,

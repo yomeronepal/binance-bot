@@ -58,6 +58,7 @@ from signals.views_futures import (
     futures_summary,
     futures_trade_detail
 )
+from signals.views_market import get_order_book
 
 app_name = 'api'
 
@@ -130,6 +131,10 @@ urlpatterns = [
     path('futures/positions/', futures_open_positions, name='futures-positions'),
     path('futures/summary/', futures_summary, name='futures-summary'),
 
+    # Market Data endpoints
+    path('market/orderbook/<str:symbol>/', get_order_book, name='orderbook'),
+
     # Router URLs (includes user-specific paper-trades)
     path('', include(router.urls)),
 ]
+

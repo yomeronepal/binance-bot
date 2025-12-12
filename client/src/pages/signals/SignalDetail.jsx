@@ -9,6 +9,7 @@ import useThemeStore from '../../store/useThemeStore';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { format } from 'date-fns';
 import TradingViewWidget from '../../components/charts/TradingViewWidget';
+import LiquidityHeatmap from '../../components/charts/LiquidityHeatmap';
 
 const SignalDetail = () => {
   const { id } = useParams();
@@ -238,6 +239,11 @@ const SignalDetail = () => {
               isFutures={isFutures}
             />
           </div>
+        </div>
+
+        {/* Liquidity Heatmap */}
+        <div className="mb-6">
+          <LiquidityHeatmap symbol={signal.symbol_name || signal.symbol} />
         </div>
 
         {/* Fullscreen Modal */}
