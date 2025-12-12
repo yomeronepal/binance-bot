@@ -150,10 +150,10 @@ REST_FRAMEWORK = {
     ],
 }
 
-# JWT Settings
+# JWT Settings - Lifetime tokens (100 years)
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=int(os.getenv('JWT_ACCESS_TOKEN_LIFETIME', 60))),
-    'REFRESH_TOKEN_LIFETIME': timedelta(minutes=int(os.getenv('JWT_REFRESH_TOKEN_LIFETIME', 1440))),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=36500),  # ~100 years (lifetime)
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=36500),  # ~100 years (lifetime)
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,

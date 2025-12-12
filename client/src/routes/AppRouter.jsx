@@ -18,6 +18,7 @@ import Futures from '../pages/Futures';
 import PaperTrading from '../pages/PaperTrading';
 import AutoTrading from '../pages/AutoTrading';
 import BotPerformance from '../pages/BotPerformance';
+import FuturesPerformance from '../pages/FuturesPerformance';
 import Backtesting from '../pages/Backtesting';
 import StrategyDashboard from '../pages/StrategyDashboard';
 
@@ -28,11 +29,6 @@ const AppRouter = () => {
         {/* Public routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/bot-performance" element={
-          <ErrorBoundary>
-            <BotPerformance />
-          </ErrorBoundary>
-        } />
 
         {/* Protected routes */}
         <Route
@@ -50,6 +46,16 @@ const AppRouter = () => {
           <Route path="signals" element={<Navigate to="/spot-signals" replace />} />
           <Route path="signals/:id" element={<Navigate to="/spot-signals/:id" replace />} />
           <Route path="futures" element={<Futures />} />
+          <Route path="futures-performance" element={
+            <ErrorBoundary>
+              <FuturesPerformance />
+            </ErrorBoundary>
+          } />
+          <Route path="bot-performance" element={
+            <ErrorBoundary>
+              <BotPerformance />
+            </ErrorBoundary>
+          } />
           <Route path="paper-trading" element={
             <ErrorBoundary>
               <PaperTrading />

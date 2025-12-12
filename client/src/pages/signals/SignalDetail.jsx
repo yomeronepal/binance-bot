@@ -5,14 +5,30 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSignalStore } from '../../store/useSignalStore';
-import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
+import useThemeStore from '../../store/useThemeStore';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { format } from 'date-fns';
+import TradingViewWidget from '../../components/charts/TradingViewWidget';
 
 const SignalDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { signals, futuresSignals, isLoading } = useSignalStore();
+  const { theme } = useThemeStore();
   const [signal, setSignal] = useState(null);
+  const [chartInterval, setChartInterval] = useState('60');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Handle Escape key to close fullscreen
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isFullscreen]);
 
   useEffect(() => {
     // Find signal in either spot or futures
@@ -116,9 +132,8 @@ const SignalDetail = () => {
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
                   {signal.symbol_name || signal.symbol}
                 </h1>
-                <span className={`px-4 py-2 rounded-lg text-sm font-bold ${
-                  isLong ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
-                }`}>
+                <span className={`px-4 py-2 rounded-lg text-sm font-bold ${isLong ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+                  }`}>
                   {directionLabel}
                 </span>
                 <span className={`px-3 py-1 rounded-lg text-xs font-semibold ${getStatusColor(signal.status)}`}>
@@ -140,13 +155,12 @@ const SignalDetail = () => {
                   {signal.timeframe} Timeframe
                 </span>
                 {signal.trading_type && (
-                  <span className={`inline-flex items-center px-3 py-1 rounded-lg text-sm font-medium ${
-                    signal.trading_type === 'SCALPING'
-                      ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
-                      : signal.trading_type === 'DAY'
+                  <span className={`inline-flex items-center px-3 py-1 rounded-lg text-sm font-medium ${signal.trading_type === 'SCALPING'
+                    ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                    : signal.trading_type === 'DAY'
                       ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
                       : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200'
-                  }`}>
+                    }`}>
                     {signal.trading_type === 'SCALPING' ? '⚡ Scalping' : signal.trading_type === 'DAY' ? '📊 Day Trading' : '📈 Swing Trading'}
                   </span>
                 )}
@@ -155,8 +169,8 @@ const SignalDetail = () => {
                     ⏱️ Est. {signal.estimated_duration_hours < 1
                       ? `${Math.round(signal.estimated_duration_hours * 60)} minutes`
                       : signal.estimated_duration_hours < 24
-                      ? `${Math.round(signal.estimated_duration_hours)} hours`
-                      : `${Math.round(signal.estimated_duration_hours / 24)} days`}
+                        ? `${Math.round(signal.estimated_duration_hours)} hours`
+                        : `${Math.round(signal.estimated_duration_hours / 24)} days`}
                   </span>
                 )}
               </div>
@@ -173,31 +187,110 @@ const SignalDetail = () => {
           </div>
         </div>
 
-        {/* Price Chart */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Price Chart</h2>
-          <ResponsiveContainer width="100%" height={400}>
-            <AreaChart data={chartData}>
-              <defs>
-                <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={isLong ? "#10b981" : "#ef4444"} stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor={isLong ? "#10b981" : "#ef4444"} stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="time" stroke="#9ca3af" />
-              <YAxis domain={[sl * 0.98, tp * 1.02]} stroke="#9ca3af" />
-              <Tooltip
-                contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151' }}
-                labelStyle={{ color: '#d1d5db' }}
-              />
-              <ReferenceLine y={entry} stroke="#3b82f6" strokeDasharray="5 5" label={{ value: 'Entry', fill: '#3b82f6', position: 'right' }} />
-              <ReferenceLine y={tp} stroke="#10b981" strokeDasharray="5 5" label={{ value: 'TP', fill: '#10b981', position: 'right' }} />
-              <ReferenceLine y={sl} stroke="#ef4444" strokeDasharray="5 5" label={{ value: 'SL', fill: '#ef4444', position: 'right' }} />
-              <Area type="monotone" dataKey="price" stroke={isLong ? "#10b981" : "#ef4444"} fillOpacity={1} fill="url(#colorPrice)" />
-            </AreaChart>
-          </ResponsiveContainer>
+        {/* TradingView Chart */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 sm:p-6 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
+              📈 Live Chart - {signal.symbol_name || signal.symbol}
+            </h2>
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Interval Selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Interval:</span>
+                <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+                  {[
+                    { value: '15', label: '15m' },
+                    { value: '60', label: '1H' },
+                    { value: '240', label: '4H' },
+                    { value: 'D', label: '1D' },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => setChartInterval(option.value)}
+                      className={`px-3 py-1 text-sm font-medium rounded-md transition-all ${chartInterval === option.value
+                        ? 'bg-primary-600 text-white'
+                        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                        }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Fullscreen Button */}
+              <button
+                onClick={() => setIsFullscreen(true)}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                </svg>
+                Fullscreen
+              </button>
+            </div>
+          </div>
+          <div className="h-[400px] sm:h-[500px] lg:h-[600px] rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+            <TradingViewWidget
+              symbol={signal.symbol_name || signal.symbol}
+              interval={chartInterval}
+              theme={theme}
+              isFutures={isFutures}
+            />
+          </div>
         </div>
+
+        {/* Fullscreen Modal */}
+        {isFullscreen && (
+          <div
+            className="fixed inset-0 z-[100] bg-black"
+            onClick={(e) => e.target === e.currentTarget && setIsFullscreen(false)}
+          >
+            {/* Close Button */}
+            <button
+              onClick={() => setIsFullscreen(false)}
+              className="absolute top-4 right-4 z-[101] p-2 rounded-lg bg-gray-800/80 text-white hover:bg-gray-700 transition-all"
+              aria-label="Close fullscreen"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Interval Selector in Fullscreen */}
+            <div className="absolute top-4 left-4 z-[101] flex items-center gap-2">
+              <div className="flex bg-gray-800/80 rounded-lg p-1">
+                {[
+                  { value: '15', label: '15m' },
+                  { value: '60', label: '1H' },
+                  { value: '240', label: '4H' },
+                  { value: 'D', label: '1D' },
+                ].map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => setChartInterval(option.value)}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${chartInterval === option.value
+                      ? 'bg-primary-600 text-white'
+                      : 'text-gray-300 hover:bg-gray-700'
+                      }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Fullscreen Chart */}
+            <div className="w-full h-full">
+              <TradingViewWidget
+                symbol={signal.symbol_name || signal.symbol}
+                interval={chartInterval}
+                theme="dark"
+                isFutures={isFutures}
+              />
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           {/* Price Information */}
@@ -252,10 +345,9 @@ const SignalDetail = () => {
                 <div className="flex items-center">
                   <div className="flex-1 bg-gray-200 dark:bg-gray-600 rounded-full h-3 mr-3">
                     <div
-                      className={`h-3 rounded-full ${
-                        signal.confidence >= 0.8 ? 'bg-green-500' :
+                      className={`h-3 rounded-full ${signal.confidence >= 0.8 ? 'bg-green-500' :
                         signal.confidence >= 0.7 ? 'bg-yellow-500' : 'bg-red-500'
-                      }`}
+                        }`}
                       style={{ width: `${signal.confidence * 100}%` }}
                     />
                   </div>
@@ -462,13 +554,12 @@ const SignalDetail = () => {
                 🎯 Signal Generation Details
               </h3>
               <p className="text-gray-700 dark:text-gray-300 mb-3">
-                {signal.description || `This ${isLong ? 'LONG' : 'SHORT'} signal for ${signal.symbol_name || signal.symbol} was generated on the ${signal.timeframe} timeframe using our multi-indicator strategy with ${(signal.confidence * 100).toFixed(0)}% confidence. ${
-                  signal.confidence >= 0.8
-                    ? 'High confidence signals indicate strong alignment across all technical indicators.'
-                    : signal.confidence >= 0.7
+                {signal.description || `This ${isLong ? 'LONG' : 'SHORT'} signal for ${signal.symbol_name || signal.symbol} was generated on the ${signal.timeframe} timeframe using our multi-indicator strategy with ${(signal.confidence * 100).toFixed(0)}% confidence. ${signal.confidence >= 0.8
+                  ? 'High confidence signals indicate strong alignment across all technical indicators.'
+                  : signal.confidence >= 0.7
                     ? 'Moderate confidence signals show good indicator alignment with some minor divergence.'
                     : 'This signal meets minimum confidence threshold with acceptable indicator alignment.'
-                }`}
+                  }`}
               </p>
 
               <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
@@ -632,11 +723,10 @@ const SignalDetail = () => {
             href={`https://www.binance.com/en/trade/${signal.symbol_name || signal.symbol}?type=${isFutures ? 'futures' : 'spot'}`}
             target="_blank"
             rel="noopener noreferrer"
-            className={`px-8 py-4 rounded-lg font-bold text-lg transition-all transform hover:scale-105 ${
-              isLong
-                ? 'bg-green-600 hover:bg-green-700 text-white'
-                : 'bg-red-600 hover:bg-red-700 text-white'
-            }`}
+            className={`px-8 py-4 rounded-lg font-bold text-lg transition-all transform hover:scale-105 ${isLong
+              ? 'bg-green-600 hover:bg-green-700 text-white'
+              : 'bg-red-600 hover:bg-red-700 text-white'
+              }`}
           >
             🚀 Trade {signal.symbol_name || signal.symbol} on Binance →
           </a>
