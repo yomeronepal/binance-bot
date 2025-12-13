@@ -1,15 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar } from 'lucide-react';
 import axios from 'axios';
+import { useAuthStore } from '../store/useAuthStore';
+import api from '../services/api';
 
 const BotPerformance = () => {
+  const { user } = useAuthStore();
+  const isSuperUser = user?.is_superuser;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [summary, setSummary] = useState(null);
   const [openPositions, setOpenPositions] = useState([]);
   const [recentTrades, setRecentTrades] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
-  const [closingTrades, setClosingTrades] = useState({});
+  const [isGoldenWindow, setIsGoldenWindow] = useState(false);
+  const [totalTradesCount, setTotalTradesCount] = useState(0);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -21,24 +26,39 @@ const BotPerformance = () => {
     setCurrentPage(1);
   }, [activeTab]);
 
-  // Fetch data without authentication - with LIVE prices
-  const fetchData = async () => {
+  const handleCloseTrade = async (tradeId) => {
+    if (!window.confirm('ADMIN ACTION: Are you sure you want to CLOSE this trade immediately at market price?')) return;
+
     try {
-      setLoading(true);
+      await api.post(`/public/paper-trading/${tradeId}/close/`);
+      alert('Trade closed successfully by Admin.');
+      fetchPerformanceData();
+      fetchTradeHistory();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to close trade: ' + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  // Fetch data ...
+
+
+  // Fetch data without authentication - with LIVE prices
+  // Fetch Summary and Open Positions (Fast)
+  const fetchPerformanceData = async () => {
+    try {
+      if (!summary) setLoading(true); // Initial load
       const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+      const queryParams = isGoldenWindow ? '?golden_window=true' : '';
 
-      // Fetch summary - includes performance metrics
-      const summaryRes = await axios.get(`${baseURL}/public/paper-trading/summary/`);
-      setSummary(summaryRes.data);
+      const [summaryRes, positionsRes] = await Promise.all([
+        axios.get(`${baseURL}/public/paper-trading/summary/${queryParams}`),
+        axios.get(`${baseURL}/public/paper-trading/open-positions/${queryParams}`)
+      ]);
 
-      // Fetch open positions with REAL-TIME PRICES
-      const positionsRes = await axios.get(`${baseURL}/public/paper-trading/open-positions/`);
       const positionsData = positionsRes.data;
-
-      // Set open positions with live prices
       setOpenPositions(positionsData.positions || []);
 
-      // Update summary with live unrealized PNL
       if (summaryRes.data && positionsData) {
         const liveUnrealizedPnl = positionsData.total_unrealized_pnl || 0;
         const performanceData = summaryRes.data.performance || {};
@@ -54,48 +74,52 @@ const BotPerformance = () => {
           total_current_value: positionsData.total_current_value || 0,
           total_unrealized_pnl: liveUnrealizedPnl,
         });
+      } else {
+        setSummary(summaryRes.data);
       }
-
-      // Fetch all trades and get recent closed ones
-      const tradesRes = await axios.get(`${baseURL}/public/paper-trading/`);
-      const allTrades = tradesRes.data.trades || tradesRes.data || [];
-      const closed = allTrades.filter(t => t.status && t.status.startsWith('CLOSED'));
-      setRecentTrades(closed.slice(0, 20));
-
       setError(null);
     } catch (err) {
-      console.error('Error fetching bot performance:', err);
-      setError(err.message);
+      console.error('Error fetching performance:', err);
+      if (!summary) setError(err.message);
     } finally {
-      setLoading(false);
+      if (!summary) setLoading(false);
     }
   };
 
-  const closeTrade = async (tradeId) => {
-    const confirmed = window.confirm('Are you sure you want to close this position at current market price?');
-    if (!confirmed) return;
-
+  // Fetch Trade History (Paginated)
+  const fetchTradeHistory = async () => {
     try {
-      setClosingTrades(prev => ({ ...prev, [tradeId]: true }));
       const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+      // Construct query params
+      const params = new URLSearchParams();
+      params.append('page', currentPage);
+      if (isGoldenWindow) params.append('golden_window', 'true');
 
-      const response = await axios.post(`${baseURL}/public/paper-trading/${tradeId}/close/`);
+      const res = await axios.get(`${baseURL}/public/paper-trading/?${params.toString()}`);
 
-      if (response.data) {
-        await fetchData();
-        alert(`Trade closed successfully!\nP/L: $${response.data.profit_loss?.toFixed(2) || 0} (${response.data.profit_loss_pct?.toFixed(2) || 0}%)`);
+      // DRF Pagination returns { count: ..., results: ... }
+      if (res.data.results) {
+        setRecentTrades(res.data.results);
+        setTotalTradesCount(res.data.count);
+      } else {
+        // Fallback if pagination disabled (legacy)
+        setRecentTrades(res.data.trades || []);
+        setTotalTradesCount(res.data.count || 0);
       }
     } catch (err) {
-      console.error('Error closing trade:', err);
-      alert(`Failed to close trade: ${err.response?.data?.error || err.message}`);
-    } finally {
-      setClosingTrades(prev => ({ ...prev, [tradeId]: false }));
+      console.error('Error fetching trades:', err);
     }
   };
 
+
+
   useEffect(() => {
-    fetchData();
-  }, []);
+    fetchPerformanceData();
+  }, [isGoldenWindow]);
+
+  useEffect(() => {
+    fetchTradeHistory();
+  }, [isGoldenWindow, currentPage]);
 
   // Show loading only on initial load (when summary is null)
   if (loading && !summary) {
@@ -219,14 +243,37 @@ const BotPerformance = () => {
                   LIVE PRICES
                 </span>
               </p>
-              <button
-                onClick={fetchData}
-                disabled={loading}
-                className="text-xs text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors flex items-center gap-1 disabled:opacity-50"
-              >
-                <Activity className="w-3 h-3" />
-                {loading ? 'Refreshing...' : 'Manual Refresh'}
-              </button>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center bg-white dark:bg-gray-800 rounded-lg p-1 border border-gray-200 dark:border-gray-700">
+                  <button
+                    onClick={() => setIsGoldenWindow(false)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${!isGoldenWindow
+                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                      }`}
+                  >
+                    All Trades
+                  </button>
+                  <button
+                    onClick={() => setIsGoldenWindow(true)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${isGoldenWindow
+                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                      }`}
+                  >
+                    <Clock className="w-3 h-3" />
+                    Golden Window
+                  </button>
+                </div>
+                <button
+                  onClick={() => { fetchPerformanceData(); fetchTradeHistory(); }}
+                  disabled={loading}
+                  className="text-xs text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Activity className="w-3 h-3" />
+                  {loading ? 'Refreshing...' : 'Manual Refresh'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -264,31 +311,28 @@ const BotPerformance = () => {
           <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
             <button
               onClick={() => setActiveTab('overview')}
-              className={`px-6 py-3 font-medium transition-all ${
-                activeTab === 'overview'
-                  ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-              }`}
+              className={`px-6 py-3 font-medium transition-all ${activeTab === 'overview'
+                ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
             >
               Overview
             </button>
             <button
               onClick={() => setActiveTab('open')}
-              className={`px-6 py-3 font-medium transition-all ${
-                activeTab === 'open'
-                  ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-              }`}
+              className={`px-6 py-3 font-medium transition-all ${activeTab === 'open'
+                ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
             >
               Open Positions ({openTradesCount})
             </button>
             <button
               onClick={() => setActiveTab('history')}
-              className={`px-6 py-3 font-medium transition-all ${
-                activeTab === 'history'
-                  ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-              }`}
+              className={`px-6 py-3 font-medium transition-all ${activeTab === 'history'
+                ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
             >
               Trade History
             </button>
@@ -307,8 +351,8 @@ const BotPerformance = () => {
                     <PositionCard
                       key={position.trade_id}
                       position={position}
-                      onClose={closeTrade}
-                      isClosing={closingTrades[position.trade_id]}
+                      isSuperUser={isSuperUser}
+                      onClose={isSuperUser ? () => handleCloseTrade(position.trade_id) : null}
                     />
                   ))}
                 </div>
@@ -349,8 +393,8 @@ const BotPerformance = () => {
                       <PositionCard
                         key={position.trade_id}
                         position={position}
-                        onClose={closeTrade}
-                        isClosing={closingTrades[position.trade_id]}
+                        isSuperUser={isSuperUser}
+                        onClose={isSuperUser ? () => handleCloseTrade(position.trade_id) : null}
                       />
                     ))}
                 </div>
@@ -398,10 +442,7 @@ const BotPerformance = () => {
               <>
                 <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4 shadow-sm">
                   <TradeHistoryTable
-                    trades={recentTrades.slice(
-                      (currentPage - 1) * tradesPerPage,
-                      currentPage * tradesPerPage
-                    )}
+                    trades={recentTrades}
                   />
                 </div>
 
@@ -409,7 +450,7 @@ const BotPerformance = () => {
                 {recentTrades.length > tradesPerPage && (
                   <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
                     <div className="text-sm text-gray-600 dark:text-gray-400">
-                      Showing {((currentPage - 1) * tradesPerPage) + 1} to {Math.min(currentPage * tradesPerPage, recentTrades.length)} of {recentTrades.length} trades
+                      Showing {((currentPage - 1) * tradesPerPage) + 1} to {Math.min(currentPage * tradesPerPage, totalTradesCount)} of {totalTradesCount} trades
                     </div>
                     <div className="flex items-center gap-2">
                       <button
@@ -420,11 +461,11 @@ const BotPerformance = () => {
                         Previous
                       </button>
                       <span className="text-gray-800 dark:text-white px-4">
-                        Page {currentPage} of {Math.ceil(recentTrades.length / tradesPerPage)}
+                        Page {currentPage} of {Math.ceil(totalTradesCount / tradesPerPage)}
                       </span>
                       <button
-                        onClick={() => setCurrentPage(prev => Math.min(Math.ceil(recentTrades.length / tradesPerPage), prev + 1))}
-                        disabled={currentPage >= Math.ceil(recentTrades.length / tradesPerPage)}
+                        onClick={() => setCurrentPage(prev => Math.min(Math.ceil(totalTradesCount / tradesPerPage), prev + 1))}
+                        disabled={currentPage >= Math.ceil(totalTradesCount / tradesPerPage)}
                         className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
                         Next
@@ -446,15 +487,27 @@ const BotPerformance = () => {
   );
 };
 
-const PositionCard = ({ position, onClose, isClosing }) => {
+const PositionCard = ({ position, isSuperUser, onClose }) => {
   const pnl = parseFloat(position.unrealized_pnl || 0);
   const pnlPct = parseFloat(position.unrealized_pnl_pct || 0);
   const priceChangePct = parseFloat(position.price_change_pct || 0);
   const hasLivePrice = position.has_real_time_price;
 
   return (
-    <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:border-blue-400 dark:hover:border-blue-500/50 transition-all shadow-sm">
-      <div className="flex items-start justify-between mb-3">
+    <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:border-blue-400 dark:hover:border-blue-500/50 transition-all shadow-sm relative group">
+      {isSuperUser && onClose && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          className="absolute top-2 right-2 p-1.5 bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-200 dark:hover:bg-red-500/30"
+          title="Close Trade (Admin)"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      )}
+      <div className="flex items-start justify-between mb-3 pr-8">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             <h3 className="text-gray-900 dark:text-white font-semibold text-lg">{position.symbol}</h3>
@@ -464,34 +517,18 @@ const PositionCard = ({ position, onClose, isClosing }) => {
               </span>
             )}
           </div>
-          <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${
-            position.direction === 'LONG' ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400' : 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400'
-          }`}>
+          <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${position.direction === 'LONG' ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400' : 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400'
+            }`}>
             {position.direction}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`text-sm px-2 py-1 rounded ${
-            position.market_type === 'FUTURES'
-              ? 'bg-purple-100 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400'
-              : 'bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400'
-          }`}>
+          <span className={`text-sm px-2 py-1 rounded ${position.market_type === 'FUTURES'
+            ? 'bg-purple-100 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400'
+            : 'bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400'
+            }`}>
             {position.market_type}
           </span>
-          {onClose && (
-            <button
-              onClick={() => onClose(position.trade_id)}
-              disabled={isClosing}
-              className="p-1.5 bg-red-100 dark:bg-red-500/20 border border-red-300 dark:border-red-500/50 rounded hover:bg-red-200 dark:hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Close position at market price"
-            >
-              {isClosing ? (
-                <Activity className="w-4 h-4 text-red-500 dark:text-red-400 animate-spin" />
-              ) : (
-                <X className="w-4 h-4 text-red-500 dark:text-red-400" />
-              )}
-            </button>
-          )}
         </div>
       </div>
 
@@ -580,9 +617,8 @@ const TradeHistoryTable = ({ trades }) => {
               <tr key={trade.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30">
                 <td className="px-4 py-3 text-gray-900 dark:text-white font-medium">{trade.symbol}</td>
                 <td className="px-4 py-3">
-                  <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${
-                    trade.direction === 'LONG' ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400' : 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400'
-                  }`}>
+                  <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${trade.direction === 'LONG' ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400' : 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400'
+                    }`}>
                     {trade.direction}
                   </span>
                 </td>
@@ -599,12 +635,11 @@ const TradeHistoryTable = ({ trades }) => {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <span className={`inline-block px-2 py-1 rounded text-xs ${
-                    trade.status === 'CLOSED_TP' ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400' :
+                  <span className={`inline-block px-2 py-1 rounded text-xs ${trade.status === 'CLOSED_TP' ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400' :
                     trade.status === 'CLOSED_SL' ? 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400' :
-                    trade.status === 'CLOSED_MANUAL' ? 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-600 dark:text-yellow-400' :
-                    'bg-gray-100 dark:bg-gray-500/20 text-gray-600 dark:text-gray-400'
-                  }`}>
+                      trade.status === 'CLOSED_MANUAL' ? 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-600 dark:text-yellow-400' :
+                        'bg-gray-100 dark:bg-gray-500/20 text-gray-600 dark:text-gray-400'
+                    }`}>
                     {trade.status?.replace('CLOSED_', '') || 'CLOSED'}
                   </span>
                 </td>

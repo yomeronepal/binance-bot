@@ -1,0 +1,32 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+    &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+    &rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+    &rsaquo; {% trans 'Import JSON' %}
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <form action="." method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div>
+            <fieldset class="module aligned">
+                <div class="form-row">
+                    <label for="id_json_file" class="required">{% trans "Select JSON File:" %}</label>
+                    <input type="file" name="json_file" id="id_json_file" required accept=".json">
+                    <div class="help">Select a valid paper_trades_export.json file.</div>
+                </div>
+            </fieldset>
+
+            <div class="submit-row">
+                <input type="submit" value="{% trans 'Import' %}" class="default" name="_save">
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

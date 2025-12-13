@@ -484,13 +484,139 @@ class PaperTradeAdmin(BaseModelAdmin):
         """Optimize queryset with select_related."""
         queryset = super().get_queryset(request)
         return queryset.select_related('user', 'signal')
+        
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        my_urls = [
+            path('import-json/', self.admin_site.admin_view(self.import_json_view), name='import-json'),
+        ]
+        return my_urls + urls
 
-    def _decimal_to_float(self, obj):
-        if isinstance(obj, Decimal):
-            return float(obj)
-        elif isinstance(obj, datetime):
-            return obj.isoformat()
-        return obj
+    def import_json_view(self, request):
+        from django.shortcuts import render, redirect
+        from django.contrib import messages
+        from django.contrib.auth import get_user_model
+        
+        User = get_user_model()
+
+        if request.method == "POST":
+            json_file = request.FILES.get('json_file')
+            if not json_file:
+                self.message_user(request, "Please upload a file.", level=messages.ERROR)
+                return redirect('..')
+
+            try:
+                data = json.load(json_file)
+                
+                # Handle both structure formats (list of trades OR export dict with 'closed_trades' key)
+                trades_to_import = []
+                if isinstance(data, list):
+                    trades_to_import = data
+                elif isinstance(data, dict):
+                    # Combine closed and open trades from standard export format
+                    trades_to_import.extend(data.get('closed_trades', []))
+                    trades_to_import.extend(data.get('open_trades', []))
+                
+                imported_count = 0
+                skipped_count = 0
+                
+                for trade_data in trades_to_import:
+                    try:
+                        self._import_trade_from_json(trade_data, User)
+                        imported_count += 1
+                    except Exception as e:
+                        # logger.warning(f"Failed to import trade: {e}")
+                        skipped_count += 1
+                        
+                self.message_user(request, f"Successfully imported {imported_count} trades. Skipped/Failed: {skipped_count}.")
+                return redirect('..')
+                
+            except json.JSONDecodeError:
+                self.message_user(request, "Invalid JSON file.", level=messages.ERROR)
+                return redirect('..')
+            except Exception as e:
+                self.message_user(request, f"Error processing file: {str(e)}", level=messages.ERROR)
+                return redirect('..')
+
+        context = dict(
+           self.admin_site.each_context(request),
+           opts=self.model._meta,
+        )
+        return render(request, "admin/signals/papertrade/import_form.html", context)
+
+    def _import_trade_from_json(self, data, User):
+        """Helper to create objects from JSON data"""
+        
+        # 1. Resolve User
+        user = None
+        if data.get('username'):
+            user = User.objects.filter(username=data['username']).first()
+        
+        # 2. Resolve or Create Signal
+        signal = None
+        signal_data = data.get('signal')
+        if signal_data:
+            # Try to find existing signal by ID first (best effort linkage)
+            signal_id = signal_data.get('id')
+            if signal_id:
+                signal = Signal.objects.filter(id=signal_id).first()
+            
+            # If not found, try to find by similarity or create new?
+            # Creating new signals for historical data might be messy if IDs clash.
+            # Strategy: If ID exists, assume it's the correct one. 
+            # If not, create a placeholder signal or skip signal linkage if it's just history.
+            # Let's try to Create if not exists, but ignore ID collision risks for now by not forcing ID.
+            if not signal:
+                 # Minimal fields for signal (adjust as needed)
+                 # We prioritize linkage over perfect signal recreation
+                 pass
+
+        # 3. Create PaperTrade
+        # We DO NOT force 'id' from JSON to avoid primary key conflicts with existing data.
+        # We rely on creating a NEW record.
+        
+        # Handle decimal conversions
+        def to_dec(val):
+            if val is None: return None
+            return Decimal(str(val))
+
+        # Handle datetime
+        entry_time = None
+        if data.get('entry_time'):
+            entry_time = datetime.fromisoformat(data['entry_time'].replace('Z', '+00:00'))
+            
+        exit_time = None
+        if data.get('exit_time'):
+            exit_time = datetime.fromisoformat(data['exit_time'].replace('Z', '+00:00'))
+
+        PaperTrade.objects.create(
+            user=user,
+            signal=signal, # Might be None if original signal deleted/missing
+            symbol=data.get('symbol'),
+            direction=data.get('direction'),
+            market_type=data.get('market_type', 'SPOT'),
+            timeframe=signal_data.get('timeframe') if signal_data else None,
+            confidence=signal_data.get('confidence') if signal_data else None,
+            
+            status=data.get('status', 'CLOSED_MANUAL'),
+            
+            entry_price=to_dec(data.get('entry_price')),
+            entry_time=entry_time,
+            position_size=to_dec(data.get('position_size', 100)),
+            quantity=to_dec(data.get('quantity')),
+            leverage=data.get('leverage'),
+            
+            stop_loss=to_dec(data.get('stop_loss')),
+            take_profit=to_dec(data.get('take_profit')),
+            
+            exit_price=to_dec(data.get('exit_price')),
+            exit_time=exit_time,
+            
+            profit_loss=to_dec(data.get('profit_loss', 0)),
+            profit_loss_percentage=to_dec(data.get('profit_loss_percentage', 0))
+        )
+
 
     def _calculate_sharpe_ratio(self, trades, risk_free_rate=0.02):
         if not trades or len(trades) < 2:

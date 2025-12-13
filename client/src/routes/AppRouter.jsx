@@ -29,6 +29,14 @@ const AppRouter = () => {
         {/* Public routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        {/* Public Routes with Layout */}
+        <Route element={<Layout />}>
+          <Route path="bot-performance" element={
+            <ErrorBoundary>
+              <BotPerformance />
+            </ErrorBoundary>
+          } />
+        </Route>
 
         {/* Protected routes */}
         <Route
@@ -51,9 +59,9 @@ const AppRouter = () => {
               <FuturesPerformance />
             </ErrorBoundary>
           } />
-          <Route path="bot-performance" element={
+          <Route path="futures-performance" element={
             <ErrorBoundary>
-              <BotPerformance />
+              <FuturesPerformance />
             </ErrorBoundary>
           } />
           <Route path="paper-trading" element={
