@@ -100,6 +100,24 @@ class PaperTradingService:
         entry_price = Decimal(str(signal.entry))
         quantity = position_size / entry_price
 
+        # Determine Golden Window flags based on Entry Time
+        # Nepal works on UTC+5:45
+        entry_time = timezone.now()
+        from datetime import timedelta
+        npt_time = entry_time + timedelta(hours=5, minutes=45)
+        day_minutes = npt_time.hour * 60 + npt_time.minute
+        
+        is_golden_1 = False
+        is_golden_2 = False
+        
+        # GW1: 17:00-18:00 (1020-1080) OR 21:00-23:00 (1260-1380)
+        if (1020 <= day_minutes < 1080) or (1260 <= day_minutes < 1380):
+            is_golden_1 = True
+            
+        # GW2: 21:00-23:00 (1260-1380) AND (Sun=6, Wed=2, Thu=3)
+        if (1260 <= day_minutes < 1380) and (npt_time.weekday() in [6, 2, 3]):
+            is_golden_2 = True
+
         paper_trade = PaperTrade.objects.create(
             signal=signal,
             user=user,
@@ -109,13 +127,14 @@ class PaperTradingService:
             timeframe=signal.timeframe,
             confidence=signal.confidence,
             entry_price=entry_price,
-            entry_time=timezone.now(),
+            entry_time=entry_time,
             position_size=position_size,
             quantity=quantity,
             stop_loss=Decimal(str(signal.sl)),
             take_profit=Decimal(str(signal.tp)),
             leverage=signal.leverage if signal.market_type == 'FUTURES' else None,
-            is_priority=signal.is_priority,
+            is_priority=is_golden_1,
+            is_golden_2=is_golden_2,
             status='OPEN'
         )
 
