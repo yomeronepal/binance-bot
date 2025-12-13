@@ -13,8 +13,14 @@ const BotPerformance = () => {
   const [openPositions, setOpenPositions] = useState([]);
   const [recentTrades, setRecentTrades] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
-  const [isGoldenWindow, setIsGoldenWindow] = useState(false);
+  const [isGoldenWindow, setIsGoldenWindow] = useState(() => {
+    return localStorage.getItem('bot_perf_golden_window') === 'true';
+  });
   const [totalTradesCount, setTotalTradesCount] = useState(0);
+
+  useEffect(() => {
+    localStorage.setItem('bot_perf_golden_window', isGoldenWindow);
+  }, [isGoldenWindow]);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -447,7 +453,7 @@ const BotPerformance = () => {
                 </div>
 
                 {/* Pagination Controls */}
-                {recentTrades.length > tradesPerPage && (
+                {totalTradesCount > tradesPerPage && (
                   <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
                     <div className="text-sm text-gray-600 dark:text-gray-400">
                       Showing {((currentPage - 1) * tradesPerPage) + 1} to {Math.min(currentPage * tradesPerPage, totalTradesCount)} of {totalTradesCount} trades
