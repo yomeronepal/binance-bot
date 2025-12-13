@@ -50,6 +50,10 @@ def public_paper_trades_list(request):
     if golden_window and golden_window.lower() == 'true':
         queryset = queryset.filter(is_priority=True)
 
+    golden_window_2 = request.query_params.get('golden_window_2')
+    if golden_window_2 and golden_window_2.lower() == 'true':
+        queryset = queryset.filter(is_golden_2=True)
+
     queryset = queryset.select_related('signal').order_by('-created_at')
 
     # Pagination
@@ -88,6 +92,10 @@ def public_performance(request):
     golden_window = request.query_params.get('golden_window')
     if golden_window and golden_window.lower() == 'true':
         queryset = queryset.filter(is_priority=True)
+
+    golden_window_2 = request.query_params.get('golden_window_2')
+    if golden_window_2 and golden_window_2.lower() == 'true':
+        queryset = queryset.filter(is_golden_2=True)
 
     closed_trades = queryset.filter(status__startswith='CLOSED')
 
@@ -180,6 +188,10 @@ def public_open_positions(request):
     golden_window = request.query_params.get('golden_window')
     if golden_window and golden_window.lower() == 'true':
         queryset = queryset.filter(is_priority=True)
+
+    golden_window_2 = request.query_params.get('golden_window_2')
+    if golden_window_2 and golden_window_2.lower() == 'true':
+        queryset = queryset.filter(is_golden_2=True)
 
     open_trades = list(queryset)
 
@@ -390,6 +402,10 @@ def public_summary(request):
     if golden_window and golden_window.lower() == 'true':
         queryset = queryset.filter(is_priority=True)
 
+    golden_window_2 = request.query_params.get('golden_window_2')
+    if golden_window_2 and golden_window_2.lower() == 'true':
+        queryset = queryset.filter(is_golden_2=True)
+
     closed_trades = queryset.filter(status__startswith='CLOSED')
 
     total_trades = closed_trades.count()
@@ -415,6 +431,10 @@ def public_summary(request):
     if golden_window and golden_window.lower() == 'true':
         open_trades_queryset = open_trades_queryset.filter(is_priority=True)
 
+    golden_window_2 = request.query_params.get('golden_window_2')
+    if golden_window_2 and golden_window_2.lower() == 'true':
+        open_trades_queryset = open_trades_queryset.filter(is_golden_2=True)
+
     # Get recent SYSTEM closed trades
     recent_closed_queryset = PaperTrade.objects.filter(
         status__startswith='CLOSED',
@@ -423,6 +443,9 @@ def public_summary(request):
 
     if golden_window and golden_window.lower() == 'true':
         recent_closed_queryset = recent_closed_queryset.filter(is_priority=True)
+    
+    if golden_window_2 and golden_window_2.lower() == 'true':
+        recent_closed_queryset = recent_closed_queryset.filter(is_golden_2=True)
         
     recent_closed = recent_closed_queryset.order_by('-exit_time')[:10]
 
