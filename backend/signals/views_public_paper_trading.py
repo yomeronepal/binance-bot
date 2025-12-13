@@ -54,6 +54,10 @@ def public_paper_trades_list(request):
     if golden_window_2 and golden_window_2.lower() == 'true':
         queryset = queryset.filter(is_golden_2=True)
 
+    outside_golden_window = request.query_params.get('outside_golden_window')
+    if outside_golden_window and outside_golden_window.lower() == 'true':
+        queryset = queryset.filter(is_priority=False, is_golden_2=False)
+
     queryset = queryset.select_related('signal').order_by('-created_at')
 
     # Pagination
@@ -97,12 +101,34 @@ def public_performance(request):
     if golden_window_2 and golden_window_2.lower() == 'true':
         queryset = queryset.filter(is_golden_2=True)
 
+    outside_golden_window = request.query_params.get('outside_golden_window')
+    if outside_golden_window and outside_golden_window.lower() == 'true':
+        queryset = queryset.filter(is_priority=False, is_golden_2=False)
+
     closed_trades = queryset.filter(status__startswith='CLOSED')
 
     # Calculate basic metrics
     total_trades = closed_trades.count()
     winning_trades = closed_trades.filter(profit_loss__gt=0).count()
     losing_trades = closed_trades.filter(profit_loss__lt=0).count()
+
+    # Calculate Max Drawdown
+    # Order by exit time to simulate equity curve
+    equity_curve = closed_trades.order_by('exit_time').values_list('profit_loss', flat=True)
+    current_pnl = Decimal('0')
+    peak_pnl = Decimal('0')
+    max_drawdown = Decimal('0')
+
+    for trade_pnl in equity_curve:
+        if trade_pnl is not None:
+            current_pnl += trade_pnl
+            if current_pnl > peak_pnl:
+                peak_pnl = current_pnl
+            
+            # Drawdown is peak - current
+            drawdown = peak_pnl - current_pnl
+            if drawdown > max_drawdown:
+                max_drawdown = drawdown
 
     metrics = {
         'total_trades': queryset.count(),
@@ -113,6 +139,7 @@ def public_performance(request):
         'best_trade': float(closed_trades.aggregate(best=Sum('profit_loss'))['best'] or 0),
         'worst_trade': float(closed_trades.aggregate(worst=Sum('profit_loss'))['worst'] or 0),
         'avg_duration_hours': 0,  # Calculate if needed
+        'max_drawdown': float(max_drawdown),
         'profitable_trades': winning_trades,
         'losing_trades': losing_trades,
     }
@@ -192,6 +219,10 @@ def public_open_positions(request):
     golden_window_2 = request.query_params.get('golden_window_2')
     if golden_window_2 and golden_window_2.lower() == 'true':
         queryset = queryset.filter(is_golden_2=True)
+
+    outside_golden_window = request.query_params.get('outside_golden_window')
+    if outside_golden_window and outside_golden_window.lower() == 'true':
+        queryset = queryset.filter(is_priority=False, is_golden_2=False)
 
     open_trades = list(queryset)
 
@@ -412,6 +443,22 @@ def public_summary(request):
     winning_trades = closed_trades.filter(profit_loss__gt=0).count()
     losing_trades = closed_trades.filter(profit_loss__lt=0).count()
 
+    # Calculate Max Drawdown
+    equity_curve = closed_trades.order_by('exit_time').values_list('profit_loss', flat=True)
+    current_pnl = Decimal('0')
+    peak_pnl = Decimal('0')
+    max_drawdown = Decimal('0')
+
+    for trade_pnl in equity_curve:
+        if trade_pnl is not None:
+            current_pnl += trade_pnl
+            if current_pnl > peak_pnl:
+                peak_pnl = current_pnl
+            
+            drawdown = peak_pnl - current_pnl
+            if drawdown > max_drawdown:
+                max_drawdown = drawdown
+
     # Calculate duration stats
     from django.db.models import F, ExpressionWrapper, DurationField
     
@@ -439,6 +486,7 @@ def public_summary(request):
         'best_trade': float(closed_trades.aggregate(best=Sum('profit_loss'))['best'] or 0),
         'worst_trade': float(closed_trades.aggregate(worst=Sum('profit_loss'))['worst'] or 0),
         'avg_duration_hours': round(avg_duration_seconds / 3600, 2),
+        'max_drawdown': float(max_drawdown),
         'profitable_trades': winning_trades,
         'losing_trades': losing_trades,
     }
@@ -453,6 +501,9 @@ def public_summary(request):
     if golden_window_2 and golden_window_2.lower() == 'true':
         open_trades_queryset = open_trades_queryset.filter(is_golden_2=True)
 
+    if request.query_params.get('outside_golden_window') and request.query_params.get('outside_golden_window').lower() == 'true':
+        open_trades_queryset = open_trades_queryset.filter(is_priority=False, is_golden_2=False)
+
     # Get recent SYSTEM closed trades
     recent_closed_queryset = PaperTrade.objects.filter(
         status__startswith='CLOSED',
@@ -462,8 +513,12 @@ def public_summary(request):
     if golden_window and golden_window.lower() == 'true':
         recent_closed_queryset = recent_closed_queryset.filter(is_priority=True)
     
+    golden_window_2 = request.query_params.get('golden_window_2')
     if golden_window_2 and golden_window_2.lower() == 'true':
         recent_closed_queryset = recent_closed_queryset.filter(is_golden_2=True)
+
+    if request.query_params.get('outside_golden_window') and request.query_params.get('outside_golden_window').lower() == 'true':
+        recent_closed_queryset = recent_closed_queryset.filter(is_priority=False, is_golden_2=False)
         
     recent_closed = recent_closed_queryset.order_by('-exit_time')[:10]
 

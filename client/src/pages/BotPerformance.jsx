@@ -58,6 +58,7 @@ const BotPerformance = () => {
       let queryParams = '';
       if (activeWindow === 'gw1') queryParams = '?golden_window=true';
       if (activeWindow === 'gw2') queryParams = '?golden_window_2=true';
+      if (activeWindow === 'outside_gw') queryParams = '?outside_golden_window=true';
 
       const [summaryRes, positionsRes] = await Promise.all([
         axios.get(`${baseURL}/public/paper-trading/summary/${queryParams}`),
@@ -103,6 +104,7 @@ const BotPerformance = () => {
       params.append('page', currentPage);
       if (activeWindow === 'gw1') params.append('golden_window', 'true');
       if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
+      if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
 
       const res = await axios.get(`${baseURL}/public/paper-trading/?${params.toString()}`);
 
@@ -233,6 +235,14 @@ const BotPerformance = () => {
       color: 'text-indigo-400',
       bgGradient: 'from-indigo-500/20 to-blue-600/10',
     },
+    {
+      label: 'Max Drawdown',
+      value: `${summary?.performance?.max_drawdown !== undefined ? '-' + Math.abs(parseFloat(summary.performance.max_drawdown)).toFixed(2) : '$0.00'}`,
+      subtext: 'Peak to trough decline',
+      icon: TrendingDown,
+      color: 'text-red-400',
+      bgGradient: 'from-red-500/20 to-orange-600/10',
+    },
   ];
 
   return (
@@ -261,54 +271,75 @@ const BotPerformance = () => {
                   LIVE PRICES
                 </span>
               </p>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center bg-white dark:bg-gray-800 rounded-lg p-1 border border-gray-200 dark:border-gray-700">
-                  <button
-                    onClick={() => setActiveWindow('all')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${activeWindow === 'all'
-                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-                      }`}
-                  >
-                    All Trades
-                  </button>
-                  <button
-                    onClick={() => setActiveWindow('gw1')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${activeWindow === 'gw1'
-                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-                      }`}
-                  >
-                    <Clock className="w-3 h-3" />
-                    Golden Window 1
-                  </button>
-                  <button
-                    onClick={() => setActiveWindow('gw2')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${activeWindow === 'gw2'
-                      ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-                      }`}
-                    title="Sun, Wed, Thu (21:00-23:00 NPT)"
-                  >
-                    <Clock className="w-3 h-3" />
-                    Golden Window 2
-                  </button>
-                </div>
-                <button
-                  onClick={() => { fetchPerformanceData(); fetchTradeHistory(); }}
-                  disabled={loading}
-                  className="text-xs text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors flex items-center gap-1 disabled:opacity-50"
-                >
-                  <Activity className="w-3 h-3" />
-                  {loading ? 'Refreshing...' : 'Manual Refresh'}
-                </button>
-              </div>
             </div>
           </div>
 
-          {/* Trading Session Status */}
-          <TradingSessionStatus />
+          {/* New Trading Sessions & Filter Bar */}
+          <div className="mt-6 mb-6">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4 bg-white dark:bg-gray-800 rounded-xl p-2 shadow-sm border border-gray-100 dark:border-gray-700">
+
+              {/* Session Tabs */}
+              <div className="flex items-center gap-2 overflow-x-auto w-full md:w-auto p-1 no-scrollbar">
+                <button
+                  onClick={() => setActiveWindow('all')}
+                  className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeWindow === 'all'
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                >
+                  All Trades
+                </button>
+
+                <button
+                  onClick={() => setActiveWindow('gw1')}
+                  className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${activeWindow === 'gw1'
+                    ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                >
+                  <Clock className="w-4 h-4" />
+                  GW 1
+                </button>
+
+                <button
+                  onClick={() => setActiveWindow('gw2')}
+                  title="Sun, Wed, Thu (21:00-23:00 NPT)"
+                  className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${activeWindow === 'gw2'
+                    ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                >
+                  <Clock className="w-4 h-4" />
+                  GW 2
+                </button>
+
+                <button
+                  onClick={() => setActiveWindow('outside_gw')}
+                  className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${activeWindow === 'outside_gw'
+                    ? 'bg-gray-700 text-white shadow-md shadow-gray-500/20 dark:bg-gray-600'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                >
+                  <Clock className="w-4 h-4" />
+                  Outside GW
+                </button>
+              </div>
+
+              {/* Refresh Button */}
+              <button
+                onClick={() => { fetchPerformanceData(); fetchTradeHistory(); }}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors disabled:opacity-50 w-full md:w-auto justify-center"
+              >
+                <Activity className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                {loading ? 'Refreshing...' : 'Refresh Data'}
+              </button>
+            </div>
+          </div>
         </div>
+
+        {/* Trading Session Status */}
+        <TradingSessionStatus />
 
         {/* Performance Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
@@ -369,56 +400,15 @@ const BotPerformance = () => {
         </div>
 
         {/* Content */}
-        {activeTab === 'overview' && (
-          <div className="space-y-6">
-            {/* Open Positions Summary */}
-            <div>
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Current Open Positions</h2>
-              {openPositions.length > 0 ? (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {openPositions.slice(0, 6).map((position) => (
-                    <PositionCard
-                      key={position.trade_id}
-                      position={position}
-                      isSuperUser={isSuperUser}
-                      onClose={isSuperUser ? () => handleCloseTrade(position.trade_id) : null}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center shadow-sm">
-                  <p className="text-gray-600 dark:text-gray-400">No open positions at the moment</p>
-                </div>
-              )}
-            </div>
-
-            {/* Recent Closed Trades */}
-            <div>
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Recent Closed Trades</h2>
-              {recentTrades.length > 0 ? (
-                <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden shadow-sm">
-                  <TradeHistoryTable trades={recentTrades.slice(0, 10)} />
-                </div>
-              ) : (
-                <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center shadow-sm">
-                  <p className="text-gray-600 dark:text-gray-400">No closed trades yet</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'open' && (
-          <div>
-            {openPositions.length > 0 ? (
-              <>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-4">
-                  {openPositions
-                    .slice(
-                      (currentPage - 1) * positionsPerPage,
-                      currentPage * positionsPerPage
-                    )
-                    .map((position) => (
+        {
+          activeTab === 'overview' && (
+            <div className="space-y-6">
+              {/* Open Positions Summary */}
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Current Open Positions</h2>
+                {openPositions.length > 0 ? (
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {openPositions.slice(0, 6).map((position) => (
                       <PositionCard
                         key={position.trade_id}
                         position={position}
@@ -426,93 +416,140 @@ const BotPerformance = () => {
                         onClose={isSuperUser ? () => handleCloseTrade(position.trade_id) : null}
                       />
                     ))}
-                </div>
-
-                {/* Pagination Controls for Open Positions */}
-                {openPositions.length > positionsPerPage && (
-                  <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
-                    <div className="text-sm text-gray-600 dark:text-gray-400">
-                      Showing {((currentPage - 1) * positionsPerPage) + 1} to {Math.min(currentPage * positionsPerPage, openPositions.length)} of {openPositions.length} positions
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                        disabled={currentPage === 1}
-                        className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        Previous
-                      </button>
-                      <span className="text-gray-800 dark:text-white px-4">
-                        Page {currentPage} of {Math.ceil(openPositions.length / positionsPerPage)}
-                      </span>
-                      <button
-                        onClick={() => setCurrentPage(prev => Math.min(Math.ceil(openPositions.length / positionsPerPage), prev + 1))}
-                        disabled={currentPage >= Math.ceil(openPositions.length / positionsPerPage)}
-                        className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        Next
-                      </button>
-                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center shadow-sm">
+                    <p className="text-gray-600 dark:text-gray-400">No open positions at the moment</p>
                   </div>
                 )}
-              </>
-            ) : (
-              <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg p-12 text-center shadow-sm">
-                <Activity className="w-16 h-16 text-gray-400 dark:text-gray-600 mx-auto mb-4" />
-                <p className="text-gray-600 dark:text-gray-400 text-lg">No open positions</p>
               </div>
-            )}
-          </div>
-        )}
 
-        {activeTab === 'history' && (
-          <div>
-            {recentTrades.length > 0 ? (
-              <>
-                <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4 shadow-sm">
-                  <TradeHistoryTable
-                    trades={recentTrades}
-                  />
-                </div>
-
-                {/* Pagination Controls */}
-                {totalTradesCount > tradesPerPage && (
-                  <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
-                    <div className="text-sm text-gray-600 dark:text-gray-400">
-                      Showing {((currentPage - 1) * tradesPerPage) + 1} to {Math.min(currentPage * tradesPerPage, totalTradesCount)} of {totalTradesCount} trades
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                        disabled={currentPage === 1}
-                        className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        Previous
-                      </button>
-                      <span className="text-gray-800 dark:text-white px-4">
-                        Page {currentPage} of {Math.ceil(totalTradesCount / tradesPerPage)}
-                      </span>
-                      <button
-                        onClick={() => setCurrentPage(prev => Math.min(Math.ceil(totalTradesCount / tradesPerPage), prev + 1))}
-                        disabled={currentPage >= Math.ceil(totalTradesCount / tradesPerPage)}
-                        className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        Next
-                      </button>
-                    </div>
+              {/* Recent Closed Trades */}
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Recent Closed Trades</h2>
+                {recentTrades.length > 0 ? (
+                  <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden shadow-sm">
+                    <TradeHistoryTable trades={recentTrades.slice(0, 10)} />
+                  </div>
+                ) : (
+                  <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center shadow-sm">
+                    <p className="text-gray-600 dark:text-gray-400">No closed trades yet</p>
                   </div>
                 )}
-              </>
-            ) : (
-              <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg p-12 text-center shadow-sm">
-                <BarChart3 className="w-16 h-16 text-gray-400 dark:text-gray-600 mx-auto mb-4" />
-                <p className="text-gray-600 dark:text-gray-400 text-lg">No trade history yet</p>
               </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+            </div>
+          )
+        }
+
+        {
+          activeTab === 'open' && (
+            <div>
+              {openPositions.length > 0 ? (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-4">
+                    {openPositions
+                      .slice(
+                        (currentPage - 1) * positionsPerPage,
+                        currentPage * positionsPerPage
+                      )
+                      .map((position) => (
+                        <PositionCard
+                          key={position.trade_id}
+                          position={position}
+                          isSuperUser={isSuperUser}
+                          onClose={isSuperUser ? () => handleCloseTrade(position.trade_id) : null}
+                        />
+                      ))}
+                  </div>
+
+                  {/* Pagination Controls for Open Positions */}
+                  {openPositions.length > positionsPerPage && (
+                    <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        Showing {((currentPage - 1) * positionsPerPage) + 1} to {Math.min(currentPage * positionsPerPage, openPositions.length)} of {openPositions.length} positions
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                          disabled={currentPage === 1}
+                          className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Previous
+                        </button>
+                        <span className="text-gray-800 dark:text-white px-4">
+                          Page {currentPage} of {Math.ceil(openPositions.length / positionsPerPage)}
+                        </span>
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.min(Math.ceil(openPositions.length / positionsPerPage), prev + 1))}
+                          disabled={currentPage >= Math.ceil(openPositions.length / positionsPerPage)}
+                          className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg p-12 text-center shadow-sm">
+                  <Activity className="w-16 h-16 text-gray-400 dark:text-gray-600 mx-auto mb-4" />
+                  <p className="text-gray-600 dark:text-gray-400 text-lg">No open positions</p>
+                </div>
+              )}
+            </div>
+          )
+        }
+
+        {
+          activeTab === 'history' && (
+            <div>
+              {recentTrades.length > 0 ? (
+                <>
+                  <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4 shadow-sm">
+                    <TradeHistoryTable
+                      trades={recentTrades}
+                    />
+                  </div>
+
+                  {/* Pagination Controls */}
+                  {totalTradesCount > tradesPerPage && (
+                    <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        Showing {((currentPage - 1) * tradesPerPage) + 1} to {Math.min(currentPage * tradesPerPage, totalTradesCount)} of {totalTradesCount} trades
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                          disabled={currentPage === 1}
+                          className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Previous
+                        </button>
+                        <span className="text-gray-800 dark:text-white px-4">
+                          Page {currentPage} of {Math.ceil(totalTradesCount / tradesPerPage)}
+                        </span>
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.min(Math.ceil(totalTradesCount / tradesPerPage), prev + 1))}
+                          disabled={currentPage >= Math.ceil(totalTradesCount / tradesPerPage)}
+                          className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg p-12 text-center shadow-sm">
+                  <BarChart3 className="w-16 h-16 text-gray-400 dark:text-gray-600 mx-auto mb-4" />
+                  <p className="text-gray-600 dark:text-gray-400 text-lg">No trade history yet</p>
+                </div>
+              )}
+            </div>
+          )
+        }
+      </div >
+    </div >
   );
 };
 
