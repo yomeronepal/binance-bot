@@ -254,6 +254,7 @@ def auto_execute_trade_on_signal(sender, instance, created, **kwargs):
     This handler integrates with the PaperAccount auto-trading system:
     - Only executes on new FUTURES signals (created=True)
     - Only executes if signal is ACTIVE
+    - Skips blacklisted symbols
     - Checks all PaperAccounts with auto_trading_enabled=True
     - Prevents duplicate trades (same symbol + direction)
     - Respects account risk management settings
@@ -273,6 +274,12 @@ def auto_execute_trade_on_signal(sender, instance, created, **kwargs):
 
     if instance.market_type != 'FUTURES':
         logger.debug(f"Signal {instance.id} is {instance.market_type}, skipping auto-trade (FUTURES only)")
+        return
+
+    # Check if symbol is blacklisted
+    from .models_blacklist import BlacklistedSymbol
+    if BlacklistedSymbol.is_blacklisted(instance.symbol.symbol):
+        logger.info(f"📛 Signal {instance.id} ({instance.symbol.symbol}) is blacklisted, skipping auto-trade")
         return
 
     if not is_within_trading_window():
@@ -317,6 +324,7 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
     - Creates paper trade with user=None (system-wide)
     - Fixed position size of $100 per trade
     - Only executes on new ACTIVE FUTURES signals
+    - Skips blacklisted symbols
     - Only executes within trading windows (Nepal Time):
       - 17:00-18:00 NPT
       - 21:00-23:00 NPT
@@ -338,6 +346,12 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
 
     if instance.market_type != 'FUTURES':
         logger.debug(f"Signal {instance.id} is {instance.market_type}, skipping (FUTURES only)")
+        return
+
+    # Check if symbol is blacklisted
+    from .models_blacklist import BlacklistedSymbol
+    if BlacklistedSymbol.is_blacklisted(instance.symbol.symbol):
+        logger.info(f"📛 Signal {instance.id} ({instance.symbol.symbol}) is blacklisted, skipping system paper trade")
         return
 
     # Removed trading window restriction to allow all trades to be recorded
@@ -389,6 +403,7 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
     - leverage: Leverage multiplier (default 10x)
     - max_concurrent_trades: Maximum open trades (default 1)
     - use_trading_window: Respect trading hours (default True)
+    - Skips blacklisted symbols for safety
 
     Args:
         sender: Signal model class
@@ -401,6 +416,12 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
 
     if instance.status != 'ACTIVE':
         logger.debug(f"Signal {instance.id} not ACTIVE, skipping futures trade")
+        return
+
+    # Check if symbol is blacklisted (CRITICAL for real money trades)
+    from .models_blacklist import BlacklistedSymbol
+    if BlacklistedSymbol.is_blacklisted(instance.symbol.symbol):
+        logger.warning(f"🚫 Signal {instance.id} ({instance.symbol.symbol}) is blacklisted, BLOCKING real futures trade for safety!")
         return
 
     try:

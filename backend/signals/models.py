@@ -989,3 +989,8 @@ from .models_futures import (
     FuturesTradingSettings,
     FuturesTrade,
 )
+
+# Import blacklist models
+from .models_blacklist import (
+    BlacklistedSymbol,
+)

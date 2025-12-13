@@ -113,9 +113,19 @@ async def _scan_market_async(engine):
             delay_between_batches=1.5
         )
 
+        # Get blacklisted symbols
+        from signals.models_blacklist import BlacklistedSymbol
+        blacklisted_symbols = BlacklistedSymbol.get_blacklisted_symbols()
+        logger.info(f"📛 Skipping {len(blacklisted_symbols)} blacklisted symbols: {blacklisted_symbols}")
+
         # Process each symbol
         for symbol in top_pairs:
             try:
+                # Skip blacklisted symbols
+                if symbol in blacklisted_symbols:
+                    logger.debug(f"⏭️  Skipping blacklisted symbol: {symbol}")
+                    continue
+
                 klines_1h = klines_data_1h.get(symbol, [])
                 klines_4h = klines_data_4h.get(symbol, [])
 

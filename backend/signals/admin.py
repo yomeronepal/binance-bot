@@ -5,8 +5,9 @@ import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 from collections import defaultdict
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 from django.http import HttpResponse
 from django.utils import timezone
 from .models import Symbol, Signal, UserSubscription, PaperTrade, PaperAccount
@@ -37,6 +38,7 @@ from .models_futures import (
     FuturesTradingSettings,
     FuturesTrade
 )
+from .models_blacklist import BlacklistedSymbol
 
 
 class BaseModelAdmin(admin.ModelAdmin):
@@ -1885,4 +1887,111 @@ class FuturesTradeAdmin(BaseModelAdmin):
     def get_queryset(self, request):
         """Optimize queryset."""
         return super().get_queryset(request).select_related('signal')
+
+
+@admin.register(BlacklistedSymbol)
+class BlacklistedSymbolAdmin(admin.ModelAdmin):
+    """Admin interface for blacklisted symbols."""
+    list_display = (
+        'symbol',
+        'reason_badge',
+        'active_badge',
+        'blacklisted_at',
+        'blacklisted_until',
+        'notes_short',
+    )
+    list_filter = ('active', 'reason', 'blacklisted_at')
+    search_fields = ('symbol', 'notes')
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ('-blacklisted_at',)
+    date_hierarchy = 'blacklisted_at'
+
+    fieldsets = (
+        ('Symbol Information', {
+            'fields': ('symbol', 'active')
+        }),
+        ('Blacklist Details', {
+            'fields': ('reason', 'notes', 'blacklisted_at', 'blacklisted_until')
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def reason_badge(self, obj):
+        """Display reason with color badge."""
+        color_map = {
+            'HIGH_VOLATILITY': '#dc3545',  # Red
+            'LOW_LIQUIDITY': '#ffc107',    # Yellow
+            'POOR_PERFORMANCE': '#fd7e14', # Orange
+            'DELISTED': '#6c757d',         # Gray
+            'TEMPORARY': '#17a2b8',        # Cyan
+            'MANUAL': '#6f42c1',           # Purple
+            'OTHER': '#6c757d',            # Gray
+        }
+        color = color_map.get(obj.reason, '#6c757d')
+        return mark_safe(
+            f'<span style="background-color: {color}; color: white; padding: 3px 8px; '
+            f'border-radius: 3px; font-size: 11px;">{obj.get_reason_display()}</span>'
+        )
+    reason_badge.short_description = 'Reason'
+
+    def active_badge(self, obj):
+        """Display active status with badge."""
+        if obj.is_expired():
+            color = '#6c757d'
+            text = 'EXPIRED'
+        elif obj.active:
+            color = '#dc3545'
+            text = 'ACTIVE'
+        else:
+            color = '#28a745'
+            text = 'INACTIVE'
+        return mark_safe(
+            f'<span style="background-color: {color}; color: white; padding: 3px 8px; '
+            f'border-radius: 3px; font-weight: bold; font-size: 11px;">{text}</span>'
+        )
+    active_badge.short_description = 'Status'
+
+    def notes_short(self, obj):
+        """Display shortened notes."""
+        if not obj.notes:
+            return '-'
+        if len(obj.notes) > 50:
+            return f"{obj.notes[:50]}..."
+        return obj.notes
+    notes_short.short_description = 'Notes'
+
+    actions = ['activate_blacklist', 'deactivate_blacklist', 'remove_expiration']
+
+    def activate_blacklist(self, request, queryset):
+        """Activate selected blacklist entries."""
+        updated = queryset.update(active=True)
+        self.message_user(
+            request,
+            f'{updated} blacklist entries were successfully activated.',
+            messages.SUCCESS
+        )
+    activate_blacklist.short_description = 'Activate selected blacklists'
+
+    def deactivate_blacklist(self, request, queryset):
+        """Deactivate selected blacklist entries."""
+        updated = queryset.update(active=False)
+        self.message_user(
+            request,
+            f'{updated} blacklist entries were successfully deactivated.',
+            messages.SUCCESS
+        )
+    deactivate_blacklist.short_description = 'Deactivate selected blacklists'
+
+    def remove_expiration(self, request, queryset):
+        """Remove expiration date (make permanent)."""
+        updated = queryset.update(blacklisted_until=None)
+        self.message_user(
+            request,
+            f'{updated} blacklist entries are now permanent (no expiration).',
+            messages.SUCCESS
+        )
+    remove_expiration.short_description = 'Make permanent (remove expiration)'
 

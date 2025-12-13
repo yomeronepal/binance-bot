@@ -60,6 +60,7 @@ from signals.views_futures import (
 )
 from signals.views_market import get_order_book
 from signals.views_chart import chart_annotations, delete_annotation, fibonacci_setup
+from signals.views_blacklist import BlacklistedSymbolViewSet
 
 app_name = 'api'
 
@@ -86,6 +87,9 @@ router.register(r'montecarlo', MonteCarloSimulationViewSet, basename='montecarlo
 # ML-Based Tuning endpoints
 router.register(r'mltuning', MLTuningJobViewSet, basename='mltuning')
 router.register(r'mlmodels', MLModelViewSet, basename='mlmodel')
+
+# Blacklist endpoints
+router.register(r'blacklist', BlacklistedSymbolViewSet, basename='blacklist')
 
 urlpatterns = [
     path('health/', views.health_check, name='health-check'),
