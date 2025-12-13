@@ -4,6 +4,7 @@ import usePaperTradeStore from '../store/usePaperTradeStore';
 import PerformanceMetrics from '../components/paper-trading/PerformanceMetrics';
 import PaperTradeCard from '../components/paper-trading/PaperTradeCard';
 import TradeHistory from '../components/paper-trading/TradeHistory';
+import TradingSessionStatus from '../components/common/TradingSessionStatus';
 
 const PaperTrading = () => {
   const [activeTab, setActiveTab] = useState('open'); // 'open' or 'history'
@@ -174,6 +175,11 @@ const PaperTrading = () => {
                 All trades are simulated. No real funds are being used. Go to the Dashboard to create trades from signals.
               </p>
             </div>
+          </div>
+
+          {/* Trading Session Status */}
+          <div className="mt-6">
+            <TradingSessionStatus />
           </div>
         </div>
 

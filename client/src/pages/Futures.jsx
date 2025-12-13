@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useSignalStore } from '../store/useSignalStore';
 import FuturesSignalCard from '../components/signals/FuturesSignalCard';
+import TradingSessionStatus from '../components/common/TradingSessionStatus';
 
 const Futures = () => {
   const {
@@ -100,6 +101,11 @@ const Futures = () => {
                 {isConnected ? 'Live' : 'Disconnected'}
               </span>
             </div>
+          </div>
+
+          {/* Trading Session Status */}
+          <div className="mt-6">
+            <TradingSessionStatus />
           </div>
 
           {/* Stats */}

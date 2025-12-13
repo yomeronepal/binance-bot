@@ -5,6 +5,7 @@ import AutoTradingMetrics from '../components/auto-trading/AutoTradingMetrics';
 import AutoTradingSettings from '../components/auto-trading/AutoTradingSettings';
 import PaperTradeCard from '../components/paper-trading/PaperTradeCard';
 import TradeHistory from '../components/paper-trading/TradeHistory';
+import TradingSessionStatus from '../components/common/TradingSessionStatus';
 
 const AutoTrading = () => {
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'settings', 'trades', 'history'
@@ -207,6 +208,11 @@ const AutoTrading = () => {
               </div>
             </div>
           )}
+
+          {/* Trading Session Status */}
+          <div className="mt-6">
+            <TradingSessionStatus />
+          </div>
         </div>
 
         {/* Performance Metrics */}
