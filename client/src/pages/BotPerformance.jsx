@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar } from 'lucide-react';
 import axios from 'axios';
+import { useAuthStore } from '../store/useAuthStore';
+import api from '../services/api';
 
 const BotPerformance = () => {
+  const { user } = useAuthStore();
+  const isSuperUser = user?.is_superuser;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [summary, setSummary] = useState(null);
@@ -10,6 +14,7 @@ const BotPerformance = () => {
   const [recentTrades, setRecentTrades] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
   const [isGoldenWindow, setIsGoldenWindow] = useState(false);
+  const [totalTradesCount, setTotalTradesCount] = useState(0);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -21,28 +26,39 @@ const BotPerformance = () => {
     setCurrentPage(1);
   }, [activeTab]);
 
-  // Fetch data without authentication - with LIVE prices
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+  const handleCloseTrade = async (tradeId) => {
+    if (!window.confirm('ADMIN ACTION: Are you sure you want to CLOSE this trade immediately at market price?')) return;
 
-      // Use Promise.all for parallel fetching
+    try {
+      await api.post(`/public/paper-trading/${tradeId}/close/`);
+      alert('Trade closed successfully by Admin.');
+      fetchPerformanceData();
+      fetchTradeHistory();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to close trade: ' + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  // Fetch data ...
+
+
+  // Fetch data without authentication - with LIVE prices
+  // Fetch Summary and Open Positions (Fast)
+  const fetchPerformanceData = async () => {
+    try {
+      if (!summary) setLoading(true); // Initial load
+      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
       const queryParams = isGoldenWindow ? '?golden_window=true' : '';
-      const [summaryRes, positionsRes, tradesRes] = await Promise.all([
+
+      const [summaryRes, positionsRes] = await Promise.all([
         axios.get(`${baseURL}/public/paper-trading/summary/${queryParams}`),
-        axios.get(`${baseURL}/public/paper-trading/open-positions/${queryParams}`),
-        axios.get(`${baseURL}/public/paper-trading/${queryParams}`)
+        axios.get(`${baseURL}/public/paper-trading/open-positions/${queryParams}`)
       ]);
 
       const positionsData = positionsRes.data;
-
-      // Set open positions with live prices
       setOpenPositions(positionsData.positions || []);
 
-      // Update summary with live unrealized PNL
-      // The summary endpoint now returns 0 for live PnL to be fast, so we merge
-      // the real live PnL from the positions endpoint here.
       if (summaryRes.data && positionsData) {
         const liveUnrealizedPnl = positionsData.total_unrealized_pnl || 0;
         const performanceData = summaryRes.data.performance || {};
@@ -61,26 +77,49 @@ const BotPerformance = () => {
       } else {
         setSummary(summaryRes.data);
       }
-
-      // Process trade history
-      const allTrades = tradesRes.data.trades || tradesRes.data || [];
-      const closed = allTrades.filter(t => t.status && t.status.startsWith('CLOSED'));
-      setRecentTrades(closed.slice(0, 20));
-
       setError(null);
     } catch (err) {
-      console.error('Error fetching bot performance:', err);
-      setError(err.message);
+      console.error('Error fetching performance:', err);
+      if (!summary) setError(err.message);
     } finally {
-      setLoading(false);
+      if (!summary) setLoading(false);
+    }
+  };
+
+  // Fetch Trade History (Paginated)
+  const fetchTradeHistory = async () => {
+    try {
+      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+      // Construct query params
+      const params = new URLSearchParams();
+      params.append('page', currentPage);
+      if (isGoldenWindow) params.append('golden_window', 'true');
+
+      const res = await axios.get(`${baseURL}/public/paper-trading/?${params.toString()}`);
+
+      // DRF Pagination returns { count: ..., results: ... }
+      if (res.data.results) {
+        setRecentTrades(res.data.results);
+        setTotalTradesCount(res.data.count);
+      } else {
+        // Fallback if pagination disabled (legacy)
+        setRecentTrades(res.data.trades || []);
+        setTotalTradesCount(res.data.count || 0);
+      }
+    } catch (err) {
+      console.error('Error fetching trades:', err);
     }
   };
 
 
 
   useEffect(() => {
-    fetchData();
+    fetchPerformanceData();
   }, [isGoldenWindow]);
+
+  useEffect(() => {
+    fetchTradeHistory();
+  }, [isGoldenWindow, currentPage]);
 
   // Show loading only on initial load (when summary is null)
   if (loading && !summary) {
@@ -209,8 +248,8 @@ const BotPerformance = () => {
                   <button
                     onClick={() => setIsGoldenWindow(false)}
                     className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${!isGoldenWindow
-                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
                       }`}
                   >
                     All Trades
@@ -218,8 +257,8 @@ const BotPerformance = () => {
                   <button
                     onClick={() => setIsGoldenWindow(true)}
                     className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${isGoldenWindow
-                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
                       }`}
                   >
                     <Clock className="w-3 h-3" />
@@ -227,7 +266,7 @@ const BotPerformance = () => {
                   </button>
                 </div>
                 <button
-                  onClick={fetchData}
+                  onClick={() => { fetchPerformanceData(); fetchTradeHistory(); }}
                   disabled={loading}
                   className="text-xs text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors flex items-center gap-1 disabled:opacity-50"
                 >
@@ -312,6 +351,8 @@ const BotPerformance = () => {
                     <PositionCard
                       key={position.trade_id}
                       position={position}
+                      isSuperUser={isSuperUser}
+                      onClose={isSuperUser ? () => handleCloseTrade(position.trade_id) : null}
                     />
                   ))}
                 </div>
@@ -352,6 +393,8 @@ const BotPerformance = () => {
                       <PositionCard
                         key={position.trade_id}
                         position={position}
+                        isSuperUser={isSuperUser}
+                        onClose={isSuperUser ? () => handleCloseTrade(position.trade_id) : null}
                       />
                     ))}
                 </div>
@@ -399,10 +442,7 @@ const BotPerformance = () => {
               <>
                 <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4 shadow-sm">
                   <TradeHistoryTable
-                    trades={recentTrades.slice(
-                      (currentPage - 1) * tradesPerPage,
-                      currentPage * tradesPerPage
-                    )}
+                    trades={recentTrades}
                   />
                 </div>
 
@@ -410,7 +450,7 @@ const BotPerformance = () => {
                 {recentTrades.length > tradesPerPage && (
                   <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
                     <div className="text-sm text-gray-600 dark:text-gray-400">
-                      Showing {((currentPage - 1) * tradesPerPage) + 1} to {Math.min(currentPage * tradesPerPage, recentTrades.length)} of {recentTrades.length} trades
+                      Showing {((currentPage - 1) * tradesPerPage) + 1} to {Math.min(currentPage * tradesPerPage, totalTradesCount)} of {totalTradesCount} trades
                     </div>
                     <div className="flex items-center gap-2">
                       <button
@@ -421,11 +461,11 @@ const BotPerformance = () => {
                         Previous
                       </button>
                       <span className="text-gray-800 dark:text-white px-4">
-                        Page {currentPage} of {Math.ceil(recentTrades.length / tradesPerPage)}
+                        Page {currentPage} of {Math.ceil(totalTradesCount / tradesPerPage)}
                       </span>
                       <button
-                        onClick={() => setCurrentPage(prev => Math.min(Math.ceil(recentTrades.length / tradesPerPage), prev + 1))}
-                        disabled={currentPage >= Math.ceil(recentTrades.length / tradesPerPage)}
+                        onClick={() => setCurrentPage(prev => Math.min(Math.ceil(totalTradesCount / tradesPerPage), prev + 1))}
+                        disabled={currentPage >= Math.ceil(totalTradesCount / tradesPerPage)}
                         className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
                         Next
@@ -447,15 +487,27 @@ const BotPerformance = () => {
   );
 };
 
-const PositionCard = ({ position }) => {
+const PositionCard = ({ position, isSuperUser, onClose }) => {
   const pnl = parseFloat(position.unrealized_pnl || 0);
   const pnlPct = parseFloat(position.unrealized_pnl_pct || 0);
   const priceChangePct = parseFloat(position.price_change_pct || 0);
   const hasLivePrice = position.has_real_time_price;
 
   return (
-    <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:border-blue-400 dark:hover:border-blue-500/50 transition-all shadow-sm">
-      <div className="flex items-start justify-between mb-3">
+    <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:border-blue-400 dark:hover:border-blue-500/50 transition-all shadow-sm relative group">
+      {isSuperUser && onClose && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          className="absolute top-2 right-2 p-1.5 bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-200 dark:hover:bg-red-500/30"
+          title="Close Trade (Admin)"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      )}
+      <div className="flex items-start justify-between mb-3 pr-8">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             <h3 className="text-gray-900 dark:text-white font-semibold text-lg">{position.symbol}</h3>

@@ -29,11 +29,14 @@ const AppRouter = () => {
         {/* Public routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/bot-performance" element={
-          <ErrorBoundary>
-            <BotPerformance />
-          </ErrorBoundary>
-        } />
+        {/* Public Routes with Layout */}
+        <Route element={<Layout />}>
+          <Route path="bot-performance" element={
+            <ErrorBoundary>
+              <BotPerformance />
+            </ErrorBoundary>
+          } />
+        </Route>
 
         {/* Protected routes */}
         <Route

@@ -340,13 +340,15 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
         logger.debug(f"Signal {instance.id} is {instance.market_type}, skipping (FUTURES only)")
         return
 
-    if not is_within_trading_window():
-        current_time = get_nepal_time_str()
-        logger.info(
-            f"⏰ Signal {instance.id} ({instance.symbol.symbol}) outside trading window "
-            f"(current: {current_time}). Windows: 17:00-18:00 & 21:00-23:00 NPT"
-        )
-        return
+    # Removed trading window restriction to allow all trades to be recorded
+    # Golden Window trades are marked via is_priority flag in the model
+    # if not is_within_trading_window():
+    #     current_time = get_nepal_time_str()
+    #     logger.info(
+    #         f"⏰ Signal {instance.id} ({instance.symbol.symbol}) outside trading window "
+    #         f"(current: {current_time}). Windows: 17:00-18:00 & 21:00-23:00 NPT"
+    #     )
+    #     return
 
     try:
         from .services.paper_trader import paper_trading_service

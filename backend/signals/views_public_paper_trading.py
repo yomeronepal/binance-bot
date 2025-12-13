@@ -15,6 +15,8 @@ from signals.serializers import PaperTradeSerializer
 from signals.services.paper_trader import paper_trading_service
 
 
+from rest_framework.pagination import PageNumberPagination
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def public_paper_trades_list(request):
@@ -48,13 +50,17 @@ def public_paper_trades_list(request):
     if golden_window and golden_window.lower() == 'true':
         queryset = queryset.filter(is_priority=True)
 
-    queryset = queryset.select_related('signal').order_by('-created_at')[:100]
+    queryset = queryset.select_related('signal').order_by('-created_at')
 
-    serializer = PaperTradeSerializer(queryset, many=True)
-    return Response({
-        'count': queryset.count(),
-        'trades': serializer.data
-    })
+    # Pagination
+    paginator = PageNumberPagination()
+    paginator.page_size = 20
+    paginator.page_size_query_param = 'page_size'
+    paginator.max_page_size = 100
+    
+    result_page = paginator.paginate_queryset(queryset, request)
+    serializer = PaperTradeSerializer(result_page, many=True)
+    return paginator.get_paginated_response(serializer.data)
 
 
 @api_view(['GET'])
@@ -298,8 +304,9 @@ def public_open_positions(request):
     return Response(positions_data)
 
 
+from rest_framework.permissions import IsAdminUser
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAdminUser])
 def public_close_trade(request, trade_id):
     """
     PUBLIC - Manually close a SYSTEM paper trade at current market price.

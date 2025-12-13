@@ -84,22 +84,31 @@ const Layout = () => {
             {/* Desktop User Menu */}
             <div className="hidden md:flex md:items-center md:space-x-3">
               <ThemeToggle className="text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700" />
-              <div className="flex items-center space-x-3">
-                <span className="text-sm text-gray-700 dark:text-gray-300">
-                  {user?.username}
-                  {user?.is_premium && (
-                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-yellow-400 to-orange-500 text-white">
-                      Premium
-                    </span>
-                  )}
-                </span>
-                <button
-                  onClick={handleLogout}
-                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg transition-all duration-200"
+              {user ? (
+                <div className="flex items-center space-x-3">
+                  <span className="text-sm text-gray-700 dark:text-gray-300">
+                    {user?.username}
+                    {user?.is_premium && (
+                      <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-yellow-400 to-orange-500 text-white">
+                        Premium
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    onClick={handleLogout}
+                    className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg transition-all duration-200"
+                  >
+                    Logout
+                  </button>
+                </div>
+              ) : (
+                <Link
+                  to="/login"
+                  className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
                 >
-                  Logout
-                </button>
-              </div>
+                  Sign In
+                </Link>
+              )}
             </div>
 
             {/* Mobile Menu Button */}
@@ -146,25 +155,37 @@ const Layout = () => {
 
             {/* Mobile User Info */}
             <div className="pt-3 mt-3 border-t border-gray-200 dark:border-gray-700">
-              <div className="flex items-center justify-between px-4 py-2">
-                <span className="text-sm text-gray-700 dark:text-gray-300">
-                  {user?.username}
-                  {user?.is_premium && (
-                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-yellow-400 to-orange-500 text-white">
-                      Premium
-                    </span>
-                  )}
-                </span>
-                <button
-                  onClick={() => {
-                    setIsMobileMenuOpen(false);
-                    handleLogout();
-                  }}
-                  className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-red-500 to-red-600 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200"
-                >
-                  Logout
-                </button>
-              </div>
+              {user ? (
+                <div className="flex items-center justify-between px-4 py-2">
+                  <span className="text-sm text-gray-700 dark:text-gray-300">
+                    {user?.username}
+                    {user?.is_premium && (
+                      <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-yellow-400 to-orange-500 text-white">
+                        Premium
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      handleLogout();
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-red-500 to-red-600 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200"
+                  >
+                    Logout
+                  </button>
+                </div>
+              ) : (
+                <div className="px-4 py-2">
+                  <Link
+                    to="/login"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="block w-full text-center px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-all duration-200"
+                  >
+                    Sign In
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
         </div>
