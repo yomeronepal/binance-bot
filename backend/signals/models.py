@@ -550,6 +550,10 @@ class PaperTrade(models.Model):
         default=False,
         help_text=_("Whether this is a Golden Window trade")
     )
+    is_golden_2 = models.BooleanField(
+        default=False,
+        help_text=_("Whether this is a Golden Window 2.0 trade (Sun/Wed/Thu 21-23 NPT)")
+    )
 
     # Status
     status = models.CharField(

@@ -13,14 +13,14 @@ const BotPerformance = () => {
   const [openPositions, setOpenPositions] = useState([]);
   const [recentTrades, setRecentTrades] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
-  const [isGoldenWindow, setIsGoldenWindow] = useState(() => {
-    return localStorage.getItem('bot_perf_golden_window') === 'true';
+  const [activeWindow, setActiveWindow] = useState(() => {
+    return localStorage.getItem('bot_perf_active_window') || 'all';
   });
   const [totalTradesCount, setTotalTradesCount] = useState(0);
 
   useEffect(() => {
-    localStorage.setItem('bot_perf_golden_window', isGoldenWindow);
-  }, [isGoldenWindow]);
+    localStorage.setItem('bot_perf_active_window', activeWindow);
+  }, [activeWindow]);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -55,7 +55,9 @@ const BotPerformance = () => {
     try {
       if (!summary) setLoading(true); // Initial load
       const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-      const queryParams = isGoldenWindow ? '?golden_window=true' : '';
+      let queryParams = '';
+      if (activeWindow === 'gw1') queryParams = '?golden_window=true';
+      if (activeWindow === 'gw2') queryParams = '?golden_window_2=true';
 
       const [summaryRes, positionsRes] = await Promise.all([
         axios.get(`${baseURL}/public/paper-trading/summary/${queryParams}`),
@@ -99,7 +101,8 @@ const BotPerformance = () => {
       // Construct query params
       const params = new URLSearchParams();
       params.append('page', currentPage);
-      if (isGoldenWindow) params.append('golden_window', 'true');
+      if (activeWindow === 'gw1') params.append('golden_window', 'true');
+      if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
 
       const res = await axios.get(`${baseURL}/public/paper-trading/?${params.toString()}`);
 
@@ -121,11 +124,11 @@ const BotPerformance = () => {
 
   useEffect(() => {
     fetchPerformanceData();
-  }, [isGoldenWindow]);
+  }, [activeWindow]);
 
   useEffect(() => {
     fetchTradeHistory();
-  }, [isGoldenWindow, currentPage]);
+  }, [activeWindow, currentPage]);
 
   // Show loading only on initial load (when summary is null)
   if (loading && !summary) {
@@ -252,8 +255,8 @@ const BotPerformance = () => {
               <div className="flex items-center gap-3">
                 <div className="flex items-center bg-white dark:bg-gray-800 rounded-lg p-1 border border-gray-200 dark:border-gray-700">
                   <button
-                    onClick={() => setIsGoldenWindow(false)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${!isGoldenWindow
+                    onClick={() => setActiveWindow('all')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${activeWindow === 'all'
                       ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 shadow-sm'
                       : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
                       }`}
@@ -261,14 +264,25 @@ const BotPerformance = () => {
                     All Trades
                   </button>
                   <button
-                    onClick={() => setIsGoldenWindow(true)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${isGoldenWindow
+                    onClick={() => setActiveWindow('gw1')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${activeWindow === 'gw1'
                       ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 shadow-sm'
                       : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
                       }`}
                   >
                     <Clock className="w-3 h-3" />
-                    Golden Window
+                    Golden Window 1
+                  </button>
+                  <button
+                    onClick={() => setActiveWindow('gw2')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${activeWindow === 'gw2'
+                      ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                      }`}
+                    title="Sun, Wed, Thu (21:00-23:00 NPT)"
+                  >
+                    <Clock className="w-3 h-3" />
+                    Golden Window 2
                   </button>
                 </div>
                 <button

@@ -45,20 +45,34 @@ class Command(BaseCommand):
             
             day_minutes = npt_time.hour * 60 + npt_time.minute
             
-            is_golden = False
+            is_golden_1 = False
+            is_golden_2 = False
+            
             # Check windows
-            if 1020 <= day_minutes < 1080: # 17:00 - 17:59
-                is_golden = True
-            elif 1260 <= day_minutes < 1380: # 21:00 - 22:59
-                is_golden = True
+            # GW1: 17:00-18:00 (1020-1080) OR 21:00-23:00 (1260-1380)
+            if (1020 <= day_minutes < 1080) or (1260 <= day_minutes < 1380):
+                is_golden_1 = True
                 
-            if is_golden and not trade.is_priority:
+            # GW2: 21:00-23:00 (1260-1380) AND (Sun, Wed, Thu)
+            # Python weekday: Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6
+            if (1260 <= day_minutes < 1380) and (npt_time.weekday() in [6, 2, 3]):
+                is_golden_2 = True
+                
+            needs_save = False
+            if is_golden_1 and not trade.is_priority:
                 trade.is_priority = True
+                needs_save = True
+                
+            if is_golden_2 and not trade.is_golden_2:
+                trade.is_golden_2 = True
+                needs_save = True
+                
+            if needs_save:
                 trades_to_update.append(trade)
                 updated_count += 1
                 
         if trades_to_update:
-            PaperTrade.objects.bulk_update(trades_to_update, ['is_priority'])
+            PaperTrade.objects.bulk_update(trades_to_update, ['is_priority', 'is_golden_2'])
             self.stdout.write(self.style.SUCCESS(f"✅ Successfully updated {updated_count} trades (out of {total_checked})."))
         else:
             self.stdout.write(self.style.SUCCESS(f"No trades needed updating (checked {total_checked})."))
