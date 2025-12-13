@@ -4,7 +4,7 @@ No authentication required - shows ALL paper trading activity.
 """
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework import status
 from decimal import Decimal
 from django.db.models import Sum, Avg
@@ -44,6 +44,10 @@ def public_paper_trades_list(request):
     if direction:
         queryset = queryset.filter(direction=direction)
 
+    golden_window = request.query_params.get('golden_window')
+    if golden_window and golden_window.lower() == 'true':
+        queryset = queryset.filter(is_priority=True)
+
     queryset = queryset.select_related('signal').order_by('-created_at')[:100]
 
     serializer = PaperTradeSerializer(queryset, many=True)
@@ -74,6 +78,10 @@ def public_performance(request):
     if days:
         cutoff_date = timezone.now() - timedelta(days=days)
         queryset = queryset.filter(created_at__gte=cutoff_date)
+
+    golden_window = request.query_params.get('golden_window')
+    if golden_window and golden_window.lower() == 'true':
+        queryset = queryset.filter(is_priority=True)
 
     closed_trades = queryset.filter(status__startswith='CLOSED')
 
@@ -161,7 +169,13 @@ def public_open_positions(request):
     GET /api/public/paper-trading/open-positions/
     """
     # Get SYSTEM open trades only (user=null)
-    open_trades = list(PaperTrade.objects.filter(status='OPEN', user__isnull=True))
+    queryset = PaperTrade.objects.filter(status='OPEN', user__isnull=True)
+
+    golden_window = request.query_params.get('golden_window')
+    if golden_window and golden_window.lower() == 'true':
+        queryset = queryset.filter(is_priority=True)
+
+    open_trades = list(queryset)
 
     if not open_trades:
         return Response({
@@ -285,7 +299,7 @@ def public_open_positions(request):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def public_close_trade(request, trade_id):
     """
     PUBLIC - Manually close a SYSTEM paper trade at current market price.
@@ -364,6 +378,11 @@ def public_summary(request):
     """
     # Get SYSTEM trades only (user=null)
     queryset = PaperTrade.objects.filter(user__isnull=True)
+
+    golden_window = request.query_params.get('golden_window')
+    if golden_window and golden_window.lower() == 'true':
+        queryset = queryset.filter(is_priority=True)
+
     closed_trades = queryset.filter(status__startswith='CLOSED')
 
     total_trades = closed_trades.count()
@@ -384,62 +403,33 @@ def public_summary(request):
     }
 
     # Get SYSTEM open trades only
-    open_trades = list(PaperTrade.objects.filter(status='OPEN', user__isnull=True))
+    open_trades_queryset = PaperTrade.objects.filter(status='OPEN', user__isnull=True)
+    
+    if golden_window and golden_window.lower() == 'true':
+        open_trades_queryset = open_trades_queryset.filter(is_priority=True)
 
     # Get recent SYSTEM closed trades
-    recent_closed = PaperTrade.objects.filter(
+    recent_closed_queryset = PaperTrade.objects.filter(
         status__startswith='CLOSED',
         user__isnull=True
-    ).order_by('-exit_time')[:10]
+    )
 
-    # Calculate unrealized P/L from open positions
-    try:
-        from scanner.services.binance_client import BinanceClient
+    if golden_window and golden_window.lower() == 'true':
+        recent_closed_queryset = recent_closed_queryset.filter(is_priority=True)
+        
+    recent_closed = recent_closed_queryset.order_by('-exit_time')[:10]
 
-        if open_trades:
-            symbols = set(trade.symbol for trade in open_trades)
-            binance_client = BinanceClient()
-
-            async def fetch_prices():
-                prices = {}
-                for symbol in symbols:
-                    try:
-                        price_data = await binance_client.get_price(symbol)
-                        if price_data and 'price' in price_data:
-                            prices[symbol] = Decimal(str(price_data['price']))
-                    except Exception:
-                        pass
-                return prices
-
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                current_prices = loop.run_until_complete(fetch_prices())
-            finally:
-                # Properly close the client session
-                loop.run_until_complete(binance_client.close())
-                loop.close()
-
-            # Calculate unrealized P/L
-            total_unrealized_pnl = Decimal('0')
-            for trade in open_trades:
-                current_price = current_prices.get(trade.symbol)
-                if current_price:
-                    unrealized_pnl, _ = trade.calculate_profit_loss(current_price)
-                    total_unrealized_pnl += Decimal(str(unrealized_pnl))
-
-            metrics['unrealized_pnl'] = float(total_unrealized_pnl)
-            metrics['total_pnl'] = float(Decimal(str(metrics['total_profit_loss'])) + total_unrealized_pnl)
-        else:
-            metrics['unrealized_pnl'] = 0.0
-            metrics['total_pnl'] = metrics['total_profit_loss']
-    except Exception:
-        metrics['unrealized_pnl'] = 0.0
-        metrics['total_pnl'] = metrics['total_profit_loss']
+    # Note: We rely on the frontend to fetch 'public_open_positions' which gets real-time prices
+    # and calculates the exact live unrealized PNL. The summary endpoint should just return
+    # the base database state to be fast.
+    
+    # Return 0 for live PnL here, frontend will patch it with data from open-positions endpoint
+    metrics['unrealized_pnl'] = 0.0
+    metrics['total_pnl'] = metrics['total_profit_loss']
 
     summary = {
         'performance': metrics,
-        'open_trades_count': len(open_trades),
+        'open_trades_count': open_trades_queryset.count(),
         'recent_closed_trades': PaperTradeSerializer(recent_closed, many=True).data,
 
         # Add bot-wide metrics at top level for easier access

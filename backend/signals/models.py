@@ -545,6 +545,12 @@ class PaperTrade(models.Model):
         help_text=_("Leverage for futures trading")
     )
 
+    # Priority / Golden Window
+    is_priority = models.BooleanField(
+        default=False,
+        help_text=_("Whether this is a Golden Window trade")
+    )
+
     # Status
     status = models.CharField(
         max_length=20,

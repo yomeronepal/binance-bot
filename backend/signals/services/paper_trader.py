@@ -115,6 +115,7 @@ class PaperTradingService:
             stop_loss=Decimal(str(signal.sl)),
             take_profit=Decimal(str(signal.tp)),
             leverage=signal.leverage if signal.market_type == 'FUTURES' else None,
+            is_priority=signal.is_priority,
             status='OPEN'
         )
 
