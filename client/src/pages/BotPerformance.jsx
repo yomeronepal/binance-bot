@@ -16,11 +16,18 @@ const BotPerformance = () => {
   const [activeWindow, setActiveWindow] = useState(() => {
     return localStorage.getItem('bot_perf_active_window') || 'all';
   });
+  const [direction, setDirection] = useState(() => {
+    return localStorage.getItem('bot_perf_direction') || 'ALL';
+  });
   const [totalTradesCount, setTotalTradesCount] = useState(0);
 
   useEffect(() => {
     localStorage.setItem('bot_perf_active_window', activeWindow);
   }, [activeWindow]);
+
+  useEffect(() => {
+    localStorage.setItem('bot_perf_direction', direction);
+  }, [direction]);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -55,10 +62,15 @@ const BotPerformance = () => {
     try {
       if (!summary) setLoading(true); // Initial load
       const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-      let queryParams = '';
-      if (activeWindow === 'gw1') queryParams = '?golden_window=true';
-      if (activeWindow === 'gw2') queryParams = '?golden_window_2=true';
-      if (activeWindow === 'outside_gw') queryParams = '?outside_golden_window=true';
+
+      // Build query params
+      const params = new URLSearchParams();
+      if (activeWindow === 'gw1') params.append('golden_window', 'true');
+      if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
+      if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
+      if (direction !== 'ALL') params.append('direction', direction);
+
+      const queryParams = params.toString() ? `?${params.toString()}` : '';
 
       const [summaryRes, positionsRes] = await Promise.all([
         axios.get(`${baseURL}/public/paper-trading/summary/${queryParams}`),
@@ -105,6 +117,7 @@ const BotPerformance = () => {
       if (activeWindow === 'gw1') params.append('golden_window', 'true');
       if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
       if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
+      if (direction !== 'ALL') params.append('direction', direction);
 
       const res = await axios.get(`${baseURL}/public/paper-trading/?${params.toString()}`);
 
@@ -126,11 +139,11 @@ const BotPerformance = () => {
 
   useEffect(() => {
     fetchPerformanceData();
-  }, [activeWindow]);
+  }, [activeWindow, direction]);
 
   useEffect(() => {
     fetchTradeHistory();
-  }, [activeWindow, currentPage]);
+  }, [activeWindow, direction, currentPage]);
 
   // Show loading only on initial load (when summary is null)
   if (loading && !summary) {
@@ -275,7 +288,8 @@ const BotPerformance = () => {
           </div>
 
           {/* New Trading Sessions & Filter Bar */}
-          <div className="mt-6 mb-6">
+          <div className="mt-6 mb-6 space-y-4">
+            {/* Golden Window Filter */}
             <div className="flex flex-col md:flex-row items-center justify-between gap-4 bg-white dark:bg-gray-800 rounded-xl p-2 shadow-sm border border-gray-100 dark:border-gray-700">
 
               {/* Session Tabs */}
@@ -334,6 +348,48 @@ const BotPerformance = () => {
                 <Activity className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                 {loading ? 'Refreshing...' : 'Refresh Data'}
               </button>
+            </div>
+
+            {/* Direction Filter */}
+            <div className="flex items-center justify-between gap-4 bg-white dark:bg-gray-800 rounded-xl p-2 shadow-sm border border-gray-100 dark:border-gray-700">
+              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                <TrendingUp className="w-4 h-4" />
+                <span className="font-medium">Trade Direction:</span>
+              </div>
+
+              <div className="flex items-center gap-2 overflow-x-auto p-1 no-scrollbar">
+                <button
+                  onClick={() => setDirection('ALL')}
+                  className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${direction === 'ALL'
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                >
+                  All Directions
+                </button>
+
+                <button
+                  onClick={() => setDirection('LONG')}
+                  className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${direction === 'LONG'
+                    ? 'bg-green-600 text-white shadow-md shadow-green-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                >
+                  <TrendingUp className="w-4 h-4" />
+                  LONG Only
+                </button>
+
+                <button
+                  onClick={() => setDirection('SHORT')}
+                  className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${direction === 'SHORT'
+                    ? 'bg-red-600 text-white shadow-md shadow-red-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                >
+                  <TrendingDown className="w-4 h-4" />
+                  SHORT Only
+                </button>
+              </div>
             </div>
           </div>
         </div>

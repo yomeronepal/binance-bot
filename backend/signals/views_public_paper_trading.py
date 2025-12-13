@@ -78,7 +78,14 @@ def public_performance(request):
     PUBLIC - Performance metrics for SYSTEM paper trades only.
     Shows bot's performance on automatically generated signals.
 
-    GET /api/public/paper-trading/performance/?days=7
+    GET /api/public/paper-trading/performance/?days=7&direction=ALL|LONG|SHORT
+
+    Query Parameters:
+        - days: Limit to last N days
+        - direction: Filter by trade direction (ALL, LONG, SHORT). Default: ALL
+        - golden_window: Filter Golden Window 1 trades
+        - golden_window_2: Filter Golden Window 2 trades
+        - outside_golden_window: Filter trades outside Golden Windows
     """
     days = request.query_params.get('days')
     days = int(days) if days else None
@@ -104,6 +111,14 @@ def public_performance(request):
     outside_golden_window = request.query_params.get('outside_golden_window')
     if outside_golden_window and outside_golden_window.lower() == 'true':
         queryset = queryset.filter(is_priority=False, is_golden_2=False)
+
+    # Filter by direction (ALL, LONG, SHORT)
+    direction = request.query_params.get('direction', 'ALL').upper()
+    if direction == 'LONG':
+        queryset = queryset.filter(direction='LONG')
+    elif direction == 'SHORT':
+        queryset = queryset.filter(direction='SHORT')
+    # If 'ALL', no filter applied
 
     closed_trades = queryset.filter(status__startswith='CLOSED')
 
@@ -424,7 +439,13 @@ def public_summary(request):
     PUBLIC - Comprehensive summary of SYSTEM paper trades.
     Shows bot's performance on automatically generated signals.
 
-    GET /api/public/paper-trading/summary/
+    GET /api/public/paper-trading/summary/?direction=ALL|LONG|SHORT
+
+    Query Parameters:
+        - direction: Filter by trade direction (ALL, LONG, SHORT). Default: ALL
+        - golden_window: Filter Golden Window 1 trades
+        - golden_window_2: Filter Golden Window 2 trades
+        - outside_golden_window: Filter trades outside Golden Windows
     """
     # Get SYSTEM trades only (user=null)
     queryset = PaperTrade.objects.filter(user__isnull=True)
@@ -440,6 +461,14 @@ def public_summary(request):
     outside_golden_window = request.query_params.get('outside_golden_window')
     if outside_golden_window and outside_golden_window.lower() == 'true':
         queryset = queryset.filter(is_priority=False, is_golden_2=False)
+
+    # Filter by direction (ALL, LONG, SHORT)
+    direction = request.query_params.get('direction', 'ALL').upper()
+    if direction == 'LONG':
+        queryset = queryset.filter(direction='LONG')
+    elif direction == 'SHORT':
+        queryset = queryset.filter(direction='SHORT')
+    # If 'ALL', no filter applied
 
     closed_trades = queryset.filter(status__startswith='CLOSED')
 
