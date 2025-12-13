@@ -437,6 +437,10 @@ def public_summary(request):
     if golden_window_2 and golden_window_2.lower() == 'true':
         queryset = queryset.filter(is_golden_2=True)
 
+    outside_golden_window = request.query_params.get('outside_golden_window')
+    if outside_golden_window and outside_golden_window.lower() == 'true':
+        queryset = queryset.filter(is_priority=False, is_golden_2=False)
+
     closed_trades = queryset.filter(status__startswith='CLOSED')
 
     total_trades = closed_trades.count()
