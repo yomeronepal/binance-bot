@@ -112,6 +112,57 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+    @action(detail=False, methods=['post'])
+    def create_manual_trade(self, request):
+        """
+        Create a new paper trade manually (without a signal).
+
+        Request body:
+        {
+            "symbol": "BTCUSDT",
+            "direction": "LONG",
+            "entry_price": 50000.0,
+            "position_size": 100.0,
+            "stop_loss": 49000.0,
+            "take_profit": 52000.0,
+            "leverage": 1,
+            "market_type": "FUTURES"
+        }
+        """
+        required_fields = ['symbol', 'direction', 'entry_price', 'position_size', 'stop_loss', 'take_profit']
+        if not all(k in request.data for k in required_fields):
+            return Response(
+                {'error': f'Missing required fields. Required: {required_fields}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            trade = paper_trading_service.create_manual_paper_trade(
+                symbol=request.data['symbol'],
+                direction=request.data['direction'],
+                entry_price=request.data['entry_price'],
+                position_size=request.data['position_size'],
+                stop_loss=request.data['stop_loss'],
+                take_profit=request.data['take_profit'],
+                leverage=request.data.get('leverage', 1),
+                market_type=request.data.get('market_type', 'FUTURES'),
+                user=request.user
+            )
+
+            serializer = self.get_serializer(trade)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        except ValueError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
     @action(detail=True, methods=['post'])
     def close_trade(self, request, pk=None):
         """

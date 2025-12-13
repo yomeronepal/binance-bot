@@ -89,9 +89,36 @@ const usePaperTradeStore = create((set, get) => ({
     } catch (error) {
       console.error('Error creating trade:', error);
       const errorMessage = error.response?.data?.error ||
-                          error.response?.data?.detail ||
-                          error.message ||
-                          'Failed to create trade';
+        error.response?.data?.detail ||
+        error.message ||
+        'Failed to create trade';
+      set({ error: errorMessage, loading: false });
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Create manual trade
+  createManualTrade: async (tradeData) => {
+    set({ loading: true, error: null });
+    try {
+      const response = await api.post('/paper-trades/create_manual_trade/', tradeData);
+
+      const newTrade = response.data;
+      set(state => ({
+        trades: [newTrade, ...state.trades],
+        loading: false,
+      }));
+
+      // Refresh metrics
+      get().fetchMetrics();
+
+      return newTrade;
+    } catch (error) {
+      console.error('Error creating manual trade:', error);
+      const errorMessage = error.response?.data?.error ||
+        error.response?.data?.detail ||
+        error.message ||
+        'Failed to create trade';
       set({ error: errorMessage, loading: false });
       throw new Error(errorMessage);
     }
@@ -101,7 +128,7 @@ const usePaperTradeStore = create((set, get) => ({
   closeTrade: async (tradeId, exitPrice = null) => {
     set({ loading: true, error: null });
     try {
-      const body = exitPrice ? { exit_price: exitPrice } : {};
+      const body = exitPrice ? { current_price: exitPrice } : {};
       const response = await api.post(`/paper-trades/${tradeId}/close_trade/`, body);
 
       const closedTrade = response.data;

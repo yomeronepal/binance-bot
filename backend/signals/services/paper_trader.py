@@ -72,8 +72,8 @@ class PaperTradingService:
                 f"Duplicate trade detected: Trade #{existing_by_signal.id} already exists for this signal. "
                 f"Status: {existing_by_signal.status}, Entry: {existing_by_signal.entry_price}"
             )
-
-        # Check 2: Duplicate by symbol + direction (prevents duplicates during signal upgrades)
+        
+        # Check 2: Duplicate by symbol + direction
         existing_by_position = PaperTrade.objects.filter(
             symbol=symbol_str,
             direction=signal.direction,
@@ -101,7 +101,6 @@ class PaperTradingService:
         quantity = position_size / entry_price
 
         # Determine Golden Window flags based on Entry Time
-        # Nepal works on UTC+5:45
         entry_time = timezone.now()
         from datetime import timedelta
         npt_time = entry_time + timedelta(hours=5, minutes=45)
@@ -110,11 +109,11 @@ class PaperTradingService:
         is_golden_1 = False
         is_golden_2 = False
         
-        # GW1: 17:00-18:00 (1020-1080) OR 21:00-23:00 (1260-1380)
+        # GW1
         if (1020 <= day_minutes < 1080) or (1260 <= day_minutes < 1380):
             is_golden_1 = True
             
-        # GW2: 21:00-23:00 (1260-1380) AND (Sun=6, Wed=2, Thu=3)
+        # GW2
         if (1260 <= day_minutes < 1380) and (npt_time.weekday() in [6, 2, 3]):
             is_golden_2 = True
 
@@ -139,6 +138,94 @@ class PaperTradingService:
         )
 
         logger.info(f"📄 Created paper trade: {paper_trade.direction} {paper_trade.symbol} @ {paper_trade.entry_price}")
+        return paper_trade
+
+    def create_manual_paper_trade(
+        self, 
+        symbol: str, 
+        direction: str, 
+        entry_price: Decimal, 
+        position_size: Decimal,
+        stop_loss: Decimal,
+        take_profit: Decimal,
+        leverage: int = 1,
+        market_type: str = 'FUTURES',
+        user=None
+    ) -> PaperTrade:
+        """
+        Create a new manually entered paper trade (without a signal).
+
+        Args:
+            symbol: Trading pair (e.g. BTCUSDT)
+            direction: LONG or SHORT
+            entry_price: Entry price
+            position_size: Position size in USDT
+            stop_loss: Stop loss price
+            take_profit: Take profit price
+            leverage: Leverage (default 1)
+            market_type: FUTURES or SPOT
+            user: Owner of the trade
+
+        Returns:
+            Created PaperTrade instance
+        """
+        # Check active position for same symbol + direction
+        existing_by_position = PaperTrade.objects.filter(
+            symbol=symbol,
+            direction=direction,
+            user=user,
+            status__in=['OPEN', 'PENDING']
+        ).first()
+
+        if existing_by_position:
+            raise ValueError(
+                f"Active position exists: {direction} trade for {symbol} already open. "
+            )
+        
+        entry_price = Decimal(str(entry_price))
+        position_size = Decimal(str(position_size))
+        quantity = position_size / entry_price
+
+        # Only check GW logic if leveraging system components, though for manual trades
+        # strictly speaking we might just want to let user do whatever.
+        # But keeping consistent flags is useful.
+        entry_time = timezone.now()
+        from datetime import timedelta
+        npt_time = entry_time + timedelta(hours=5, minutes=45)
+        day_minutes = npt_time.hour * 60 + npt_time.minute
+        
+        is_golden_1 = False
+        is_golden_2 = False
+        
+        # GW1
+        if (1020 <= day_minutes < 1080) or (1260 <= day_minutes < 1380):
+            is_golden_1 = True
+            
+        # GW2
+        if (1260 <= day_minutes < 1380) and (npt_time.weekday() in [6, 2, 3]):
+            is_golden_2 = True
+
+        paper_trade = PaperTrade.objects.create(
+            signal=None,  # No linked signal for manual trades
+            user=user,
+            symbol=symbol,
+            direction=direction,
+            market_type=market_type,
+            timeframe='MANUAL', # Custom indicator for manual trades
+            confidence=100, # Manual trades imply 100% confidence by user
+            entry_price=entry_price,
+            entry_time=entry_time,
+            position_size=position_size,
+            quantity=quantity,
+            stop_loss=Decimal(str(stop_loss)),
+            take_profit=Decimal(str(take_profit)),
+            leverage=leverage,
+            is_priority=is_golden_1,
+            is_golden_2=is_golden_2,
+            status='OPEN'
+        )
+        
+        logger.info(f"🖐️ Manually created paper trade: {paper_trade.direction} {paper_trade.symbol} @ {paper_trade.entry_price}")
         return paper_trade
 
     def check_and_close_trades(self, current_prices: Dict[str, Decimal]) -> List[PaperTrade]:

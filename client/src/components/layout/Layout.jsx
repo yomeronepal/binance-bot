@@ -27,6 +27,7 @@ const Layout = () => {
     { to: '/dashboard', label: 'Dashboard' },
     { to: '/spot-signals', label: 'Spot Signals' },
     { to: '/futures', label: 'Futures' },
+    { to: '/paper-trading', label: 'Paper Trading' },
     { to: '/bot-performance', label: 'Bot Performance' },
     // Only show Futures Trade links to superusers
     ...(user?.is_superuser ? [
