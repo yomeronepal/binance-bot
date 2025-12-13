@@ -5,7 +5,7 @@ import logging
 from decimal import Decimal
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, permission_classes, action
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.response import Response
 from django.db.models import Sum, Count, Q
 from django.utils import timezone
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 @api_view(['GET', 'PUT', 'PATCH'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
 def futures_settings(request):
     """
     Get or update futures trading settings.
@@ -56,7 +56,7 @@ def futures_settings(request):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
 def toggle_futures_trading(request):
     """
     Enable or disable futures trading.
@@ -89,7 +89,7 @@ def toggle_futures_trading(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
 def futures_trades_list(request):
     """
     List all futures trades with optional filtering.
@@ -122,7 +122,7 @@ def futures_trades_list(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
 def futures_open_positions(request):
     """Get all open futures positions."""
     open_trades = FuturesTrade.objects.filter(status='OPEN')
@@ -131,7 +131,7 @@ def futures_open_positions(request):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
 def close_futures_trade(request, trade_id):
     """
     Manually close a futures trade.
@@ -180,7 +180,7 @@ def close_futures_trade(request, trade_id):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
 def futures_summary(request):
     """
     Get futures trading summary statistics.
@@ -233,7 +233,7 @@ def futures_summary(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
 def futures_trade_detail(request, trade_id):
     """Get details of a specific futures trade."""
     try:

@@ -412,6 +412,24 @@ def public_summary(request):
     winning_trades = closed_trades.filter(profit_loss__gt=0).count()
     losing_trades = closed_trades.filter(profit_loss__lt=0).count()
 
+    # Calculate duration stats
+    from django.db.models import F, ExpressionWrapper, DurationField
+    
+    avg_duration_seconds = 0
+    if total_trades > 0:
+        duration_agg = closed_trades.filter(
+            entry_time__isnull=False, 
+            exit_time__isnull=False
+        ).annotate(
+            duration=ExpressionWrapper(F('exit_time') - F('entry_time'), output_field=DurationField())
+        ).aggregate(
+            avg_duration=Avg('duration')
+        )
+        
+        avg_td = duration_agg['avg_duration']
+        if avg_td:
+            avg_duration_seconds = avg_td.total_seconds()
+
     metrics = {
         'total_trades': queryset.count(),
         'open_trades': queryset.filter(status='OPEN').count(),
@@ -420,7 +438,7 @@ def public_summary(request):
         'avg_profit_loss': float(closed_trades.aggregate(avg=Avg('profit_loss'))['avg'] or 0),
         'best_trade': float(closed_trades.aggregate(best=Sum('profit_loss'))['best'] or 0),
         'worst_trade': float(closed_trades.aggregate(worst=Sum('profit_loss'))['worst'] or 0),
-        'avg_duration_hours': 0,
+        'avg_duration_hours': round(avg_duration_seconds / 3600, 2),
         'profitable_trades': winning_trades,
         'losing_trades': losing_trades,
     }

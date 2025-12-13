@@ -160,6 +160,7 @@ const BotPerformance = () => {
   const botTotalTrades = parseInt(summary?.bot_total_trades || summary?.performance?.total_trades || 0);
   const botRealizedPnl = parseFloat(summary?.bot_realized_pnl || summary?.performance?.total_profit_loss || 0);
   const botUnrealizedPnl = parseFloat(summary?.bot_unrealized_pnl || summary?.total_unrealized_pnl || 0);
+  const avgDuration = parseFloat(summary?.performance?.avg_duration_hours || 0);
 
   // For backward compatibility
   const performance = summary?.performance || {};
@@ -223,6 +224,14 @@ const BotPerformance = () => {
       icon: BarChart3,
       color: 'text-purple-400',
       bgGradient: 'from-purple-500/20 to-pink-600/10',
+    },
+    {
+      label: 'Avg Duration',
+      value: `${avgDuration.toFixed(1)}h`,
+      subtext: 'Average trade holding time',
+      icon: Clock,
+      color: 'text-indigo-400',
+      bgGradient: 'from-indigo-500/20 to-blue-600/10',
     },
   ];
 
@@ -625,6 +634,7 @@ const TradeHistoryTable = ({ trades }) => {
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Exit</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">P/L</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Status</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Duration</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Date</th>
           </tr>
         </thead>
@@ -662,6 +672,9 @@ const TradeHistoryTable = ({ trades }) => {
                     }`}>
                     {trade.status?.replace('CLOSED_', '') || 'CLOSED'}
                   </span>
+                </td>
+                <td className="px-4 py-3 text-gray-700 dark:text-gray-300 text-sm">
+                  {trade.duration_hours ? `${parseFloat(trade.duration_hours).toFixed(1)}h` : '-'}
                 </td>
                 <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-sm">
                   {new Date(trade.entry_time).toLocaleDateString()}

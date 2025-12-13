@@ -27,8 +27,11 @@ const Layout = () => {
     { to: '/dashboard', label: 'Dashboard' },
     { to: '/spot-signals', label: 'Spot Signals' },
     { to: '/futures', label: 'Futures' },
-    { to: '/futures-performance', label: 'Futures Trade' },
     { to: '/bot-performance', label: 'Bot Performance' },
+    // Only show Futures Trade links to superusers
+    ...(user?.is_superuser ? [
+      { to: '/futures-performance', label: 'Futures Trade' }
+    ] : [])
   ];
 
   const isActiveLink = (path) => location.pathname === path;
