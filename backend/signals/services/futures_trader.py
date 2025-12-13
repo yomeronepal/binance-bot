@@ -417,9 +417,27 @@ class FuturesTradingService:
             logger.debug(f"Futures trading disabled, skipping signal {signal.id}")
             return None
 
-        if trade_settings.use_trading_window and not is_within_trading_window():
-            logger.info(f"Signal {signal.id} outside trading window, skipping futures trade")
-            return None
+        # Calculate if we are in Golden Window 2
+        # GW2: 21:00-23:00 NPT (1260-1380 minutes) AND (Sun=6, Wed=2, Thu=3)
+        utc_now = datetime.now(timezone.utc)
+        nepal_now = utc_now + NEPAL_TZ_OFFSET
+        day_minutes = nepal_now.hour * 60 + nepal_now.minute
+        is_gw2 = False
+        if (1260 <= day_minutes < 1380) and (nepal_now.weekday() in [6, 2, 3]):
+            is_gw2 = True
+
+        # Check trading window constraints
+        # Logic: If use_trading_window is True, we must be in window OR be a valid GW2 trade if that's enabled
+        if trade_settings.use_trading_window:
+            in_window = is_within_trading_window()
+            gw2_override = (trade_settings.trade_on_golden_window_2 and is_gw2)
+            
+            if not in_window and not gw2_override:
+                logger.info(f"Signal {signal.id} outside trading window, skipping futures trade")
+                return None
+            
+            if gw2_override and not in_window:
+                logger.info(f"Signal {signal.id} is GW2 (Override), executing despite general window settings.")
 
         symbol_name = signal.symbol.symbol
         direction = signal.direction

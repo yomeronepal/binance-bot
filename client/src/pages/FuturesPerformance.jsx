@@ -1,7 +1,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Activity, X, Settings, Power, Calendar } from 'lucide-react';
-import axios from 'axios';
+import { useAuthStore } from '../store/useAuthStore';
+import api from '../services/api';
+import { ShieldAlert } from 'lucide-react';
 
 const FuturesPerformance = () => {
     const [loading, setLoading] = useState(true);
@@ -15,23 +17,27 @@ const FuturesPerformance = () => {
     const [settings, setSettings] = useState(null);
     const [savingSettings, setSavingSettings] = useState(false);
 
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+    const { user } = useAuthStore();
+    const isSuperUser = user?.is_superuser;
+
+    // Use relative paths since api instance has baseURL configured
+    // const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
     const fetchData = async () => {
         try {
             setLoading(true);
 
             // Fetch summary with statistics
-            const summaryRes = await axios.get(`${baseURL}/futures/summary/`);
+            const summaryRes = await api.get('/futures/summary/');
             setSummary(summaryRes.data);
             setSettings(summaryRes.data.settings);
 
             // Fetch open positions
-            const positionsRes = await axios.get(`${baseURL}/futures/positions/`);
+            const positionsRes = await api.get('/futures/positions/');
             setOpenPositions(positionsRes.data || []);
 
             // Fetch trade history
-            const tradesRes = await axios.get(`${baseURL}/futures/trades/?limit=50`);
+            const tradesRes = await api.get('/futures/trades/?limit=50');
             setTrades(tradesRes.data || []);
 
             setError(null);
@@ -46,7 +52,7 @@ const FuturesPerformance = () => {
     const toggleTrading = async () => {
         try {
             const newState = !settings?.is_enabled;
-            await axios.post(`${baseURL}/futures/toggle/`, { enabled: newState });
+            await api.post('/futures/toggle/', { enabled: newState });
             setSettings(prev => ({ ...prev, is_enabled: newState }));
         } catch (err) {
             alert(`Failed to toggle trading: ${err.message}`);
@@ -56,7 +62,7 @@ const FuturesPerformance = () => {
     const updateSettings = async (newSettings) => {
         try {
             setSavingSettings(true);
-            await axios.patch(`${baseURL}/futures/settings/`, newSettings);
+            await api.patch('/futures/settings/', newSettings);
             setSettings(prev => ({ ...prev, ...newSettings }));
             setShowSettings(false);
         } catch (err) {
@@ -72,7 +78,7 @@ const FuturesPerformance = () => {
 
         try {
             setClosingTrades(prev => ({ ...prev, [tradeId]: true }));
-            await axios.post(`${baseURL}/futures/trades/${tradeId}/close/`);
+            await api.post(`/futures/trades/${tradeId}/close/`);
             await fetchData();
         } catch (err) {
             alert(`Failed to close trade: ${err.response?.data?.error || err.message}`);
@@ -82,11 +88,25 @@ const FuturesPerformance = () => {
     };
 
     useEffect(() => {
-        fetchData();
-        // Auto-refresh every 30 seconds
-        const interval = setInterval(fetchData, 30000);
-        return () => clearInterval(interval);
-    }, []);
+        if (isSuperUser) {
+            fetchData();
+            // Auto-refresh every 30 seconds
+            const interval = setInterval(fetchData, 30000);
+            return () => clearInterval(interval);
+        }
+    }, [isSuperUser]);
+
+    if (!isSuperUser) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+                <div className="text-center p-8 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-red-200 dark:border-red-900">
+                    <ShieldAlert className="w-16 h-16 text-red-500 mx-auto mb-4" />
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h2>
+                    <p className="text-gray-600 dark:text-gray-400">This area is restricted to Super Administrators only.</p>
+                </div>
+            </div>
+        );
+    }
 
     if (loading && !summary) {
         return (

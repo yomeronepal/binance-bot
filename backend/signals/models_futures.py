@@ -67,6 +67,11 @@ class FuturesTradingSettings(models.Model):
         help_text=_("Only trade during trading windows (NPT 17:00-18:00 & 21:00-23:00)")
     )
 
+    trade_on_golden_window_2 = models.BooleanField(
+        default=False,
+        help_text=_("Specifically enable trading during Golden Window 2 (Sun/Wed/Thu 21:00-23:00 NPT)")
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
