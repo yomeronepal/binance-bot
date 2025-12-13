@@ -68,7 +68,8 @@
       "Bash(git pull:*)",
       "Bash(git reset:*)",
       "Bash(python3:*)",
-      "Bash(docker compose:*)"
+      "Bash(docker compose:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []
