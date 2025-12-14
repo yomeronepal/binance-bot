@@ -76,14 +76,12 @@ const Dashboard = () => {
   // Initialize WebSocket connection
   const { isConnected, connectionStatus, subscribe } = useWebSocket(WS_URL, {
     onMessage: (message) => {
-      console.log('WebSocket message received:', message);
       processWebSocketMessage(message);
       if (useMockData && message.type === 'signal_created') {
         setUseMockData(false); // Switch to real data once we receive real signals
       }
     },
     onOpen: () => {
-      console.log('WebSocket connected - subscribing to signals');
       subscribe({ direction: 'ALL', timeframe: 'ALL' });
     },
     reconnectInterval: 3000,
@@ -100,8 +98,7 @@ const Dashboard = () => {
   useEffect(() => {
     Promise.all([fetchSignals(), fetchFuturesSignals()]).then(() => {
       setUseMockData(false);
-    }).catch((error) => {
-      console.log('Using mock data:', error);
+    }).catch(() => {
       setUseMockData(true);
     });
   }, [fetchSignals, fetchFuturesSignals]);
@@ -110,8 +107,8 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchSuccessRate = async () => {
       try {
-        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-        const response = await fetch(`${API_BASE}/api/public/paper-trading/performance/`);
+        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+        const response = await fetch(`${API_BASE}/public/paper-trading/performance/`);
         if (response.ok) {
           const data = await response.json();
           setSuccessRate(data.win_rate);

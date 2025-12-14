@@ -25,8 +25,6 @@ const TradingViewWidget = memo(({ symbol, theme = 'dark', interval = '60', isFut
         // Futures perpetual symbols (.P) don't work for all coins on TradingView
         const tvSymbol = `BINANCE:${cleanSymbol}`;
 
-        console.log('TradingView Symbol:', tvSymbol); // Debug log
-
         // Clear previous widget if exists
         if (container.current) {
             container.current.innerHTML = '';

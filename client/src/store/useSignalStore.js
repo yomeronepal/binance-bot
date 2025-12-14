@@ -358,13 +358,8 @@ export const useSignalStore = create((set, get) => ({
    * Handle signal status change from WebSocket
    */
   handleSignalStatusChanged: (data) => {
-    const { signal, old_status, new_status } = data;
+    const { signal } = data;
     get().handleSignalUpdated(signal);
-
-    // You can add notifications here
-    console.log(
-      `Signal ${signal.id} status changed: ${old_status} → ${new_status}`
-    );
   },
 
   /**
@@ -386,7 +381,7 @@ export const useSignalStore = create((set, get) => ({
 
     switch (type) {
       case 'connection_established':
-        console.log('WebSocket connected:', message.user, message.subscription_tier);
+        // Connection successful
         break;
 
       case 'active_signals':
@@ -418,12 +413,12 @@ export const useSignalStore = create((set, get) => ({
         break;
 
       case 'error':
-        console.error('WebSocket error:', message.message);
         set({ error: message.message });
         break;
 
       default:
-        console.log('Unknown message type:', type, message);
+        // Unknown message type
+        break;
     }
   },
 

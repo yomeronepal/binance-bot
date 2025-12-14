@@ -39,7 +39,6 @@ export const useWebSocket = (url, options = {}) => {
       ws.current.send(JSON.stringify(data));
       return true;
     }
-    console.warn('WebSocket is not connected');
     return false;
   }, []);
 
@@ -71,23 +70,19 @@ export const useWebSocket = (url, options = {}) => {
    */
   const connect = useCallback(() => {
     if (!isAuthenticated) {
-      console.log('User not authenticated, skipping WebSocket connection');
       return;
     }
 
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      console.log('WebSocket already connected');
       return;
     }
 
     try {
       setConnectionStatus('connecting');
-      console.log('Connecting to WebSocket:', url);
 
       ws.current = new WebSocket(url);
 
       ws.current.onopen = (event) => {
-        console.log('WebSocket connected');
         setIsConnected(true);
         setConnectionStatus('connected');
         setError(null);
@@ -109,12 +104,11 @@ export const useWebSocket = (url, options = {}) => {
             onMessage(data);
           }
         } catch (err) {
-          console.error('Error parsing WebSocket message:', err);
+          setError('Failed to parse message');
         }
       };
 
       ws.current.onerror = (event) => {
-        console.error('WebSocket error:', event);
         setError('WebSocket connection error');
         setConnectionStatus('error');
 
@@ -124,7 +118,6 @@ export const useWebSocket = (url, options = {}) => {
       };
 
       ws.current.onclose = (event) => {
-        console.log('WebSocket disconnected:', event.code, event.reason);
         setIsConnected(false);
         setConnectionStatus('disconnected');
         stopHeartbeat();
@@ -140,9 +133,6 @@ export const useWebSocket = (url, options = {}) => {
           event.code !== 4001 // Authentication failure
         ) {
           reconnectCount.current += 1;
-          console.log(
-            `Attempting to reconnect (${reconnectCount.current}/${reconnectAttempts})...`
-          );
           setConnectionStatus('reconnecting');
 
           reconnectTimer.current = setTimeout(() => {
@@ -151,7 +141,6 @@ export const useWebSocket = (url, options = {}) => {
         }
       };
     } catch (err) {
-      console.error('Error creating WebSocket connection:', err);
       setError(err.message);
       setConnectionStatus('error');
     }
