@@ -9,10 +9,55 @@ from rest_framework import status
 from decimal import Decimal
 from django.db.models import Sum, Avg
 import asyncio
+import logging
 
 from signals.models import PaperTrade
 from signals.serializers import PaperTradeSerializer
 from signals.services.paper_trader import paper_trading_service
+from signals.models_blacklist import BlacklistedSymbol
+
+logger = logging.getLogger(__name__)
+
+
+def handle_failing_symbol(symbol, error_msg, trade=None):
+    """
+    Handle symbols that fail price fetching.
+    1. Blacklist the symbol
+    2. Close the trade if provided
+
+    Args:
+        symbol: The failing symbol (e.g., 'BSVUSDT')
+        error_msg: Error message from API
+        trade: PaperTrade object to close (optional)
+    """
+    try:
+        # Check if already blacklisted
+        if BlacklistedSymbol.is_blacklisted(symbol):
+            logger.info(f"⏭️  {symbol} already blacklisted, skipping")
+            return
+
+        # Add to blacklist
+        blacklist_entry = BlacklistedSymbol.objects.create(
+            symbol=symbol,
+            reason='DELISTED',
+            notes=f'Auto-blacklisted: {error_msg}. Coin likely delisted or unavailable on Binance.',
+            active=True
+        )
+        logger.warning(f"🚫 Auto-blacklisted {symbol} due to API error: {error_msg}")
+
+        # Close the trade if provided
+        if trade and trade.status == 'OPEN':
+            trade.status = 'CLOSED_MANUAL'
+            trade.exit_price = trade.entry_price  # Close at entry (no profit/loss)
+            trade.profit_loss = Decimal('0')
+            trade.profit_loss_percentage = Decimal('0')
+            from django.utils import timezone
+            trade.exit_time = timezone.now()
+            trade.save()
+            logger.info(f"✅ Closed failing trade {trade.id} for {symbol} at entry price")
+
+    except Exception as e:
+        logger.error(f"❌ Error handling failing symbol {symbol}: {e}")
 
 
 from rest_framework.pagination import PageNumberPagination
@@ -175,27 +220,40 @@ def public_performance(request):
 
             async def fetch_prices():
                 prices = {}
+                failed_symbols = {}
                 for symbol in symbols:
                     try:
                         price_data = await binance_client.get_price(symbol)
                         if price_data and 'price' in price_data:
                             prices[symbol] = Decimal(str(price_data['price']))
-                    except Exception:
-                        pass
-                return prices
+                    except Exception as e:
+                        error_msg = str(e)
+                        # Check if it's a 400 error (likely delisted coin)
+                        if '400' in error_msg or 'Bad Request' in error_msg:
+                            failed_symbols[symbol] = error_msg
+                            logger.error(f"❌ Request failed: {error_msg}")
+                return prices, failed_symbols
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                current_prices = loop.run_until_complete(fetch_prices())
+                current_prices, failed_symbols = loop.run_until_complete(fetch_prices())
+
+                # Handle failed symbols - blacklist and close trades
+                for symbol, error_msg in failed_symbols.items():
+                    # Find all open trades for this symbol
+                    failing_trades = open_trades_queryset.filter(symbol=symbol)
+                    for trade in failing_trades:
+                        handle_failing_symbol(symbol, error_msg, trade)
+
             finally:
                 # Properly close the client session
                 loop.run_until_complete(binance_client.close())
                 loop.close()
 
-            # Calculate unrealized P/L
+            # Calculate unrealized P/L (skip failed symbols)
             total_unrealized_pnl = Decimal('0')
-            for trade in open_trades_queryset:
+            for trade in open_trades_queryset.filter(status='OPEN'):
                 current_price = current_prices.get(trade.symbol)
                 if current_price:
                     unrealized_pnl, _ = trade.calculate_profit_loss(current_price)
@@ -260,25 +318,41 @@ def public_open_positions(request):
 
         async def fetch_prices():
             prices = {}
+            failed_symbols = {}
             for symbol in symbols:
                 try:
                     price_data = await binance_client.get_price(symbol)
                     if price_data and 'price' in price_data:
                         prices[symbol] = Decimal(str(price_data['price']))
-                except Exception:
-                    pass
-            return prices
+                except Exception as e:
+                    error_msg = str(e)
+                    # Check if it's a 400 error (likely delisted coin)
+                    if '400' in error_msg or 'Bad Request' in error_msg:
+                        failed_symbols[symbol] = error_msg
+                        logger.error(f"❌ Request failed: {error_msg}")
+            return prices, failed_symbols
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            current_prices = loop.run_until_complete(fetch_prices())
+            current_prices, failed_symbols = loop.run_until_complete(fetch_prices())
+
+            # Handle failed symbols - blacklist and close trades
+            for symbol, error_msg in failed_symbols.items():
+                # Find all open trades for this symbol
+                failing_trades = [t for t in open_trades if t.symbol == symbol]
+                for trade in failing_trades:
+                    handle_failing_symbol(symbol, error_msg, trade)
+                    # Remove from open_trades list
+                    open_trades.remove(trade)
+
         finally:
             # Properly close the client session
             loop.run_until_complete(binance_client.close())
             loop.close()
 
-    except Exception:
+    except Exception as e:
+        logger.error(f"❌ Error fetching prices: {e}")
         current_prices = {}
 
     # Calculate positions with real-time P/L
@@ -388,20 +462,32 @@ def public_close_trade(request, trade_id):
             try:
                 price_data = await binance_client.get_price(trade.symbol)
                 if price_data and 'price' in price_data:
-                    return Decimal(str(price_data['price']))
-            except Exception:
-                pass
-            return None
+                    return Decimal(str(price_data['price'])), None
+            except Exception as e:
+                error_msg = str(e)
+                # Check if it's a 400 error (likely delisted coin)
+                if '400' in error_msg or 'Bad Request' in error_msg:
+                    logger.error(f"❌ Request failed: {error_msg}")
+                    return None, error_msg
+            return None, None
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            current_price = loop.run_until_complete(fetch_price())
+            current_price, error_msg = loop.run_until_complete(fetch_price())
         finally:
             loop.run_until_complete(binance_client.close())
             loop.close()
 
         if not current_price:
+            # If 400 error, blacklist and close at entry price
+            if error_msg and ('400' in error_msg or 'Bad Request' in error_msg):
+                handle_failing_symbol(trade.symbol, error_msg, trade)
+                return Response({
+                    'message': f'Symbol {trade.symbol} blacklisted and trade closed due to API error',
+                    'error': error_msg
+                }, status=status.HTTP_200_OK)
+
             return Response(
                 {'error': 'Could not fetch current price'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

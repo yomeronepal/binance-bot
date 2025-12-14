@@ -785,7 +785,10 @@ const TradeHistoryTable = ({ trades }) => {
                   {trade.duration_hours ? `${parseFloat(trade.duration_hours).toFixed(1)}h` : '-'}
                 </td>
                 <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-sm">
-                  {new Date(trade.entry_time).toLocaleDateString()}
+                  <div>{new Date(trade.entry_time).toLocaleDateString()}</div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500">
+                    {new Date(trade.entry_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
                 </td>
               </tr>
             );
