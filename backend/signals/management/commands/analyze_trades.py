@@ -326,32 +326,10 @@ class Command(BaseCommand):
                     f"\n✅ You have {closed_count} closed trades - ready for ML optimization!\n"
                 ))
 
-                self.stdout.write("1️⃣  RUN ML TUNING FOR OPTIMIZATION:")
-                self.stdout.write("   • Trigger via API: POST /api/mltuning/")
-                self.stdout.write("   • Or use test script: ./test_mltuning.sh")
-                self.stdout.write("   • ML will find optimal TP/SL and other parameters")
-
-                self.stdout.write("\n2️⃣  RUN WALK-FORWARD OPTIMIZATION:")
-                self.stdout.write("   • POST /api/walkforward/")
-                self.stdout.write("   • Validates strategy on out-of-sample data")
-
-                self.stdout.write("\n3️⃣  RUN MONTE CARLO SIMULATION:")
-                self.stdout.write("   • POST /api/montecarlo/")
-                self.stdout.write("   • Tests strategy robustness under various scenarios")
 
             else:
                 self.stdout.write(f"\n📊 You have {closed_count} closed trades")
-                self.stdout.write("   • Need at least 50 closed trades for reliable ML tuning")
-                self.stdout.write("   • Keep trading and come back when you have more data")
-
-        self.stdout.write("\n4️⃣  MONITOR LEARNING SYSTEM:")
-        self.stdout.write("   • Check trade counters: python manage.py shell -c \"")
-        self.stdout.write("     from signals.models_optimization import TradeCounter;")
-        self.stdout.write("     for c in TradeCounter.objects.all(): print(f'{c.volatility_level}: {c.trade_count}/{c.threshold}')\"")
-
-        self.stdout.write("\n5️⃣  TRIGGER MANUAL OPTIMIZATION:")
-        self.stdout.write("   • curl -X POST http://localhost:8000/api/learning/optimize/ \\")
-        self.stdout.write("       -H 'Authorization: Bearer TOKEN' \\")
-        self.stdout.write("       -d '{\"volatility_level\": \"HIGH\", \"lookback_days\": 30}'")
+                self.stdout.write("   • Keep trading to gather more performance data")
+                self.stdout.write("   • Analyze performance regularly")
 
         self.stdout.write("\n")

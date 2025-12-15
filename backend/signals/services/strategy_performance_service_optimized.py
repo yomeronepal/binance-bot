@@ -288,29 +288,8 @@ def generate_performance_heatmap_optimized(backtests):
 
 
 def get_ml_optimization_results():
-    """Get ML optimization results (unchanged)"""
-    try:
-        from signals.models_ml_tuning import MLTuningJob
-
-        # Get most recent successful ML tuning job
-        latest_job = MLTuningJob.objects.filter(
-            status='COMPLETED'
-        ).order_by('-created_at').first()
-
-        if not latest_job:
-            return None
-
-        return {
-            'jobId': str(latest_job.id),
-            'createdAt': latest_job.created_at.isoformat(),
-            'trialCount': latest_job.total_trials,
-            'bestScore': float(latest_job.best_score or 0),
-            'status': latest_job.status,
-            'bestParams': latest_job.best_params or {}
-        }
-    except Exception as e:
-        logger.warning(f"Failed to get ML optimization results: {e}")
-        return None
+    """Get ML optimization results - DEPRECATED (ML models removed)"""
+    return None
 
 
 def determine_volatility_level(symbols):

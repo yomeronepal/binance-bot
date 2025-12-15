@@ -163,14 +163,6 @@ app.conf.update(
         'scanner.tasks.celery_tasks.check_and_close_paper_trades': {'queue': 'paper_trading'},
         # Backtesting tasks
         'scanner.tasks.backtest_tasks.run_backtest_async': {'queue': 'backtesting'},
-        'scanner.tasks.backtest_tasks.run_optimization_async': {'queue': 'backtesting'},
-        'scanner.tasks.backtest_tasks.generate_recommendations_async': {'queue': 'backtesting'},
-        # Walk-Forward Optimization tasks
-        'scanner.tasks.walkforward_tasks.run_walkforward_optimization_async': {'queue': 'backtesting'},
-        # Monte Carlo Simulation tasks
-        'scanner.tasks.montecarlo_tasks.run_montecarlo_simulation_async': {'queue': 'backtesting'},
-        # ML-Based Tuning tasks
-        'scanner.tasks.mltuning_tasks.run_ml_tuning_async': {'queue': 'backtesting'},
         # Futures multi-timeframe scanning tasks
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1d': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_4h': {'queue': 'scanner'},

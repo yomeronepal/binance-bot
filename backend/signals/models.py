@@ -956,32 +956,8 @@ class PaperAccount(models.Model):
 from .models_backtest import (
     BacktestRun,
     BacktestTrade,
-    StrategyOptimization,
-    OptimizationRecommendation,
+
     BacktestMetric,
-)
-
-# Import walk-forward optimization models
-from .models_walkforward import (
-    WalkForwardOptimization,
-    WalkForwardWindow,
-    WalkForwardMetric,
-)
-
-# Import Monte Carlo simulation models
-from .models_montecarlo import (
-    MonteCarloSimulation,
-    MonteCarloRun,
-    MonteCarloDistribution,
-)
-
-
-# Import ML-based tuning models
-from .models_mltuning import (
-    MLTuningJob,
-    MLTuningSample,
-    MLPrediction,
-    MLModel,
 )
 
 # Import futures trading models

@@ -15,20 +15,6 @@ from .celery_tasks import (
 
 from .backtest_tasks import (
     run_backtest_async,
-    run_optimization_async,
-    generate_recommendations_async,
-)
-
-from .walkforward_tasks import (
-    run_walkforward_optimization_async,
-)
-
-from .montecarlo_tasks import (
-    run_montecarlo_simulation_async,
-)
-
-from .mltuning_tasks import (
-    run_ml_tuning_async,
 )
 
 from .multi_timeframe_scanner import (
@@ -57,11 +43,6 @@ __all__ = [
     'test_celery_task',
     'check_and_close_paper_trades',
     'run_backtest_async',
-    'run_optimization_async',
-    'generate_recommendations_async',
-    'run_walkforward_optimization_async',
-    'run_montecarlo_simulation_async',
-    'run_ml_tuning_async',
     'scan_multi_timeframe',
     'scan_1d_timeframe',
     'scan_4h_timeframe',
@@ -73,3 +54,4 @@ __all__ = [
     'scan_futures_15m',
     'scan_futures_5m',
 ]
+

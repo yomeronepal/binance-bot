@@ -6,8 +6,7 @@ from rest_framework import serializers
 from signals.models_backtest import (
     BacktestRun,
     BacktestTrade,
-    StrategyOptimization,
-    OptimizationRecommendation,
+
     BacktestMetric
 )
 
@@ -120,74 +119,4 @@ class BacktestRunSerializer(serializers.ModelSerializer):
         return f"${dd_amount:.2f} ({dd_pct:.2f}%)"
 
 
-class StrategyOptimizationSerializer(serializers.ModelSerializer):
-    """Serializer for strategy optimization results."""
 
-    win_rate_formatted = serializers.SerializerMethodField()
-    roi_formatted = serializers.SerializerMethodField()
-    score_formatted = serializers.SerializerMethodField()
-
-    class Meta:
-        model = StrategyOptimization
-        fields = [
-            'id', 'name', 'user',
-            'symbols', 'timeframe', 'date_range_start', 'date_range_end',
-            'params', 'total_trades',
-            'win_rate', 'win_rate_formatted',
-            'roi', 'roi_formatted',
-            'total_profit_loss', 'max_drawdown',
-            'sharpe_ratio', 'profit_factor',
-            'optimization_score', 'score_formatted',
-            'backtest_run', 'tested_at'
-        ]
-
-    def get_win_rate_formatted(self, obj):
-        """Format win rate as percentage string."""
-        return f"{float(obj.win_rate):.2f}%"
-
-    def get_roi_formatted(self, obj):
-        """Format ROI as percentage string."""
-        roi = float(obj.roi)
-        sign = '+' if roi >= 0 else ''
-        return f"{sign}{roi:.2f}%"
-
-    def get_score_formatted(self, obj):
-        """Format optimization score."""
-        return f"{float(obj.optimization_score):.2f}/100"
-
-
-class OptimizationRecommendationSerializer(serializers.ModelSerializer):
-    """Serializer for AI-generated recommendations."""
-
-    confidence_formatted = serializers.SerializerMethodField()
-    improvement_summary = serializers.SerializerMethodField()
-
-    class Meta:
-        model = OptimizationRecommendation
-        fields = [
-            'id', 'type', 'title', 'description',
-            'current_params', 'recommended_params',
-            'expected_win_rate_improvement', 'expected_roi_improvement',
-            'confidence_score', 'confidence_formatted',
-            'improvement_summary',
-            'status', 'user', 'applied_at',
-            'feedback_notes', 'created_at', 'updated_at'
-        ]
-        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
-
-    def get_confidence_formatted(self, obj):
-        """Format confidence score as percentage."""
-        return f"{float(obj.confidence_score):.1f}%"
-
-    def get_improvement_summary(self, obj):
-        """Generate human-readable improvement summary."""
-        win_rate_imp = float(obj.expected_win_rate_improvement)
-        roi_imp = float(obj.expected_roi_improvement)
-
-        parts = []
-        if win_rate_imp > 0:
-            parts.append(f"+{win_rate_imp:.1f}% win rate")
-        if roi_imp > 0:
-            parts.append(f"+{roi_imp:.1f}% ROI")
-
-        return ", ".join(parts) if parts else "No improvement data"
