@@ -6,7 +6,7 @@ services:
   # -------------------------
   db:
     image: postgres:15-alpine
-    container_name: revx_db_prod
+    container_name: binancebot_db_prod
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -21,7 +21,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - revx_network
+      - binancebot_network
     restart: unless-stopped
 
   # -------------------------
@@ -29,7 +29,7 @@ services:
   # -------------------------
   redis:
     image: redis:7-alpine
-    container_name: revx_redis_prod
+    container_name: binancebot_redis_prod
     ports:
       - "6379:6379"
     healthcheck:
@@ -38,15 +38,15 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - revx_network
+      - binancebot_network
     restart: unless-stopped
 
   # -------------------------
   # Backend (Django + Daphne for WebSocket support)
   # -------------------------
   web:
-    image: yomeronepal/revx-backend:latest
-    container_name: revx_web_prod
+    image: yomeronepal/binance-bot-backend:latest
+    container_name: binancebot_web_prod
     command: >
       sh -c "python manage.py migrate &&
              python manage.py collectstatic --noinput &&
@@ -72,30 +72,30 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - revx_network
+      - binancebot_network
     restart: unless-stopped
 
   # -------------------------
   # Frontend (React + Nginx)
   # -------------------------
   frontend:
-    image: yomeronepal/revx-frontend:latest
-    container_name: revx_frontend_prod
+    image: yomeronepal/binance-bot-frontend:latest
+    container_name: binancebot_frontend_prod
     ports:
       - "5173:5173"
       - "80:80"
     depends_on:
       - web
     networks:
-      - revx_network
+      - binancebot_network
     restart: unless-stopped
 
   # -------------------------
   # Celery Worker
   # -------------------------
   celery:
-    image: yomeronepal/revx-backend:latest
-    container_name: revx_celery_prod
+    image: yomeronepal/binance-bot-backend:latest
+    container_name: binancebot_celery_prod
     command: sh -c "celery -A config worker -l info --concurrency=4 -Q celery,scanner,paper_trading,notifications,maintenance,backtesting"
     env_file:
       - .env
@@ -104,15 +104,15 @@ services:
       - redis
       - web
     networks:
-      - revx_network
+      - binancebot_network
     restart: unless-stopped
 
   # -------------------------
   # Celery Beat
   # -------------------------
   celery-beat:
-    image: yomeronepal/revx-backend:latest
-    container_name: revx_celery_beat_prod
+    image: yomeronepal/binance-bot-backend:latest
+    container_name: binancebot_celery_beat_prod
     command: sh -c "celery -A config beat -l info"
     env_file:
       - .env
@@ -121,7 +121,7 @@ services:
       - redis
       - web
     networks:
-      - revx_network
+      - binancebot_network
     restart: unless-stopped
 
   # -------------------------
@@ -129,7 +129,7 @@ services:
   # -------------------------
   dozzle:
     image: amir20/dozzle:latest
-    container_name: revx_dozzle
+    container_name: binancebot_dozzle
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
@@ -138,7 +138,7 @@ services:
       - DOZZLE_LEVEL=info
       - DOZZLE_NO_ANALYTICS=true
     networks:
-      - revx_network
+      - binancebot_network
     restart: unless-stopped
 
 volumes:
@@ -148,5 +148,5 @@ volumes:
 
 
 networks:
-  revx_network:
+  binancebot_network:
     driver: bridge
