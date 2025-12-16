@@ -6,7 +6,7 @@ services:
   # -------------------------
   db:
     image: postgres:15-alpine
-    container_name: binancebot_db_prod
+    container_name: revx_db_prod
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -16,12 +16,12 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER}" ]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - binancebot_network
+      - revx_network
     restart: unless-stopped
 
   # -------------------------
@@ -29,24 +29,24 @@ services:
   # -------------------------
   redis:
     image: redis:7-alpine
-    container_name: binancebot_redis_prod
+    container_name: revx_redis_prod
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - binancebot_network
+      - revx_network
     restart: unless-stopped
 
   # -------------------------
   # Backend (Django + Daphne for WebSocket support)
   # -------------------------
   web:
-    image: yomeronepal/binance-bot-backend:latest
-    container_name: binancebot_web_prod
+    image: yomeronepal/revx-backend:latest
+    container_name: revx_web_prod
     command: >
       sh -c "python manage.py migrate &&
              python manage.py collectstatic --noinput &&
@@ -66,36 +66,36 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/api/health/" ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
     networks:
-      - binancebot_network
+      - revx_network
     restart: unless-stopped
 
   # -------------------------
   # Frontend (React + Nginx)
   # -------------------------
   frontend:
-    image: yomeronepal/binance-bot-frontend:latest
-    container_name: binancebot_frontend_prod
+    image: yomeronepal/revx-frontend:latest
+    container_name: revx_frontend_prod
     ports:
       - "5173:5173"
       - "80:80"
     depends_on:
       - web
     networks:
-      - binancebot_network
+      - revx_network
     restart: unless-stopped
 
   # -------------------------
   # Celery Worker
   # -------------------------
   celery:
-    image: yomeronepal/binance-bot-backend:latest
-    container_name: binancebot_celery_prod
+    image: yomeronepal/revx-backend:latest
+    container_name: revx_celery_prod
     command: sh -c "celery -A config worker -l info --concurrency=4 -Q celery,scanner,paper_trading,notifications,maintenance,backtesting"
     env_file:
       - .env
@@ -104,15 +104,15 @@ services:
       - redis
       - web
     networks:
-      - binancebot_network
+      - revx_network
     restart: unless-stopped
 
   # -------------------------
   # Celery Beat
   # -------------------------
   celery-beat:
-    image: yomeronepal/binance-bot-backend:latest
-    container_name: binancebot_celery_beat_prod
+    image: yomeronepal/revx-backend:latest
+    container_name: revx_celery_beat_prod
     command: sh -c "celery -A config beat -l info"
     env_file:
       - .env
@@ -121,7 +121,7 @@ services:
       - redis
       - web
     networks:
-      - binancebot_network
+      - revx_network
     restart: unless-stopped
 
   # -------------------------
@@ -129,7 +129,7 @@ services:
   # -------------------------
   dozzle:
     image: amir20/dozzle:latest
-    container_name: binancebot_dozzle
+    container_name: revx_dozzle
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
@@ -138,7 +138,7 @@ services:
       - DOZZLE_LEVEL=info
       - DOZZLE_NO_ANALYTICS=true
     networks:
-      - binancebot_network
+      - revx_network
     restart: unless-stopped
 
 volumes:
@@ -146,6 +146,7 @@ volumes:
   static_volume:
   media_volume:
 
+
 networks:
-  binancebot_network:
+  revx_network:
     driver: bridge

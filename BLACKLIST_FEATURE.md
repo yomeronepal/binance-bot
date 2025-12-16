@@ -364,7 +364,7 @@ entry.save()  # Automatically sets active=False if blacklisted_until has passed
 
 Run the test suite:
 ```bash
-docker exec binancebot_web python manage.py test signals.tests.test_blacklist
+docker exec revx_web python manage.py test signals.tests.test_blacklist
 ```
 
 ### Manual Testing Checklist
@@ -399,15 +399,15 @@ Potential improvements:
 
 ### Symbol still being traded after blacklisting
 1. Check if entry is active: `SELECT * FROM signals_blacklisted_symbols WHERE symbol='DOGEUSDT';`
-2. Restart Celery worker: `docker restart binancebot_celery`
-3. Check logs: `docker logs binancebot_celery --tail 100 | grep blacklist`
+2. Restart Celery worker: `docker restart revx_celery`
+3. Check logs: `docker logs revx_celery --tail 100 | grep blacklist`
 
 ### API returns "Authentication required"
 Use public endpoints (`/check/` and `/active/`) or provide valid auth token
 
 ### Blacklist not appearing in admin
-1. Run migrations: `docker exec binancebot_web python manage.py migrate`
-2. Restart Django: `docker restart binancebot_web`
+1. Run migrations: `docker exec revx_web python manage.py migrate`
+2. Restart Django: `docker restart revx_web`
 
 ## Files Modified/Created
 

@@ -251,7 +251,7 @@ Potential improvements:
 ## Support
 
 If you encounter issues:
-1. Check Docker logs: `docker logs binancebot_web`
+1. Check Docker logs: `docker logs revx_web`
 2. Check database: `SELECT * FROM signals_blacklisted_symbols;`
 3. Verify API endpoints work
 4. Check scanner logs for blacklist filtering
