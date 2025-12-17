@@ -47,7 +47,7 @@ This document provides context and guidance for AI assistants (like Claude) work
 ## Project Structure
 
 ```
-binance-bot/
+revx/
 ├── backend/                           # Django application
 │   ├── scanner/
 │   │   ├── services/
@@ -271,7 +271,7 @@ curl -X POST http://localhost:8000/api/backtest/ \
 make download-long
 
 # Inside Docker container
-docker exec binance-bot-backend python scripts/data/download_long_period.py
+docker exec revx-backend python scripts/data/download_long_period.py
 ```
 
 ### Modifying Strategy
@@ -281,7 +281,7 @@ docker exec binance-bot-backend python scripts/data/download_long_period.py
 **Steps**:
 1. Modify parameters in `SignalConfig` dataclass
 2. Or change scoring logic in `_check_long_conditions()`
-3. Restart Celery worker: `docker restart binance-bot-celery-worker`
+3. Restart Celery worker: `docker restart revx-celery-worker`
 4. Run backtest to test changes
 
 ### Adding New Optimization
@@ -383,7 +383,7 @@ def _detect_new_signal(self, symbol, df, timeframe, config):
 
 **Cause**: Historical data not downloaded
 **Solution**: `make download-long`
-**Verify**: `docker exec binance-bot-backend ls -la backtest_data/`
+**Verify**: `docker exec revx-backend ls -la backtest_data/`
 
 ### Issue: Containers not responding
 

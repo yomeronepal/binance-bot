@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <defs>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d4ff"/>
+      <stop offset="100%" style="stop-color:#0066cc"/>
+    </linearGradient>
+    <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff8c00"/>
+      <stop offset="100%" style="stop-color:#ff4500"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- X shape with circuit details -->
+  <path d="M25 20 L45 50 L25 80" stroke="url(#blueGrad)" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <path d="M75 20 L55 50 L75 80" stroke="url(#blueGrad)" stroke-width="6" stroke-linecap="round" fill="none"/>
+  
+  <!-- Orbital swoosh -->
+  <ellipse cx="50" cy="50" rx="40" ry="20" stroke="url(#orangeGrad)" stroke-width="4" fill="none" transform="rotate(-30 50 50)"/>
+  
+  <!-- Circuit nodes -->
+  <circle cx="35" cy="35" r="3" fill="url(#blueGrad)"/>
+  <circle cx="50" cy="50" r="4" fill="url(#blueGrad)"/>
+  <circle cx="65" cy="65" r="3" fill="url(#blueGrad)"/>
+  
+  <!-- Arrow on swoosh -->
+  <polygon points="82,32 90,38 82,44" fill="url(#orangeGrad)" transform="rotate(-30 50 50)"/>
+</svg>

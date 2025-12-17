@@ -1,4 +1,4 @@
-# Binance Trading Bot
+# RevX Trading Bot
 
 Automated cryptocurrency trading bot for Binance with Django backend, Celery task queue, and RSI-based mean reversion strategy.
 
@@ -12,13 +12,13 @@ Automated cryptocurrency trading bot for Binance with Django backend, Celery tas
 
 ```bash
 git clone <repo-url>
-cd binance-bot
+cd revx
 
 cd docker
 docker-compose up -d
 
-docker exec binancebot_web python manage.py migrate
-docker exec binancebot_web python manage.py createsuperuser
+docker exec revx_web python manage.py migrate
+docker exec revx_web python manage.py createsuperuser
 ```
 
 ### Access
@@ -29,7 +29,7 @@ docker exec binancebot_web python manage.py createsuperuser
 ## Project Structure
 
 ```
-binance-bot/
+revx/
 ├── backend/                    # Django application
 │   ├── scanner/
 │   │   ├── services/           # Business logic
@@ -75,7 +75,7 @@ GET  /api/paper-trading/      # Paper trading stats
 docker-compose up -d          # Start services
 docker-compose down           # Stop services
 docker-compose logs -f        # View logs
-docker exec binancebot_web python manage.py shell  # Django shell
+docker exec revx_web python manage.py shell  # Django shell
 ```
 
 ## Environment Variables
