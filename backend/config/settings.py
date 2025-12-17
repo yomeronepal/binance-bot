@@ -180,6 +180,13 @@ CORS_ALLOWED_ORIGINS = [
     "http://91.98.146.162:3000",
     "http://91.98.146.162:5173",
     "http://91.98.146.162:8000",
+    # Production domains
+    "https://revxsys.com",
+    "https://www.revxsys.com",
+    "https://backend.revxsys.com",
+    "http://revxsys.com",
+    "http://www.revxsys.com",
+    "http://backend.revxsys.com",
 ]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = DEBUG
@@ -195,6 +202,25 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
+# CSRF Settings for Django Admin
+CSRF_TRUSTED_ORIGINS = [
+    "https://revxsys.com",
+    "https://www.revxsys.com",
+    "https://backend.revxsys.com",
+    "http://revxsys.com",
+    "http://www.revxsys.com",
+    "http://backend.revxsys.com",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:8000",
+]
+
+# Session Cookie Settings
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = not DEBUG  # Use secure cookies in production
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SECURE = not DEBUG
+
 # Channels Configuration
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 
@@ -203,6 +229,14 @@ CHANNEL_LAYERS = {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
             "hosts": [REDIS_URL],
+            "capacity": 1500,  # Channel capacity
+            "expiry": 10,  # Message expiry in seconds
+        },
+        'OPTIONS': {
+            'connection_pool_kwargs': {
+                'max_connections': 50,
+                'retry_on_timeout': True,
+            },
         },
     },
 }
