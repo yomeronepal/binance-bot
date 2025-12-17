@@ -4,11 +4,13 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import ProtectedRoute from './ProtectedRoute';
 import ErrorBoundary from '../components/ErrorBoundary';
+import { useAuthStore } from '../store/useAuthStore';
 
 // Layout
 import Layout from '../components/layout/Layout';
 
 // Pages
+import LandingPage from '../pages/LandingPage';
 import Login from '../pages/auth/Login';
 import Register from '../pages/auth/Register';
 import Dashboard from '../pages/dashboard/Dashboard';
@@ -22,13 +24,22 @@ import FuturesPerformance from '../pages/FuturesPerformance';
 import Backtesting from '../pages/Backtesting';
 import StrategyDashboard from '../pages/StrategyDashboard';
 
+const RootRedirect = () => {
+  const { isAuthenticated } = useAuthStore();
+  return isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />;
+};
+
 const AppRouter = () => {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Root - Landing page or Dashboard for authenticated users */}
+        <Route path="/" element={<RootRedirect />} />
+
         {/* Public routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+
         {/* Public Routes with Layout */}
         <Route element={<Layout />}>
           <Route path="bot-performance" element={
@@ -38,27 +49,20 @@ const AppRouter = () => {
           } />
         </Route>
 
-        {/* Protected routes */}
+        {/* Protected routes with Layout */}
         <Route
-          path="/"
           element={
             <ProtectedRoute>
               <Layout />
             </ProtectedRoute>
           }
         >
-          <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="spot-signals" element={<SignalList />} />
           <Route path="spot-signals/:id" element={<SignalDetail />} />
           <Route path="signals" element={<Navigate to="/spot-signals" replace />} />
           <Route path="signals/:id" element={<Navigate to="/spot-signals/:id" replace />} />
           <Route path="futures" element={<Futures />} />
-          <Route path="futures-performance" element={
-            <ErrorBoundary>
-              <FuturesPerformance />
-            </ErrorBoundary>
-          } />
           <Route path="futures-performance" element={
             <ErrorBoundary>
               <FuturesPerformance />
@@ -86,8 +90,8 @@ const AppRouter = () => {
           } />
         </Route>
 
-        {/* Catch all - redirect to dashboard */}
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        {/* Catch all - redirect to root */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
