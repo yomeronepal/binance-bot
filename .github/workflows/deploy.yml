@@ -55,8 +55,8 @@ jobs:
           file: ./docker/Dockerfile.frontend.prod
           push: true
           build-args: |
-            VITE_API_URL=/api
-            VITE_WS_URL=/ws/signals/
+            VITE_API_URL=${{ secrets.VITE_API_URL || 'https://backend.revxsys.com/api' }}
+            VITE_WS_URL=${{ secrets.VITE_WS_URL || 'wss://backend.revxsys.com/ws/signals/' }}
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/binance-bot-frontend:${{ steps.meta.outputs.tag }}
             ${{ secrets.DOCKER_USERNAME }}/binance-bot-frontend:latest
