@@ -20,6 +20,12 @@ const BotPerformance = () => {
   const [direction, setDirection] = useState(() => {
     return localStorage.getItem('bot_perf_direction') || 'ALL';
   });
+  const [weekday, setWeekday] = useState(() => {
+    return localStorage.getItem('bot_perf_weekday') || 'ALL';
+  });
+  const [hour, setHour] = useState(() => {
+    return localStorage.getItem('bot_perf_hour') || 'ALL';
+  });
   const [totalTradesCount, setTotalTradesCount] = useState(0);
 
   useEffect(() => {
@@ -29,6 +35,14 @@ const BotPerformance = () => {
   useEffect(() => {
     localStorage.setItem('bot_perf_direction', direction);
   }, [direction]);
+
+  useEffect(() => {
+    localStorage.setItem('bot_perf_weekday', weekday);
+  }, [weekday]);
+
+  useEffect(() => {
+    localStorage.setItem('bot_perf_hour', hour);
+  }, [hour]);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -70,6 +84,8 @@ const BotPerformance = () => {
       if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
       if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
       if (direction !== 'ALL') params.append('direction', direction);
+      if (weekday !== 'ALL') params.append('weekday', weekday);
+      if (hour !== 'ALL') params.append('hour', hour);
 
       const queryParams = params.toString() ? `?${params.toString()}` : '';
 
@@ -119,6 +135,8 @@ const BotPerformance = () => {
       if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
       if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
       if (direction !== 'ALL') params.append('direction', direction);
+      if (weekday !== 'ALL') params.append('weekday', weekday);
+      if (hour !== 'ALL') params.append('hour', hour);
 
       const res = await axios.get(`${baseURL}/public/paper-trading/?${params.toString()}`);
 
@@ -140,11 +158,11 @@ const BotPerformance = () => {
 
   useEffect(() => {
     fetchPerformanceData();
-  }, [activeWindow, direction]);
+  }, [activeWindow, direction, weekday, hour]);
 
   useEffect(() => {
     fetchTradeHistory();
-  }, [activeWindow, direction, currentPage]);
+  }, [activeWindow, direction, weekday, hour, currentPage]);
 
   // Show loading only on initial load (when summary is null)
   if (loading && !summary) {
@@ -407,6 +425,53 @@ const BotPerformance = () => {
                   <TrendingDown className="w-4 h-4" />
                   SHORT Only
                 </button>
+              </div>
+            </div>
+
+
+            {/* Weekday Filter */}
+            <div className="flex items-center justify-between gap-4 bg-white dark:bg-gray-800 rounded-xl p-2 shadow-sm border border-gray-100 dark:border-gray-700">
+              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                <Calendar className="w-4 h-4" />
+                <span className="font-medium">Weekday:</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={weekday}
+                  onChange={(e) => setWeekday(e.target.value)}
+                  className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 transition-all"
+                >
+                  <option value="ALL">All Days</option>
+                  {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((day, index) => (
+                    <option key={day} value={String(index + 1)}>
+                      {day}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Hour Filter */}
+            <div className="flex items-center justify-between gap-4 bg-white dark:bg-gray-800 rounded-xl p-2 shadow-sm border border-gray-100 dark:border-gray-700">
+              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                <Clock className="w-4 h-4" />
+                <span className="font-medium">Hour (NPT):</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={hour}
+                  onChange={(e) => setHour(e.target.value)}
+                  className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 transition-all"
+                >
+                  <option value="ALL">All Hours</option>
+                  {Array.from({ length: 24 }, (_, i) => i).map((h) => (
+                    <option key={h} value={String(h)}>
+                      {String(h).padStart(2, '0')}:00 - {String(h).padStart(2, '0')}:59
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>

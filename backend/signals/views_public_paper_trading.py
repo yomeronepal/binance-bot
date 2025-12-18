@@ -103,6 +103,46 @@ def public_paper_trades_list(request):
     if outside_golden_window and outside_golden_window.lower() == 'true':
         queryset = queryset.filter(is_priority=False, is_golden_2=False)
 
+    # Filter by weekday (1=Monday, 7=Sunday)
+    weekday = request.query_params.get('weekday')
+    if weekday and weekday != 'ALL':
+        try:
+            weekday_int = int(weekday)
+            # Django uses 1=Sunday, 2=Monday, ..., 7=Saturday
+            # Convert from ISO (1=Monday) to Django (2=Monday)
+            django_weekday = (weekday_int % 7) + 1
+            queryset = queryset.filter(entry_time__week_day=django_weekday)
+        except (ValueError, TypeError):
+            pass
+
+    # Filter by hour (0-23 in NPT, converted to UTC)
+    # NPT is UTC+5:45, so we need to subtract 5h45m to get UTC time
+    hour = request.query_params.get('hour')
+    if hour and hour != 'ALL':
+        try:
+            hour_int = int(hour)
+            if 0 <= hour_int <= 23:
+                from datetime import datetime, timedelta
+                from django.db.models import Q
+                
+                # Convert NPT hour to UTC
+                # NPT hour X:00-X:59 in UTC is (X-5):15 to (X-5):14 next hour
+                # Since we can only filter by hour, we need both UTC hours
+                utc_hour_start = (hour_int - 6) % 24  # -5h45m rounds down to -6h for the start
+                utc_hour_end = (hour_int - 5) % 24    # end of range in next UTC hour
+                
+                # Need to check two UTC hours to cover the NPT hour completely
+                if utc_hour_end == (utc_hour_start + 1) % 24:
+                    # Normal case: spans two consecutive hours
+                    queryset = queryset.filter(
+                        Q(entry_time__hour=utc_hour_start) | Q(entry_time__hour=utc_hour_end)
+                    )
+                else:
+                    # Edge case around midnight
+                    queryset = queryset.filter(entry_time__hour__in=[utc_hour_start, utc_hour_end])
+        except (ValueError, TypeError):
+            pass
+
     queryset = queryset.select_related('signal').order_by('-created_at')
 
     # Pagination
@@ -296,6 +336,45 @@ def public_open_positions(request):
     outside_golden_window = request.query_params.get('outside_golden_window')
     if outside_golden_window and outside_golden_window.lower() == 'true':
         queryset = queryset.filter(is_priority=False, is_golden_2=False)
+
+    # Filter by weekday (1=Monday, 7=Sunday)
+    weekday = request.query_params.get('weekday')
+    if weekday and weekday != 'ALL':
+        try:
+            weekday_int = int(weekday)
+            # Django uses 1=Sunday, 2=Monday, ..., 7=Saturday
+            # Convert from ISO (1=Monday) to Django (2=Monday)
+            django_weekday = (weekday_int % 7) + 1
+            queryset = queryset.filter(entry_time__week_day=django_weekday)
+        except (ValueError, TypeError):
+            pass
+
+    # Filter by hour (0-23 in NPT, converted to UTC)
+    # NPT is UTC+5:45, so we need to subtract 5h45m to get UTC time
+    hour = request.query_params.get('hour')
+    if hour and hour != 'ALL':
+        try:
+            hour_int = int(hour)
+            if 0 <= hour_int <= 23:
+                from django.db.models import Q
+                
+                # Convert NPT hour to UTC
+                utc_hour_start = (hour_int - 6) % 24
+                utc_hour_end = (hour_int - 5) % 24
+                
+                if utc_hour_end == (utc_hour_start + 1) % 24:
+                    queryset = queryset.filter(
+                        Q(entry_time__hour=utc_hour_start) | Q(entry_time__hour=utc_hour_end)
+                    )
+                else:
+                    queryset = queryset.filter(entry_time__hour__in=[utc_hour_start, utc_hour_end])
+        except (ValueError, TypeError):
+            pass
+
+    # Filter by direction
+    direction = request.query_params.get('direction')
+    if direction and direction != 'ALL':
+        queryset = queryset.filter(direction=direction)
 
     open_trades = list(queryset)
 
@@ -532,6 +611,8 @@ def public_summary(request):
         - golden_window: Filter Golden Window 1 trades
         - golden_window_2: Filter Golden Window 2 trades
         - outside_golden_window: Filter trades outside Golden Windows
+        - weekday: Filter by weekday (1=Monday, 7=Sunday)
+        - hour: Filter by hour (0-23)
     """
     # Get SYSTEM trades only (user=null)
     queryset = PaperTrade.objects.filter(user__isnull=True)
@@ -555,6 +636,40 @@ def public_summary(request):
     elif direction == 'SHORT':
         queryset = queryset.filter(direction='SHORT')
     # If 'ALL', no filter applied
+
+    # Filter by weekday (1=Monday, 7=Sunday)
+    weekday = request.query_params.get('weekday')
+    if weekday and weekday != 'ALL':
+        try:
+            weekday_int = int(weekday)
+            # Django uses 1=Sunday, 2=Monday, ..., 7=Saturday
+            # Convert from ISO (1=Monday) to Django (2=Monday)
+            django_weekday = (weekday_int % 7) + 1
+            queryset = queryset.filter(entry_time__week_day=django_weekday)
+        except (ValueError, TypeError):
+            pass
+
+    # Filter by hour (0-23 in NPT, converted to UTC)
+    # NPT is UTC+5:45, so we need to subtract 5h45m to get UTC time
+    hour = request.query_params.get('hour')
+    if hour and hour != 'ALL':
+        try:
+            hour_int = int(hour)
+            if 0 <= hour_int <= 23:
+                from django.db.models import Q
+                
+                # Convert NPT hour to UTC
+                utc_hour_start = (hour_int - 6) % 24
+                utc_hour_end = (hour_int - 5) % 24
+                
+                if utc_hour_end == (utc_hour_start + 1) % 24:
+                    queryset = queryset.filter(
+                        Q(entry_time__hour=utc_hour_start) | Q(entry_time__hour=utc_hour_end)
+                    )
+                else:
+                    queryset = queryset.filter(entry_time__hour__in=[utc_hour_start, utc_hour_end])
+        except (ValueError, TypeError):
+            pass
 
     closed_trades = queryset.filter(status__startswith='CLOSED')
 
@@ -623,6 +738,33 @@ def public_summary(request):
     if request.query_params.get('outside_golden_window') and request.query_params.get('outside_golden_window').lower() == 'true':
         open_trades_queryset = open_trades_queryset.filter(is_priority=False, is_golden_2=False)
 
+    # Apply weekday/hour filters to open trades
+    if weekday and weekday != 'ALL':
+        try:
+            weekday_int = int(weekday)
+            django_weekday = (weekday_int % 7) + 1
+            open_trades_queryset = open_trades_queryset.filter(entry_time__week_day=django_weekday)
+        except (ValueError, TypeError):
+            pass
+
+    if hour and hour != 'ALL':
+        try:
+            hour_int = int(hour)
+            if 0 <= hour_int <= 23:
+                from django.db.models import Q
+                
+                utc_hour_start = (hour_int - 6) % 24
+                utc_hour_end = (hour_int - 5) % 24
+                
+                if utc_hour_end == (utc_hour_start + 1) % 24:
+                    open_trades_queryset = open_trades_queryset.filter(
+                        Q(entry_time__hour=utc_hour_start) | Q(entry_time__hour=utc_hour_end)
+                    )
+                else:
+                    open_trades_queryset = open_trades_queryset.filter(entry_time__hour__in=[utc_hour_start, utc_hour_end])
+        except (ValueError, TypeError):
+            pass
+
     # Get recent SYSTEM closed trades
     recent_closed_queryset = PaperTrade.objects.filter(
         status__startswith='CLOSED',
@@ -638,6 +780,33 @@ def public_summary(request):
 
     if request.query_params.get('outside_golden_window') and request.query_params.get('outside_golden_window').lower() == 'true':
         recent_closed_queryset = recent_closed_queryset.filter(is_priority=False, is_golden_2=False)
+
+    # Apply weekday/hour filters to recent closed trades
+    if weekday and weekday != 'ALL':
+        try:
+            weekday_int = int(weekday)
+            django_weekday = (weekday_int % 7) + 1
+            recent_closed_queryset = recent_closed_queryset.filter(entry_time__week_day=django_weekday)
+        except (ValueError, TypeError):
+            pass
+
+    if hour and hour != 'ALL':
+        try:
+            hour_int = int(hour)
+            if 0 <= hour_int <= 23:
+                from django.db.models import Q
+                
+                utc_hour_start = (hour_int - 6) % 24
+                utc_hour_end = (hour_int - 5) % 24
+                
+                if utc_hour_end == (utc_hour_start + 1) % 24:
+                    recent_closed_queryset = recent_closed_queryset.filter(
+                        Q(entry_time__hour=utc_hour_start) | Q(entry_time__hour=utc_hour_end)
+                    )
+                else:
+                    recent_closed_queryset = recent_closed_queryset.filter(entry_time__hour__in=[utc_hour_start, utc_hour_end])
+        except (ValueError, TypeError):
+            pass
         
     recent_closed = recent_closed_queryset.order_by('-exit_time')[:10]
 
