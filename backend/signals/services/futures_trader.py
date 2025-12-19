@@ -48,6 +48,10 @@ class BinanceFuturesTrader:
     BASE_URL = "https://fapi.binance.com"
     TESTNET_URL = "https://testnet.binancefuture.com"
 
+    # Class-level cache for server time offset
+    _server_time_offset = 0
+    _last_time_sync = 0
+
     def __init__(self, use_testnet: bool = False):
         self.api_key = settings.BINANCE_API_KEY
         self.api_secret = settings.BINANCE_API_SECRET
@@ -69,6 +73,32 @@ class BinanceFuturesTrader:
             self.session = aiohttp.ClientSession(timeout=timeout)
         return self.session
 
+    async def _sync_server_time(self):
+        """
+        Sync local time with Binance server time to avoid timestamp errors.
+        Caches the offset for 5 minutes.
+        """
+        current_time = time.time()
+        # Re-sync every 5 minutes
+        if current_time - BinanceFuturesTrader._last_time_sync > 300:
+            try:
+                session = await self._get_session()
+                url = f"{self.base_url}/fapi/v1/time"
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        server_time = data.get('serverTime', 0)
+                        local_time = int(time.time() * 1000)
+                        BinanceFuturesTrader._server_time_offset = server_time - local_time
+                        BinanceFuturesTrader._last_time_sync = current_time
+                        logger.info(f"Synced with Binance server. Time offset: {BinanceFuturesTrader._server_time_offset}ms")
+            except Exception as e:
+                logger.warning(f"Failed to sync server time: {e}")
+
+    def _get_timestamp(self) -> int:
+        """Get timestamp adjusted for server time offset."""
+        return int(time.time() * 1000) + BinanceFuturesTrader._server_time_offset
+
     async def _request(
         self,
         method: str,
@@ -86,7 +116,9 @@ class BinanceFuturesTrader:
         headers = {'X-MBX-APIKEY': self.api_key}
 
         if signed:
-            params['timestamp'] = int(time.time() * 1000)
+            # Sync server time before making signed requests
+            await self._sync_server_time()
+            params['timestamp'] = self._get_timestamp()
             params['recvWindow'] = 60000  # 60 seconds tolerance for clock drift
             query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
             params['signature'] = self._generate_signature(query_string)
