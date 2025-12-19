@@ -35,11 +35,13 @@ const FuturesPerformance = () => {
 
             // Fetch open positions
             const positionsRes = await api.get('/futures/positions/');
-            setOpenPositions(positionsRes.data || []);
+            const positionsData = positionsRes.data;
+            setOpenPositions(Array.isArray(positionsData) ? positionsData : (positionsData?.results || []));
 
             // Fetch trade history
             const tradesRes = await api.get('/futures/trades/?limit=50');
-            setTrades(tradesRes.data || []);
+            const tradesData = tradesRes.data;
+            setTrades(Array.isArray(tradesData) ? tradesData : (tradesData?.results || []));
 
             setError(null);
         } catch (err) {

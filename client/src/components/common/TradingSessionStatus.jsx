@@ -22,7 +22,9 @@ const TradingSessionStatus = () => {
         throw new Error('Failed to fetch trading sessions');
       }
       const data = await response.json();
-      setSessions(data);
+      // Handle paginated response (DRF returns {count, results, ...}) or direct array
+      const sessionsArray = Array.isArray(data) ? data : (data.results || []);
+      setSessions(sessionsArray);
       setLoading(false);
       setError(null); // Clear any previous errors
     } catch (err) {
@@ -211,7 +213,7 @@ const TradingSessionStatus = () => {
 
   // Get active session (prioritize GOLDEN_WINDOW)
   const getActiveSession = () => {
-    const activeSessions = sessions.filter(session => {
+    const activeSessions = (sessions || []).filter(session => {
       const inTime = isWithinSessionTime(session);
       const inDay = isSessionDayActive(session);
 
@@ -232,7 +234,7 @@ const TradingSessionStatus = () => {
     const currentMinutes = nepalTime.getHours() * 60 + nepalTime.getMinutes();
 
     // Find next session
-    const sortedSessions = [...sessions].sort((a, b) => {
+    const sortedSessions = [...(sessions || [])].sort((a, b) => {
       const aStart = a.start_hour * 60 + a.start_minute;
       const bStart = b.start_hour * 60 + b.start_minute;
       return aStart - bStart;
@@ -261,11 +263,11 @@ const TradingSessionStatus = () => {
   const isActive = activeSession !== null;
 
   // Group sessions for display
-  const displaySessions = sessions.filter(s =>
+  const displaySessions = (sessions || []).filter(s =>
     !s.active_days || s.active_days.length === 0
   );
 
-  const goldenSessions = sessions.filter(s =>
+  const goldenSessions = (sessions || []).filter(s =>
     s.session_type === 'GOLDEN_WINDOW' && s.active_days && s.active_days.length > 0
   );
 

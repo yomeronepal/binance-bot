@@ -72,7 +72,9 @@
       "Bash(find:*)",
       "Bash(timeout 15 bash -c 'while ! docker logs revx_celery 2>&1 | grep -q \"\"ready\"\"; do sleep 1; done; echo \"\"Celery ready!\"\"')",
       "Bash(timeout 60 docker logs:*)",
-      "Bash(timeout 30 bash:*)"
+      "Bash(timeout 30 bash:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm install:*)"
     ],
     "deny": [],
     "ask": []
