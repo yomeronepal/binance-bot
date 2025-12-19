@@ -619,6 +619,16 @@ class PaperTradeAdmin(BaseModelAdmin):
             profit_loss_percentage=to_dec(data.get('profit_loss_percentage', 0))
         )
 
+    def _decimal_to_float(self, obj):
+        """Helper to convert Decimal and datetime objects for JSON serialization."""
+        if obj is None:
+            return None
+        if isinstance(obj, (Decimal, float, int)):
+            return float(obj)
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        return obj
+
 
     def _calculate_sharpe_ratio(self, trades, risk_free_rate=0.02):
         if not trades or len(trades) < 2:
@@ -715,6 +725,7 @@ class PaperTradeAdmin(BaseModelAdmin):
                 'exit_time': trade.exit_time.isoformat() if trade.exit_time else None,
                 'duration_hours': self._decimal_to_float(trade.duration_hours) if trade.duration_hours else None,
                 'risk_reward_ratio': trade.risk_reward_ratio, 'created_at': trade.created_at.isoformat(),
+                'timeframe': trade.timeframe, 'confidence': self._decimal_to_float(trade.confidence),
             }
             if trade.signal:
                 trade_data['signal'] = {
@@ -742,6 +753,7 @@ class PaperTradeAdmin(BaseModelAdmin):
                 'status': trade.status,
                 'entry_time': trade.entry_time.isoformat() if trade.entry_time else None,
                 'risk_reward_ratio': trade.risk_reward_ratio, 'created_at': trade.created_at.isoformat(),
+                'timeframe': trade.timeframe, 'confidence': self._decimal_to_float(trade.confidence),
             }
             if trade.signal:
                 trade_data['signal'] = {
@@ -777,6 +789,15 @@ class PaperTradeAdmin(BaseModelAdmin):
             len([t for t in closed_trades_sorted if t['duration_hours']])
             if any(t['duration_hours'] for t in closed_trades_sorted) else 0
         )
+
+        all_exported_trades = closed_trades_sorted + open_trades_list
+        confidences = [t['confidence'] for t in all_exported_trades if t['confidence'] is not None]
+        min_trade_confidence = min(confidences) if confidences else 0
+        
+        timeframe_stats = defaultdict(int)
+        for t in all_exported_trades:
+            if t['timeframe']:
+                timeframe_stats[t['timeframe']] += 1
 
         by_symbol = defaultdict(lambda: {'total_trades': 0, 'winning_trades': 0, 'losing_trades': 0, 'total_pnl': 0, 'win_rate': 0, 'avg_duration': 0})
         for trade in closed_trades_sorted:
@@ -903,7 +924,8 @@ class PaperTradeAdmin(BaseModelAdmin):
                 'total_profit_loss_percentage': round(total_profit_pct, 2), 'average_win': round(avg_win, 2),
                 'average_loss': round(avg_loss, 2), 'profit_factor': round(profit_factor, 2),
                 'sharpe_ratio': sharpe_ratio, 'max_drawdown_percentage': max_drawdown,
-                'average_duration_hours': round(avg_duration, 2), **consecutive_stats
+                'average_duration_hours': round(avg_duration, 2), **consecutive_stats,
+                'min_trade_confidence': min_trade_confidence, 'timeframe_summary': dict(timeframe_stats)
             },
             'closed_trades': closed_trades_sorted, 'open_trades': open_trades_list,
             'analysis_by_symbol': dict(by_symbol), 'analysis_by_direction': dict(by_direction),
