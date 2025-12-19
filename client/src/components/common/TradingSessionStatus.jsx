@@ -1,13 +1,83 @@
 /**
  * TradingSessionStatus component
  * Displays current trading session status with real-time clock and trading windows
+ * Now fetches sessions dynamically from the backend API
  */
 import { useEffect, useState } from 'react';
 import { Clock, Activity, Calendar } from 'lucide-react';
 
+const API_BASE_URL = '/api';
+
 const TradingSessionStatus = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
+  // Fetch trading sessions from API
+  const fetchSessions = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/trading-sessions/`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch trading sessions');
+      }
+      const data = await response.json();
+      setSessions(data);
+      setLoading(false);
+      setError(null); // Clear any previous errors
+    } catch (err) {
+      console.error('Error fetching trading sessions:', err);
+      setError(err.message);
+      setLoading(false);
+      // Fall back to hardcoded sessions if API fails
+      setSessions([
+        {
+          id: 1,
+          name: 'GW1',
+          session_type: 'ACTIVE_TRADING_WINDOW',
+          start_hour: 17,
+          start_minute: 0,
+          end_hour: 18,
+          end_minute: 0,
+          active_days: []
+        },
+        {
+          id: 2,
+          name: 'GW2',
+          session_type: 'GOLDEN_WINDOW',
+          start_hour: 21,
+          start_minute: 0,
+          end_hour: 23,
+          end_minute: 0,
+          active_days: [6, 2, 3] // Sun, Wed, Thu
+        },
+        {
+          id: 3,
+          name: 'Window 2',
+          session_type: 'ACTIVE_TRADING_WINDOW',
+          start_hour: 21,
+          start_minute: 0,
+          end_hour: 23,
+          end_minute: 0,
+          active_days: []
+        }
+      ]);
+    }
+  };
+
+  // Initial fetch and periodic refresh
+  useEffect(() => {
+    fetchSessions();
+
+    // Poll for updates every 60 seconds to catch new sessions added in database
+    const refreshInterval = setInterval(() => {
+      fetchSessions();
+    }, 60000); // 60 seconds
+
+    return () => clearInterval(refreshInterval);
+  }, []);
+
+  // Clock timer
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -48,116 +118,197 @@ const TradingSessionStatus = () => {
     });
   };
 
-  const isWithinGW1Window = () => {
+  // Convert NPT hour/minute to UTC
+  const convertNPTtoUTC = (hour, minute) => {
+    // NPT is UTC + 5:45, so UTC is NPT - 5:45
+    let utcMinutes = (hour * 60 + minute) - (5 * 60 + 45);
+
+    // Handle day wrap
+    if (utcMinutes < 0) {
+      utcMinutes += 24 * 60;
+    }
+
+    const utcHour = Math.floor(utcMinutes / 60) % 24;
+    const utcMinute = utcMinutes % 60;
+
+    return {
+      hour: utcHour,
+      minute: utcMinute,
+      formatted: `${String(utcHour).padStart(2, '0')}:${String(utcMinute).padStart(2, '0')}`
+    };
+  };
+
+  // Convert NPT hour/minute to US EST/EDT
+  const convertNPTtoUS = (hour, minute) => {
+    // First convert to UTC
+    const utc = convertNPTtoUTC(hour, minute);
+
+    // EST is UTC - 5, EDT is UTC - 4
+    // For simplicity, we'll use EST (UTC - 5) - user can adjust based on DST
+    let usMinutes = (utc.hour * 60 + utc.minute) - (5 * 60);
+
+    // Handle day wrap
+    if (usMinutes < 0) {
+      usMinutes += 24 * 60;
+    }
+
+    const usHour = Math.floor(usMinutes / 60) % 24;
+    const usMinute = usMinutes % 60;
+
+    return {
+      hour: usHour,
+      minute: usMinute,
+      formatted: `${String(usHour).padStart(2, '0')}:${String(usMinute).padStart(2, '0')}`
+    };
+  };
+
+  // Format session time window with all timezones
+  const formatSessionWindow = (session) => {
+    const nptStart = `${String(session.start_hour).padStart(2, '0')}:${String(session.start_minute).padStart(2, '0')}`;
+    const nptEnd = `${String(session.end_hour).padStart(2, '0')}:${String(session.end_minute).padStart(2, '0')}`;
+
+    const utcStart = convertNPTtoUTC(session.start_hour, session.start_minute);
+    const utcEnd = convertNPTtoUTC(session.end_hour, session.end_minute);
+
+    const usStart = convertNPTtoUS(session.start_hour, session.start_minute);
+    const usEnd = convertNPTtoUS(session.end_hour, session.end_minute);
+
+    return {
+      npt: `${nptStart} - ${nptEnd}`,
+      utc: `${utcStart.formatted} - ${utcEnd.formatted}`,
+      us: `${usStart.formatted} - ${usEnd.formatted}`
+    };
+  };
+
+  // Check if current time is within a session's time window
+  const isWithinSessionTime = (session) => {
     const nepalTime = getNepalTime(currentTime);
     const hour = nepalTime.getHours();
     const minute = nepalTime.getMinutes();
-    const timeInMinutes = hour * 60 + minute;
+    const currentMinutes = hour * 60 + minute;
 
-    // GW1: 17:00-18:00 NPT
-    return timeInMinutes >= 17 * 60 && timeInMinutes < 18 * 60;
+    const startMinutes = session.start_hour * 60 + session.start_minute;
+    const endMinutes = session.end_hour * 60 + session.end_minute;
+
+    return currentMinutes >= startMinutes && currentMinutes < endMinutes;
   };
 
-  const isWithinGW2Window = () => {
+  // Check if current day is active for session
+  const isSessionDayActive = (session) => {
+    if (!session.active_days || session.active_days.length === 0) {
+      return true; // All days active
+    }
     const nepalTime = getNepalTime(currentTime);
-    const hour = nepalTime.getHours();
-    const minute = nepalTime.getMinutes();
-    const timeInMinutes = hour * 60 + minute;
-    const dayOfWeek = nepalTime.getDay(); // 0=Sun, 3=Wed, 4=Thu
+    const dayOfWeek = nepalTime.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
 
-    // GW2: 21:00-23:00 NPT on Sunday (0), Wednesday (3), Thursday (4)
-    const isGW2Time = timeInMinutes >= 21 * 60 && timeInMinutes < 23 * 60;
-    const isGW2Day = dayOfWeek === 0 || dayOfWeek === 3 || dayOfWeek === 4;
+    // Convert JS day (0=Sun) to Python day (0=Mon)
+    // JS: Sun=0, Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6
+    // Python: Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6
+    const pythonDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
 
-    return isGW2Time && isGW2Day;
+    return session.active_days.includes(pythonDay);
   };
 
-  const isWithinWindow2 = () => {
+  // Get active session (prioritize GOLDEN_WINDOW)
+  const getActiveSession = () => {
+    const activeSessions = sessions.filter(session => {
+      const inTime = isWithinSessionTime(session);
+      const inDay = isSessionDayActive(session);
+
+      if (session.session_type === 'GOLDEN_WINDOW') {
+        return inTime && inDay;
+      }
+      return inTime;
+    });
+
+    // Prioritize GOLDEN_WINDOW
+    const goldenWindow = activeSessions.find(s => s.session_type === 'GOLDEN_WINDOW');
+    return goldenWindow || activeSessions[0] || null;
+  };
+
+  // Get next session time
+  const getNextSessionTime = () => {
     const nepalTime = getNepalTime(currentTime);
-    const hour = nepalTime.getHours();
-    const minute = nepalTime.getMinutes();
-    const timeInMinutes = hour * 60 + minute;
+    const currentMinutes = nepalTime.getHours() * 60 + nepalTime.getMinutes();
 
-    // Window 2: 21:00-23:00 NPT (any day)
-    return timeInMinutes >= 21 * 60 && timeInMinutes < 23 * 60;
-  };
+    // Find next session
+    const sortedSessions = [...sessions].sort((a, b) => {
+      const aStart = a.start_hour * 60 + a.start_minute;
+      const bStart = b.start_hour * 60 + b.start_minute;
+      return aStart - bStart;
+    });
 
-  const isWithinTradingWindow = () => {
-    return isWithinGW1Window() || isWithinWindow2();
-  };
+    for (const session of sortedSessions) {
+      const sessionStart = session.start_hour * 60 + session.start_minute;
+      if (sessionStart > currentMinutes) {
+        return `${String(session.start_hour).padStart(2, '0')}:${String(session.start_minute).padStart(2, '0')} NPT`;
+      }
+    }
 
-  const getActiveWindow = () => {
-    if (isWithinGW1Window()) return 'GW1';
-    if (isWithinGW2Window()) return 'GW2';
-    if (isWithinWindow2()) return 'Window 2';
-    return null;
-  };
+    // If no session found today, show first session tomorrow
+    if (sortedSessions.length > 0) {
+      const firstSession = sortedSessions[0];
+      return `${String(firstSession.start_hour).padStart(2, '0')}:${String(firstSession.start_minute).padStart(2, '0')} NPT (tomorrow)`;
+    }
 
-  const getNextWindow = () => {
-    const nepalTime = getNepalTime(currentTime);
-    const hour = nepalTime.getHours();
-    const minute = nepalTime.getMinutes();
-    const timeInMinutes = hour * 60 + minute;
-
-    if (timeInMinutes < 17 * 60) return '17:00 NPT';
-    if (timeInMinutes >= 18 * 60 && timeInMinutes < 21 * 60) return '21:00 NPT';
-    return '17:00 NPT (tomorrow)';
+    return 'N/A';
   };
 
   const nepalTime = getNepalTime(currentTime);
   const usTime = getUSTime(currentTime);
   const utcTime = getUTCTime(currentTime);
-  const isActive = isWithinTradingWindow();
-  const isGW1Active = isWithinGW1Window();
-  const isGW2Active = isWithinGW2Window();
-  const activeWindow = getActiveWindow();
+  const activeSession = getActiveSession();
+  const isActive = activeSession !== null;
 
-  const tradingWindows = [
-    {
-      npt: '17:00 - 18:00',
-      utc: '11:15 - 12:15',
-      us: '06:15 - 07:15 EST'
-    },
-    {
-      npt: '21:00 - 23:00',
-      utc: '15:15 - 17:15',
-      us: '10:15 - 12:15 EST'
-    }
-  ];
+  // Group sessions for display
+  const displaySessions = sessions.filter(s =>
+    !s.active_days || s.active_days.length === 0
+  );
 
-  const gw2Window = {
-    npt: '21:00 - 23:00',
-    utc: '15:15 - 17:15',
-    us: '10:15 - 12:15 EST',
-    days: 'Sun, Wed, Thu'
-  };
+  const goldenSessions = sessions.filter(s =>
+    s.session_type === 'GOLDEN_WINDOW' && s.active_days && s.active_days.length > 0
+  );
+
+  if (loading) {
+    return (
+      <div className="rounded-lg border-2 p-4 bg-gray-50 dark:bg-gray-800/30 border-gray-300 dark:border-gray-700">
+        <div className="flex items-center gap-2">
+          <Activity className="w-5 h-5 text-gray-400 animate-spin" />
+          <span className="text-gray-600 dark:text-gray-400">Loading trading sessions...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className={`rounded-lg border-2 p-4 ${isActive ? 'bg-green-50 dark:bg-green-900/20 border-green-500' : 'bg-gray-50 dark:bg-gray-800/30 border-gray-300 dark:border-gray-700'}`}>
+    <div className={`rounded-lg border-2 p-4 transition-all duration-300 ${isActive
+      ? 'bg-green-50 dark:bg-green-900/20 border-green-500 shadow-lg'
+      : 'bg-gray-50 dark:bg-gray-800/30 border-gray-300 dark:border-gray-700'
+      }`}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Activity className={`w-5 h-5 ${isActive ? 'text-green-600 dark:text-green-400 animate-pulse' : 'text-gray-400'}`} />
-          <span className={`font-semibold ${isActive ? 'text-green-700 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
+          <Activity className={`w-5 h-5 transition-all ${isActive ? 'text-green-600 dark:text-green-400 animate-pulse' : 'text-gray-400'
+            }`} />
+          <span className={`font-semibold transition-colors ${isActive ? 'text-green-700 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'
+            }`}>
             Trading Session: {isActive ? 'ACTIVE' : 'INACTIVE'}
           </span>
-          {isActive && activeWindow && (
-            <span className={`flex items-center gap-1 px-2 py-0.5 border rounded text-xs font-semibold ${
-              activeWindow === 'GW1' ? 'bg-amber-500/20 border-amber-500/50 text-amber-600 dark:text-amber-400' :
-              activeWindow === 'GW2' ? 'bg-purple-500/20 border-purple-500/50 text-purple-600 dark:text-purple-400' :
-              'bg-green-500/20 border-green-500/50 text-green-600 dark:text-green-400'
-            }`}>
-              <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${
-                activeWindow === 'GW1' ? 'bg-amber-500 dark:bg-amber-400' :
-                activeWindow === 'GW2' ? 'bg-purple-500 dark:bg-purple-400' :
-                'bg-green-500 dark:bg-green-400'
-              }`}></span>
-              {activeWindow}
+          {isActive && activeSession && (
+            <span className={`flex items-center gap-1 px-2 py-0.5 border rounded text-xs font-semibold transition-all ${activeSession.session_type === 'GOLDEN_WINDOW'
+              ? 'bg-purple-500/20 border-purple-500/50 text-purple-600 dark:text-purple-400'
+              : 'bg-green-500/20 border-green-500/50 text-green-600 dark:text-green-400'
+              }`}>
+              <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${activeSession.session_type === 'GOLDEN_WINDOW'
+                ? 'bg-purple-500 dark:bg-purple-400'
+                : 'bg-green-500 dark:bg-green-400'
+                }`}></span>
+              {activeSession.name}
             </span>
           )}
         </div>
         {!isActive && (
           <span className="text-sm text-gray-500 dark:text-gray-400">
-            Next: {getNextWindow()}
+            Next: {getNextSessionTime()}
           </span>
         )}
       </div>
@@ -192,32 +343,32 @@ const TradingSessionStatus = () => {
           <span>Trading Windows (Paper trades only execute during these times)</span>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          {tradingWindows.map((window, idx) => {
-            const isWindowActive = (idx === 0 && isGW1Active) || (idx === 1 && (isGW2Active || isWithinWindow2()));
+          {displaySessions.map((session, idx) => {
+            const isSessionActive = activeSession?.id === session.id;
+            const timeWindows = formatSessionWindow(session);
+
             return (
-              <div key={idx} className={`rounded p-2 text-xs border ${
-                isWindowActive
-                  ? 'bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-500 shadow-md'
-                  : 'bg-white dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
-              }`}>
+              <div key={session.id} className={`rounded p-2 text-xs border ${isSessionActive
+                ? 'bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-500 shadow-md'
+                : 'bg-white dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
+                }`}>
                 <div className="flex items-center justify-between mb-1">
-                  <div className={`font-semibold ${
-                    isWindowActive
-                      ? 'text-amber-600 dark:text-amber-400'
-                      : 'text-blue-600 dark:text-blue-400'
-                  }`}>
-                    Window {idx + 1}
+                  <div className={`font-semibold ${isSessionActive
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-blue-600 dark:text-blue-400'
+                    }`}>
+                    {session.name}
                   </div>
-                  {isWindowActive && (
+                  {isSessionActive && (
                     <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 px-1.5 py-0.5 bg-amber-500/20 rounded">
                       ACTIVE
                     </span>
                   )}
                 </div>
                 <div className="space-y-0.5">
-                  <div><span className="text-gray-500 dark:text-gray-400">NPT:</span> <span className="font-mono dark:text-gray-300">{window.npt}</span></div>
-                  <div><span className="text-gray-500 dark:text-gray-400">UTC:</span> <span className="font-mono dark:text-gray-300">{window.utc}</span></div>
-                  <div><span className="text-gray-500 dark:text-gray-400">US:</span> <span className="font-mono dark:text-gray-300">{window.us}</span></div>
+                  <div><span className="text-gray-500 dark:text-gray-400">NPT:</span> <span className="font-mono dark:text-gray-300">{timeWindows.npt}</span></div>
+                  <div><span className="text-gray-500 dark:text-gray-400">UTC:</span> <span className="font-mono dark:text-gray-300">{timeWindows.utc}</span></div>
+                  <div><span className="text-gray-500 dark:text-gray-400">US EST:</span> <span className="font-mono dark:text-gray-300">{timeWindows.us}</span></div>
                 </div>
               </div>
             );
@@ -225,36 +376,47 @@ const TradingSessionStatus = () => {
         </div>
       </div>
 
-      <div className="border-t dark:border-gray-700 pt-3 mt-3">
-        <div className="flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400 mb-2">
-          <Calendar className="w-3 h-3" />
-          <span className="font-semibold">Golden Window 2 (GW2) - Premium Trading Window</span>
+      {goldenSessions.length > 0 && (
+        <div className="border-t dark:border-gray-700 pt-3 mt-3">
+          <div className="flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400 mb-2">
+            <Calendar className="w-3 h-3" />
+            <span className="font-semibold">Golden Window 2 (GW2) - Premium Trading Window</span>
+          </div>
+          {goldenSessions.map(session => {
+            const isSessionActive = activeSession?.id === session.id;
+            const timeWindows = formatSessionWindow(session);
+            const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            const activeDayNames = session.active_days?.map(d => dayNames[d]).join(', ') || 'All Days';
+
+            return (
+              <div key={session.id} className={`rounded-lg p-3 ${isSessionActive ? 'bg-purple-50 dark:bg-purple-900/20 border-2 border-purple-500' : 'bg-white dark:bg-gray-800/50 border dark:border-gray-700'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-purple-600 dark:text-purple-400">{session.name}</span>
+                    {isSessionActive && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 bg-purple-500/20 border border-purple-500/50 rounded text-xs text-purple-600 dark:text-purple-400">
+                        <span className="w-1.5 h-1.5 bg-purple-500 dark:bg-purple-400 rounded-full animate-pulse"></span>
+                        ACTIVE
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-purple-600 dark:text-purple-400 font-medium">{activeDayNames}</span>
+                </div>
+                <div className="space-y-1 text-xs">
+                  <div><span className="text-gray-500 dark:text-gray-400">NPT:</span> <span className="font-mono font-semibold text-purple-600 dark:text-purple-400">{timeWindows.npt}</span></div>
+                  <div><span className="text-gray-500 dark:text-gray-400">UTC:</span> <span className="font-mono text-purple-600 dark:text-purple-400">{timeWindows.utc}</span></div>
+                  <div><span className="text-gray-500 dark:text-gray-400">US EST:</span> <span className="font-mono text-purple-600 dark:text-purple-400">{timeWindows.us}</span></div>
+                </div>
+                <div className="mt-2 pt-2 border-t dark:border-gray-700">
+                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                    {session.description || 'Special high-probability trading window'}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
         </div>
-        <div className={`rounded-lg p-3 ${isGW2Active ? 'bg-purple-50 dark:bg-purple-900/20 border-2 border-purple-500' : 'bg-white dark:bg-gray-800/50 border dark:border-gray-700'}`}>
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-purple-600 dark:text-purple-400">GW2</span>
-              {isGW2Active && (
-                <span className="flex items-center gap-1 px-2 py-0.5 bg-purple-500/20 border border-purple-500/50 rounded text-xs text-purple-600 dark:text-purple-400">
-                  <span className="w-1.5 h-1.5 bg-purple-500 dark:bg-purple-400 rounded-full animate-pulse"></span>
-                  ACTIVE
-                </span>
-              )}
-            </div>
-            <span className="text-xs text-purple-600 dark:text-purple-400 font-medium">{gw2Window.days}</span>
-          </div>
-          <div className="space-y-1 text-xs">
-            <div><span className="text-gray-500 dark:text-gray-400">NPT:</span> <span className="font-mono font-semibold text-purple-600 dark:text-purple-400">{gw2Window.npt}</span></div>
-            <div><span className="text-gray-500 dark:text-gray-400">UTC:</span> <span className="font-mono dark:text-gray-300">{gw2Window.utc}</span></div>
-            <div><span className="text-gray-500 dark:text-gray-400">US:</span> <span className="font-mono dark:text-gray-300">{gw2Window.us}</span></div>
-          </div>
-          <div className="mt-2 pt-2 border-t dark:border-gray-700">
-            <p className="text-xs text-gray-600 dark:text-gray-400">
-              Special high-probability trading window on Sunday, Wednesday & Thursday evenings
-            </p>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 };

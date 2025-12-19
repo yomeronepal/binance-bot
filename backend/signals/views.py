@@ -9,14 +9,15 @@ from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnl
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 
-from .models import Symbol, Signal, UserSubscription
+from .models import Symbol, Signal, UserSubscription, TradingSession
 from .serializers import (
     SymbolSerializer,
     SymbolListSerializer,
     SignalSerializer,
     SignalListSerializer,
     UserSubscriptionSerializer,
-    SignalStatusUpdateSerializer
+    SignalStatusUpdateSerializer,
+    TradingSessionSerializer
 )
 from .services import (
     SignalScoringService,
@@ -417,3 +418,52 @@ class AnalyticsViewSet(viewsets.ViewSet):
         limit = int(request.query_params.get('limit', 10))
         top_symbols = AnalyticsService.get_top_symbols(limit=limit)
         return Response(top_symbols)
+
+
+class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for TradingSession model.
+    Read-only public access to fetch active trading sessions.
+    """
+    queryset = TradingSession.objects.filter(active=True).order_by('start_hour', 'start_minute')
+    serializer_class = TradingSessionSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly]
+    
+    def get_queryset(self):
+        """Get only active sessions by default."""
+        queryset = TradingSession.objects.filter(active=True)
+        
+        # Allow admin to see inactive sessions
+        if self.request.user.is_staff:
+            include_inactive = self.request.query_params.get('include_inactive', 'false')
+            if include_inactive.lower() == 'true':
+                queryset = TradingSession.objects.all()
+        
+        return queryset.order_by('start_hour', 'start_minute')
+    
+    @action(detail=False, methods=['get'])
+    def active_now(self, request):
+        """Get currently active trading session (if any)."""
+        from datetime import datetime, timedelta
+        
+        # Get Nepal Time (UTC + 5:45)
+        utc_now = datetime.utcnow()
+        npt_now = utc_now + timedelta(hours=5, minutes=45)
+        
+        # Check all active sessions
+        sessions = TradingSession.get_active_sessions()
+        matching_session = TradingSession.get_matching_session(npt_now)
+        
+        if matching_session:
+            serializer = TradingSessionSerializer(matching_session)
+            return Response({
+                'is_active': True,
+                'session': serializer.data,
+                'current_time_npt': npt_now.strftime('%H:%M:%S')
+            })
+        
+        return Response({
+            'is_active': False,
+            'session': None,
+            'current_time_npt': npt_now.strftime('%H:%M:%S')
+        })
