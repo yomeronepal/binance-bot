@@ -10,7 +10,7 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.http import HttpResponse
 from django.utils import timezone
-from .models import Symbol, Signal, UserSubscription, PaperTrade, PaperAccount
+from .models import Symbol, Signal, UserSubscription, PaperTrade, PaperAccount, TradingSession
 from .models_backtest import (
     BacktestRun,
     BacktestTrade,
@@ -82,6 +82,103 @@ class SymbolAdmin(BaseModelAdmin):
         """Bulk deactivate symbols."""
         updated = queryset.update(active=False)
         self.message_user(request, f'{updated} symbols deactivated successfully.')
+
+
+@admin.register(TradingSession)
+class TradingSessionAdmin(BaseModelAdmin):
+    """
+    Admin interface for TradingSession model.
+    """
+    list_display = (
+        'name',
+        'session_type_badge',
+        'time_window_display',
+        'active_days_display',
+        'active_badge',
+        'created_at'
+    )
+    list_filter = ('active', 'session_type', 'created_at')
+    search_fields = ('name', 'description')
+    ordering = ('start_hour', 'start_minute')
+    list_per_page = 50
+
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'session_type', 'description', 'active')
+        }),
+        ('Time Window (Nepal Time)', {
+            'fields': (('start_hour', 'start_minute'), ('end_hour', 'end_minute'))
+        }),
+        ('Active Days', {
+            'fields': ('active_days',),
+            'description': 'For GOLDEN_WINDOW sessions, specify active days as a list (0=Monday, 6=Sunday). Leave empty for all days.'
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+
+    actions = ['activate_sessions', 'deactivate_sessions']
+
+    def session_type_badge(self, obj):
+        """Display session type with colored badge."""
+        colors = {
+            'GOLDEN_WINDOW': '#9333ea',  # purple
+            'ACTIVE_TRADING_WINDOW': '#059669',  # green
+        }
+        color = colors.get(obj.session_type, '#6c757d')
+        display_name = dict(obj.SESSION_TYPE_CHOICES).get(obj.session_type, obj.session_type)
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 8px; '
+            'border-radius: 3px; font-size: 11px;">{}</span>',
+            color,
+            display_name
+        )
+    session_type_badge.short_description = 'Type'
+    session_type_badge.admin_order_field = 'session_type'
+
+    def time_window_display(self, obj):
+        """Display time window in NPT."""
+        return f"{obj.start_hour:02d}:{obj.start_minute:02d} - {obj.end_hour:02d}:{obj.end_minute:02d} NPT"
+    time_window_display.short_description = 'Time Window'
+
+    def active_days_display(self, obj):
+        """Display active days in readable format."""
+        if not obj.active_days:
+            return format_html('<span style="color: #6c757d;">All Days</span>')
+        
+        day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        active_day_names = [day_names[day] for day in obj.active_days if 0 <= day <= 6]
+        return ', '.join(active_day_names) if active_day_names else '-'
+    active_days_display.short_description = 'Active Days'
+
+    def active_badge(self, obj):
+        """Display active status with badge."""
+        if obj.active:
+            return format_html(
+                '<span style="background-color: #28a745; color: white; padding: 3px 8px; '
+                'border-radius: 3px; font-size: 11px;">ACTIVE</span>'
+            )
+        return format_html(
+            '<span style="background-color: #6c757d; color: white; padding: 3px 8px; '
+            'border-radius: 3px; font-size: 11px;">INACTIVE</span>'
+        )
+    active_badge.short_description = 'Status'
+    active_badge.admin_order_field = 'active'
+
+    @admin.action(description='Activate selected sessions')
+    def activate_sessions(self, request, queryset):
+        """Bulk activate sessions."""
+        updated = queryset.update(active=True)
+        self.message_user(request, f'{updated} sessions activated successfully.')
+
+    @admin.action(description='Deactivate selected sessions')
+    def deactivate_sessions(self, request, queryset):
+        """Bulk deactivate sessions."""
+        updated = queryset.update(active=False)
+        self.message_user(request, f'{updated} sessions deactivated successfully.')
+
 
 
 @admin.register(Signal)
