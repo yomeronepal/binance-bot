@@ -58,6 +58,14 @@ class FuturesTradeSerializer(serializers.ModelSerializer):
             'position_size_usdt',
             'profit_loss',
             'profit_loss_percentage',
+            # Live data fields
+            'mark_price',
+            'unrealized_pnl',
+            'unrealized_pnl_percentage',
+            'liquidation_price',
+            'margin_type',
+            'last_sync_time',
+            # Status and metadata
             'status',
             'binance_order_id',
             'binance_exit_order_id',
@@ -74,7 +82,7 @@ class FuturesTradeSerializer(serializers.ModelSerializer):
 
 
 class FuturesTradeListSerializer(serializers.ModelSerializer):
-    """Lightweight serializer for trade lists."""
+    """Lightweight serializer for trade lists with live data."""
 
     class Meta:
         model = FuturesTrade
@@ -87,6 +95,13 @@ class FuturesTradeListSerializer(serializers.ModelSerializer):
             'exit_price',
             'profit_loss',
             'profit_loss_percentage',
+            # Live data for open trades
+            'mark_price',
+            'unrealized_pnl',
+            'unrealized_pnl_percentage',
+            'liquidation_price',
+            'last_sync_time',
+            # Status and times
             'status',
             'entry_time',
             'exit_time',

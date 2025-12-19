@@ -78,6 +78,13 @@ const SignalCard = ({ signal, onClick }) => {
             </span>
           )}
 
+          {/* Golden Window 2 Badge */}
+          {signal.is_golden_2 && (
+            <span className="bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-1 rounded">
+              🏆 GOLDEN
+            </span>
+          )}
+
           {/* Symbol */}
           <h3 className="text-lg font-bold text-gray-800">
             {signal.symbol_detail?.symbol || signal.symbol || 'N/A'}

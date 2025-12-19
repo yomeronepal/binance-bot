@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Activity, X, Settings, Power, Calendar } from 'lucide-react';
+import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Activity, X, Settings, Power, Calendar, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
 import { ShieldAlert } from 'lucide-react';
@@ -136,42 +136,47 @@ const FuturesPerformance = () => {
     }
 
     const stats = summary?.statistics || {};
+    const realizedPnl = parseFloat(stats.realized_pnl || stats.total_pnl || 0);
+    const unrealizedPnl = parseFloat(stats.unrealized_pnl || 0);
     const totalPnl = parseFloat(stats.total_pnl || 0);
     const winRate = parseFloat(stats.win_rate || 0);
     const totalTrades = parseInt(stats.total_trades || 0);
     const winningTrades = parseInt(stats.winning_trades || 0);
     const losingTrades = parseInt(stats.losing_trades || 0);
-    const openCount = parseInt(stats.open_positions || 0);
+    const openCount = parseInt(stats.open_positions_count || stats.open_positions || 0);
+
+    // Use open_positions from summary if available (contains live data)
+    const livePositions = summary?.open_positions || openPositions;
 
     const statCards = [
         {
             label: 'Total P/L',
             value: `${totalPnl >= 0 ? '+' : ''}$${Math.abs(totalPnl).toFixed(2)}`,
-            subtext: `From ${totalTrades} closed trades`,
+            subtext: `Realized: $${realizedPnl.toFixed(2)} | Unrealized: $${unrealizedPnl.toFixed(2)}`,
             icon: DollarSign,
             color: totalPnl >= 0 ? 'text-green-400' : 'text-red-400',
             bgGradient: totalPnl >= 0 ? 'from-green-500/20 to-green-600/10' : 'from-red-500/20 to-red-600/10',
         },
         {
+            label: 'Unrealized P/L',
+            value: `${unrealizedPnl >= 0 ? '+' : ''}$${Math.abs(unrealizedPnl).toFixed(2)}`,
+            subtext: `From ${openCount} open position${openCount !== 1 ? 's' : ''}`,
+            icon: Activity,
+            color: unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400',
+            bgGradient: unrealizedPnl >= 0 ? 'from-green-500/20 to-green-600/10' : 'from-red-500/20 to-red-600/10',
+        },
+        {
             label: 'Win Rate',
             value: `${winRate.toFixed(1)}%`,
-            subtext: `${winningTrades}W / ${losingTrades}L`,
+            subtext: `${winningTrades}W / ${losingTrades}L (${totalTrades} trades)`,
             icon: Target,
             color: winRate >= 50 ? 'text-green-400' : 'text-red-400',
             bgGradient: 'from-blue-500/20 to-purple-600/10',
         },
         {
-            label: 'Open Positions',
-            value: openCount,
-            subtext: `Max: ${settings?.max_concurrent_trades || 1}`,
-            icon: Activity,
-            color: 'text-purple-400',
-            bgGradient: 'from-purple-500/20 to-pink-600/10',
-        },
-        {
             label: 'Position Size',
             value: `$${settings?.trade_amount || 0}`,
-            subtext: `${settings?.leverage || 10}x leverage`,
+            subtext: `${settings?.leverage || 10}x = $${settings?.effective_position_size || 0} effective`,
             icon: BarChart3,
             color: 'text-blue-400',
             bgGradient: 'from-blue-500/20 to-cyan-600/10',
@@ -355,14 +360,31 @@ const FuturesPerformance = () => {
     );
 };
 
-// Trade Card Component
+// Trade Card Component with Live Data
 const TradeCard = ({ trade, onClose, isClosing }) => {
     const pnl = parseFloat(trade.profit_loss || 0);
     const pnlPct = parseFloat(trade.profit_loss_percentage || 0);
+    const unrealizedPnl = parseFloat(trade.unrealized_pnl || 0);
+    const unrealizedPnlPct = parseFloat(trade.unrealized_pnl_percentage || 0);
+    const markPrice = parseFloat(trade.mark_price || 0);
+    const liquidationPrice = parseFloat(trade.liquidation_price || 0);
     const isOpen = trade.status === 'OPEN';
+    const lastSync = trade.last_sync_time ? new Date(trade.last_sync_time) : null;
+
+    // Calculate distance to liquidation
+    const entryPrice = parseFloat(trade.entry_price || 0);
+    const distanceToLiq = liquidationPrice && entryPrice ?
+        Math.abs(((liquidationPrice - entryPrice) / entryPrice) * 100) : 0;
+    const isLiqNear = distanceToLiq > 0 && distanceToLiq < 10; // Warning if within 10%
 
     return (
-        <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:border-purple-400 dark:hover:border-purple-500/50 transition-all shadow-sm">
+        <div className={`bg-white dark:bg-gray-800/50 border rounded-lg p-4 transition-all shadow-sm ${
+            isOpen && unrealizedPnl >= 0
+                ? 'border-green-300 dark:border-green-500/30 hover:border-green-400 dark:hover:border-green-500/50'
+                : isOpen && unrealizedPnl < 0
+                    ? 'border-red-300 dark:border-red-500/30 hover:border-red-400 dark:hover:border-red-500/50'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-purple-400 dark:hover:border-purple-500/50'
+        }`}>
             <div className="flex items-start justify-between mb-3">
                 <div>
                     <h3 className="text-gray-900 dark:text-white font-semibold text-lg">{trade.symbol}</h3>
@@ -372,6 +394,9 @@ const TradeCard = ({ trade, onClose, isClosing }) => {
                             {trade.direction}
                         </span>
                         <span className="text-xs text-purple-600 dark:text-purple-400">{trade.leverage}x</span>
+                        {trade.margin_type && (
+                            <span className="text-xs text-gray-500 dark:text-gray-400">{trade.margin_type}</span>
+                        )}
                     </div>
                 </div>
                 {isOpen && onClose && (
@@ -390,6 +415,22 @@ const TradeCard = ({ trade, onClose, isClosing }) => {
                     <span className="text-gray-500 dark:text-gray-400">Entry:</span>
                     <span className="text-gray-900 dark:text-white font-mono">${parseFloat(trade.entry_price || 0).toFixed(4)}</span>
                 </div>
+
+                {/* Live Mark Price for open trades */}
+                {isOpen && markPrice > 0 && (
+                    <div className="flex justify-between">
+                        <span className="text-gray-500 dark:text-gray-400">Mark Price:</span>
+                        <span className={`font-mono font-semibold ${
+                            (trade.direction === 'LONG' && markPrice > entryPrice) ||
+                            (trade.direction === 'SHORT' && markPrice < entryPrice)
+                                ? 'text-green-600 dark:text-green-400'
+                                : 'text-red-600 dark:text-red-400'
+                        }`}>
+                            ${markPrice.toFixed(4)}
+                        </span>
+                    </div>
+                )}
+
                 <div className="flex justify-between">
                     <span className="text-gray-500 dark:text-gray-400">Size:</span>
                     <span className="text-gray-900 dark:text-white">${parseFloat(trade.position_size_usdt || 0).toFixed(2)}</span>
@@ -402,6 +443,38 @@ const TradeCard = ({ trade, onClose, isClosing }) => {
                         <span className="text-red-600 dark:text-red-400">${parseFloat(trade.stop_loss || 0).toFixed(4)}</span>
                     </span>
                 </div>
+
+                {/* Liquidation Price for open trades */}
+                {isOpen && liquidationPrice > 0 && (
+                    <div className="flex justify-between items-center">
+                        <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                            {isLiqNear && <AlertTriangle className="w-3 h-3 text-orange-500" />}
+                            Liq. Price:
+                        </span>
+                        <span className={`font-mono text-xs ${isLiqNear ? 'text-orange-500 font-semibold' : 'text-gray-600 dark:text-gray-400'}`}>
+                            ${liquidationPrice.toFixed(4)} ({distanceToLiq.toFixed(1)}% away)
+                        </span>
+                    </div>
+                )}
+
+                {/* Live Unrealized P/L for open trades */}
+                {isOpen && (
+                    <div className="border-t border-gray-200 dark:border-gray-700 pt-2 mt-2">
+                        <div className="flex justify-between">
+                            <span className="text-gray-500 dark:text-gray-400">Unrealized P/L:</span>
+                            <div className="text-right">
+                                <div className={`font-bold text-lg ${unrealizedPnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                    {unrealizedPnl >= 0 ? '+' : ''}${Math.abs(unrealizedPnl).toFixed(2)}
+                                </div>
+                                <div className={`text-xs ${unrealizedPnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                    ({unrealizedPnl >= 0 ? '+' : ''}{unrealizedPnlPct.toFixed(2)}%)
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Realized P/L for closed trades */}
                 {!isOpen && (
                     <div className="border-t border-gray-200 dark:border-gray-700 pt-2 mt-2">
                         <div className="flex justify-between">
@@ -420,9 +493,17 @@ const TradeCard = ({ trade, onClose, isClosing }) => {
             </div>
 
             <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs">
-                <div className="flex items-center text-gray-500">
-                    <Clock className="w-3 h-3 mr-1" />
-                    {trade.entry_time ? new Date(trade.entry_time).toLocaleDateString() : new Date(trade.created_at).toLocaleDateString()}
+                <div className="flex items-center gap-2 text-gray-500">
+                    <div className="flex items-center">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {trade.entry_time ? new Date(trade.entry_time).toLocaleDateString() : new Date(trade.created_at).toLocaleDateString()}
+                    </div>
+                    {isOpen && lastSync && (
+                        <div className="flex items-center text-gray-400" title={`Last synced: ${lastSync.toLocaleString()}`}>
+                            <RefreshCw className="w-3 h-3 mr-1" />
+                            {formatTimeAgo(lastSync)}
+                        </div>
+                    )}
                 </div>
                 <span className={`px-2 py-0.5 rounded text-xs ${trade.status === 'OPEN' ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400' :
                     trade.status === 'CLOSED_TP' ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400' :
@@ -436,7 +517,17 @@ const TradeCard = ({ trade, onClose, isClosing }) => {
     );
 };
 
-// Trade Table Component
+// Helper function to format time ago
+const formatTimeAgo = (date) => {
+    const seconds = Math.floor((new Date() - date) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ago`;
+};
+
+// Trade Table Component with Live Data
 const TradeTable = ({ trades }) => (
     <div className="overflow-x-auto">
         <table className="w-full">
@@ -445,18 +536,30 @@ const TradeTable = ({ trades }) => (
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Symbol</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Direction</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Entry</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Exit</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Mark/Exit</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">P/L</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Liq. Price</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Status</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Date</th>
                 </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {trades.map((trade) => {
-                    const pnl = parseFloat(trade.profit_loss || 0);
-                    const pnlPct = parseFloat(trade.profit_loss_percentage || 0);
+                    const isOpen = trade.status === 'OPEN';
+                    const pnl = isOpen ? parseFloat(trade.unrealized_pnl || 0) : parseFloat(trade.profit_loss || 0);
+                    const pnlPct = isOpen ? parseFloat(trade.unrealized_pnl_percentage || 0) : parseFloat(trade.profit_loss_percentage || 0);
+                    const markPrice = parseFloat(trade.mark_price || 0);
+                    const liquidationPrice = parseFloat(trade.liquidation_price || 0);
+                    const entryPrice = parseFloat(trade.entry_price || 0);
+                    const distanceToLiq = liquidationPrice && entryPrice ?
+                        Math.abs(((liquidationPrice - entryPrice) / entryPrice) * 100) : 0;
+                    const isLiqNear = distanceToLiq > 0 && distanceToLiq < 10;
+
                     return (
-                        <tr key={trade.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                        <tr key={trade.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/30 ${
+                            isOpen && pnl >= 0 ? 'bg-green-50/30 dark:bg-green-900/10' :
+                            isOpen && pnl < 0 ? 'bg-red-50/30 dark:bg-red-900/10' : ''
+                        }`}>
                             <td className="px-4 py-3 text-gray-900 dark:text-white font-medium">{trade.symbol}</td>
                             <td className="px-4 py-3">
                                 <span className={`px-2 py-1 rounded text-xs font-medium ${trade.direction === 'LONG' ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400' : 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400'
@@ -465,8 +568,19 @@ const TradeTable = ({ trades }) => (
                                 </span>
                             </td>
                             <td className="px-4 py-3 text-gray-700 dark:text-gray-300 font-mono text-sm">${parseFloat(trade.entry_price || 0).toFixed(4)}</td>
-                            <td className="px-4 py-3 text-gray-700 dark:text-gray-300 font-mono text-sm">
-                                {trade.exit_price ? `$${parseFloat(trade.exit_price).toFixed(4)}` : '-'}
+                            <td className="px-4 py-3 font-mono text-sm">
+                                {isOpen && markPrice > 0 ? (
+                                    <span className={`font-semibold ${
+                                        (trade.direction === 'LONG' && markPrice > entryPrice) ||
+                                        (trade.direction === 'SHORT' && markPrice < entryPrice)
+                                            ? 'text-green-600 dark:text-green-400'
+                                            : 'text-red-600 dark:text-red-400'
+                                    }`}>
+                                        ${markPrice.toFixed(4)}
+                                    </span>
+                                ) : trade.exit_price ? (
+                                    <span className="text-gray-700 dark:text-gray-300">${parseFloat(trade.exit_price).toFixed(4)}</span>
+                                ) : '-'}
                             </td>
                             <td className="px-4 py-3">
                                 <div className={`font-semibold ${pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
@@ -475,6 +589,14 @@ const TradeTable = ({ trades }) => (
                                 <div className={`text-xs ${pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                                     ({pnl >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)
                                 </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm">
+                                {isOpen && liquidationPrice > 0 ? (
+                                    <div className={isLiqNear ? 'text-orange-500 font-semibold' : 'text-gray-500 dark:text-gray-400'}>
+                                        <div className="font-mono">${liquidationPrice.toFixed(4)}</div>
+                                        <div className="text-xs">({distanceToLiq.toFixed(1)}% away)</div>
+                                    </div>
+                                ) : '-'}
                             </td>
                             <td className="px-4 py-3">
                                 <span className={`px-2 py-1 rounded text-xs ${trade.status === 'OPEN' ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400' :
@@ -486,7 +608,13 @@ const TradeTable = ({ trades }) => (
                                 </span>
                             </td>
                             <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-sm">
-                                {trade.entry_time ? new Date(trade.entry_time).toLocaleDateString() : '-'}
+                                <div>{trade.entry_time ? new Date(trade.entry_time).toLocaleDateString() : '-'}</div>
+                                {isOpen && trade.last_sync_time && (
+                                    <div className="text-xs text-gray-400 flex items-center gap-1">
+                                        <RefreshCw className="w-3 h-3" />
+                                        {formatTimeAgo(new Date(trade.last_sync_time))}
+                                    </div>
+                                )}
                             </td>
                         </tr>
                     );

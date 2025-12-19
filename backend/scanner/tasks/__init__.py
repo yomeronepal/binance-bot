@@ -47,6 +47,12 @@ from .futures_multi_timeframe_scanner import (
     scan_futures_5m,
 )
 
+from .golden_window_trader import (
+    golden_window_auto_trader,
+    check_gw_trades_status,
+    sync_futures_trades_with_binance,
+)
+
 __all__ = [
     'scan_binance_market',
     'scan_futures_market',
@@ -72,4 +78,7 @@ __all__ = [
     'scan_futures_1h',
     'scan_futures_15m',
     'scan_futures_5m',
+    'golden_window_auto_trader',
+    'check_gw_trades_status',
+    'sync_futures_trades_with_binance',
 ]

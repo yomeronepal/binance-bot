@@ -29,10 +29,10 @@ class PaperTradingService:
     def _is_trading_hour(self) -> bool:
         """
         Check if current UTC hour is within allowed trading windows.
-        Allowed windows: 17:00-18:00 UTC and 21:00-23:00 UTC (high win rate periods)
+        Allowed windows: 16:00-17:00 UTC and 21:00-23:00 UTC (high win rate periods)
         """
         current_hour = timezone.now().hour
-        return current_hour == 17 or (21 <= current_hour <= 22)
+        return current_hour == 16 or (21 <= current_hour <= 22)
 
     def create_paper_trade(self, signal: Signal, user=None, position_size=None) -> PaperTrade:
         """
@@ -105,16 +105,21 @@ class PaperTradingService:
         from datetime import timedelta
         npt_time = entry_time + timedelta(hours=5, minutes=45)
         day_minutes = npt_time.hour * 60 + npt_time.minute
-        
+        weekday = npt_time.weekday()  # 0=Mon, 6=Sun
+
         is_golden_1 = False
         is_golden_2 = False
-        
-        # GW1
-        if (1020 <= day_minutes < 1080) or (1260 <= day_minutes < 1380):
+
+        # is_priority (is_golden_1): True if signal is generated during ANY trading window
+        # GW1: 16:00-17:00 NPT (960-1020 minutes) - all days
+        # GW2: 21:00-23:00 NPT (1260-1380 minutes) - all days
+        if (960 <= day_minutes < 1020) or (1260 <= day_minutes < 1380):
             is_golden_1 = True
-            
-        # GW2
-        if (1260 <= day_minutes < 1380) and (npt_time.weekday() in [6, 2, 3]):
+
+        # is_golden_2: True if signal is generated during premium windows on specific days
+        # GW1: 16:00-17:00 NPT on Sun/Wed/Thu only
+        # GW2: 21:00-23:00 NPT on Sun/Wed/Thu only
+        if ((960 <= day_minutes < 1020) or (1260 <= day_minutes < 1380)) and (weekday in [6, 2, 3]):
             is_golden_2 = True
 
         paper_trade = PaperTrade.objects.create(
@@ -193,16 +198,21 @@ class PaperTradingService:
         from datetime import timedelta
         npt_time = entry_time + timedelta(hours=5, minutes=45)
         day_minutes = npt_time.hour * 60 + npt_time.minute
-        
+        weekday = npt_time.weekday()  # 0=Mon, 6=Sun
+
         is_golden_1 = False
         is_golden_2 = False
-        
-        # GW1
-        if (1020 <= day_minutes < 1080) or (1260 <= day_minutes < 1380):
+
+        # is_priority (is_golden_1): True if signal is generated during ANY trading window
+        # GW1: 16:00-17:00 NPT (960-1020 minutes) - all days
+        # GW2: 21:00-23:00 NPT (1260-1380 minutes) - all days
+        if (960 <= day_minutes < 1020) or (1260 <= day_minutes < 1380):
             is_golden_1 = True
-            
-        # GW2
-        if (1260 <= day_minutes < 1380) and (npt_time.weekday() in [6, 2, 3]):
+
+        # is_golden_2: True if signal is generated during premium windows on specific days
+        # GW1: 16:00-17:00 NPT on Sun/Wed/Thu only
+        # GW2: 21:00-23:00 NPT on Sun/Wed/Thu only
+        if ((960 <= day_minutes < 1020) or (1260 <= day_minutes < 1380)) and (weekday in [6, 2, 3]):
             is_golden_2 = True
 
         paper_trade = PaperTrade.objects.create(

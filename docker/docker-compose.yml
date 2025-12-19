@@ -97,7 +97,7 @@ services:
       context: ../backend
       dockerfile: ../docker/Dockerfile
     container_name: revx_celery
-    command: celery -A config worker -l info -Q celery,backtesting,scanner,notifications,maintenance,paper_trading
+    command: celery -A config worker -l info -Q celery,backtesting,scanner,notifications,maintenance,paper_trading,futures_trading
     volumes:
       - ../backend:/app
     env_file:

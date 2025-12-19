@@ -87,6 +87,7 @@ class BinanceFuturesTrader:
 
         if signed:
             params['timestamp'] = int(time.time() * 1000)
+            params['recvWindow'] = 60000  # 60 seconds tolerance for clock drift
             query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
             params['signature'] = self._generate_signature(query_string)
 
@@ -108,6 +109,71 @@ class BinanceFuturesTrader:
     async def get_account_balance(self) -> Dict:
         """Get futures account balance."""
         return await self._request('GET', '/fapi/v2/balance', signed=True)
+
+    async def get_open_positions(self) -> list:
+        """Get all open positions from Binance."""
+        try:
+            positions = await self._request('GET', '/fapi/v2/positionRisk', signed=True)
+            # Filter only positions with non-zero quantity
+            return [p for p in positions if float(p.get('positionAmt', 0)) != 0]
+        except Exception as e:
+            logger.error(f"Failed to get open positions: {e}")
+            return []
+
+    async def get_position_for_symbol(self, symbol: str) -> Optional[Dict]:
+        """Get position for a specific symbol."""
+        try:
+            positions = await self._request(
+                'GET', '/fapi/v2/positionRisk',
+                {'symbol': symbol},
+                signed=True
+            )
+            for p in positions:
+                if float(p.get('positionAmt', 0)) != 0:
+                    return p
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get position for {symbol}: {e}")
+            return None
+
+    async def get_trade_history(self, symbol: str, limit: int = 50) -> list:
+        """Get recent trade history for a symbol."""
+        try:
+            return await self._request(
+                'GET', '/fapi/v1/userTrades',
+                {'symbol': symbol, 'limit': limit},
+                signed=True
+            )
+        except Exception as e:
+            logger.error(f"Failed to get trade history for {symbol}: {e}")
+            return []
+
+    async def get_income_history(self, symbol: str = None, income_type: str = None, limit: int = 100) -> list:
+        """
+        Get income history (realized PnL, funding fees, etc).
+        income_type can be: REALIZED_PNL, FUNDING_FEE, COMMISSION, etc.
+        """
+        try:
+            params = {'limit': limit}
+            if symbol:
+                params['symbol'] = symbol
+            if income_type:
+                params['incomeType'] = income_type
+            return await self._request('GET', '/fapi/v1/income', params, signed=True)
+        except Exception as e:
+            logger.error(f"Failed to get income history: {e}")
+            return []
+
+    async def get_all_open_orders(self, symbol: str = None) -> list:
+        """Get all open orders."""
+        try:
+            params = {}
+            if symbol:
+                params['symbol'] = symbol
+            return await self._request('GET', '/fapi/v1/openOrders', params, signed=True)
+        except Exception as e:
+            logger.error(f"Failed to get open orders: {e}")
+            return []
 
     async def get_symbol_info(self, symbol: str) -> Optional[Dict]:
         """Get symbol trading rules (precision, min qty, etc)."""
@@ -345,10 +411,21 @@ class BinanceFuturesTrader:
         Place market order with SL/TP orders on Binance.
         This method only handles API calls, no DB operations.
         """
-        try:
-            await self.set_margin_type(symbol, 'ISOLATED')
-            await self.set_leverage(symbol, leverage)
+        errors = []
+        sl_order_id = None
+        tp_order_id = None
 
+        try:
+            # Set margin type and leverage
+            margin_ok = await self.set_margin_type(symbol, 'ISOLATED')
+            if not margin_ok:
+                errors.append("Failed to set margin type")
+
+            leverage_ok = await self.set_leverage(symbol, leverage)
+            if not leverage_ok:
+                errors.append(f"Failed to set leverage to {leverage}x")
+
+            # Calculate quantity
             quantity = self._calculate_quantity(
                 symbol_info,
                 current_price,
@@ -356,19 +433,41 @@ class BinanceFuturesTrader:
                 leverage
             )
 
+            logger.info(f"Placing {direction} order: {quantity} {symbol} @ ~{current_price}")
+
+            # Place entry order
             side = 'BUY' if direction == 'LONG' else 'SELL'
             entry_result = await self.place_market_order(symbol, side, quantity)
 
             if not entry_result:
-                raise Exception("Failed to place entry order")
+                raise Exception("Failed to place entry order - insufficient balance or invalid parameters")
 
             avg_price = Decimal(entry_result.get('avgPrice', str(current_price)))
+            entry_order_id = str(entry_result.get('orderId', ''))
 
+            logger.info(f"✅ Entry order filled: {direction} {quantity} {symbol} @ {avg_price}")
+
+            # Place SL/TP orders
             sl_side = 'SELL' if direction == 'LONG' else 'BUY'
             tp_side = 'SELL' if direction == 'LONG' else 'BUY'
 
-            await self.place_stop_loss_order(symbol, sl_side, quantity, sl)
-            await self.place_take_profit_order(symbol, tp_side, quantity, tp)
+            # Place Stop Loss
+            sl_result = await self.place_stop_loss_order(symbol, sl_side, quantity, sl)
+            if sl_result:
+                sl_order_id = str(sl_result.get('orderId', ''))
+                logger.info(f"✅ SL order placed: {sl_side} @ {sl}")
+            else:
+                errors.append(f"Failed to place SL order at {sl}")
+                logger.warning(f"⚠️ SL order failed for {symbol} @ {sl}")
+
+            # Place Take Profit
+            tp_result = await self.place_take_profit_order(symbol, tp_side, quantity, tp)
+            if tp_result:
+                tp_order_id = str(tp_result.get('orderId', ''))
+                logger.info(f"✅ TP order placed: {tp_side} @ {tp}")
+            else:
+                errors.append(f"Failed to place TP order at {tp}")
+                logger.warning(f"⚠️ TP order failed for {symbol} @ {tp}")
 
             logger.info(
                 f"✅ Futures trade opened: {direction} {quantity} {symbol} @ {avg_price} "
@@ -378,12 +477,16 @@ class BinanceFuturesTrader:
             return {
                 'quantity': quantity,
                 'entry_price': avg_price,
-                'order_id': str(entry_result.get('orderId', ''))
+                'order_id': entry_order_id,
+                'sl_order_id': sl_order_id,
+                'tp_order_id': tp_order_id,
+                'warnings': errors if errors else None
             }
 
         except Exception as e:
-            logger.error(f"❌ Failed to place orders for {symbol}: {e}")
-            raise
+            error_msg = str(e)
+            logger.error(f"❌ Failed to place orders for {symbol}: {error_msg}")
+            raise Exception(f"{error_msg}. Previous errors: {'; '.join(errors)}" if errors else error_msg)
 
     async def close(self):
         """Close the session."""
@@ -530,12 +633,20 @@ class FuturesTradingService:
         futures_trade.binance_order_id = result['order_id']
         futures_trade.entry_time = dj_timezone.now()
         futures_trade.status = 'OPEN'
+
+        # Save any warnings about SL/TP placement
+        if result.get('warnings'):
+            futures_trade.error_message = "Trade opened with warnings: " + "; ".join(result['warnings'])
+
         futures_trade.save()
 
         logger.info(
             f"💰 Futures trade opened: {direction} {result['quantity']} {symbol_name} "
             f"@ {result['entry_price']} (Trade ID: {futures_trade.id})"
         )
+
+        if result.get('warnings'):
+            logger.warning(f"⚠️ Trade {futures_trade.id} warnings: {result['warnings']}")
 
         return futures_trade
 

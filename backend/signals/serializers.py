@@ -175,6 +175,8 @@ class SignalSerializer(BaseModelSerializer):
             'created_by_detail',
             'risk_reward_ratio',
             'profit_percentage',
+            'is_priority',
+            'is_golden_2',
             'expires_at',
             'created_at',
             'updated_at'
@@ -304,7 +306,9 @@ class SignalListSerializer(serializers.ModelSerializer):
             'timeframe',
             'description',
             'trading_type',
-            'estimated_duration_hours'
+            'estimated_duration_hours',
+            'is_priority',
+            'is_golden_2'
         ]
 
     def get_risk_reward(self, obj):

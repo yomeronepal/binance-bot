@@ -169,7 +169,7 @@ const Dashboard = () => {
       const timeInMinutes = hour * 60 + minute;
 
       const windows = [
-        { start: 17 * 60, end: 18 * 60 },
+        { start: 16 * 60, end: 17 * 60 },
         { start: 21 * 60, end: 23 * 60 }
       ];
 
@@ -182,9 +182,9 @@ const Dashboard = () => {
       const minute = nepalTime.getMinutes();
       const timeInMinutes = hour * 60 + minute;
 
-      if (timeInMinutes < 17 * 60) return '17:00 NPT';
-      if (timeInMinutes >= 18 * 60 && timeInMinutes < 21 * 60) return '21:00 NPT';
-      return '17:00 NPT (tomorrow)';
+      if (timeInMinutes < 16 * 60) return '16:00 NPT';
+      if (timeInMinutes >= 17 * 60 && timeInMinutes < 21 * 60) return '21:00 NPT';
+      return '16:00 NPT (tomorrow)';
     };
 
     const nepalTime = getNepalTime(currentTime);
@@ -194,9 +194,9 @@ const Dashboard = () => {
 
     const tradingWindows = [
       {
-        npt: '17:00 - 18:00',
-        utc: '11:15 - 12:15',
-        us: '06:15 - 07:15 EST'
+        npt: '16:00 - 17:00',
+        utc: '10:15 - 11:15',
+        us: '05:15 - 06:15 EST'
       },
       {
         npt: '21:00 - 23:00',

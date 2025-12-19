@@ -3,14 +3,14 @@ from signals.models import TradingSession
 # Clear any existing sessions to avoid duplicates
 TradingSession.objects.all().delete()
 
-# GW1: 17:00-18:00 NPT, Active Trading Window (all days)
+# GW1: 16:00-17:00 NPT, Active Trading Window (all days)
 TradingSession.objects.create(
     name='GW1',
     session_type='ACTIVE_TRADING_WINDOW',
-    description='Golden Window 1: High win-rate period 17:00-18:00 NPT',
-    start_hour=17,
+    description='Golden Window 1: High win-rate period 16:00-17:00 NPT',
+    start_hour=16,
     start_minute=0,
-    end_hour=18,
+    end_hour=17,
     end_minute=0,
     active_days=[],  # All days
     active=True

@@ -120,7 +120,7 @@ services:
   celery:
     image: yomeronepal/binance-bot-backend:latest
     container_name: binancebot_celery_prod
-    command: sh -c "celery -A config worker -l info --concurrency=4 -Q celery,scanner,paper_trading,notifications,maintenance,backtesting"
+    command: sh -c "celery -A config worker -l info --concurrency=4 -Q celery,scanner,paper_trading,notifications,maintenance,backtesting,futures_trading"
     env_file:
       - .env
     depends_on:

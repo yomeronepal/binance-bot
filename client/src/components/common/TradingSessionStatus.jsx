@@ -35,9 +35,9 @@ const TradingSessionStatus = () => {
           id: 1,
           name: 'GW1',
           session_type: 'ACTIVE_TRADING_WINDOW',
-          start_hour: 17,
+          start_hour: 16,
           start_minute: 0,
-          end_hour: 18,
+          end_hour: 17,
           end_minute: 0,
           active_days: []
         },

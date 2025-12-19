@@ -364,7 +364,13 @@ class Signal(models.Model):
     # Priority flag for high win-rate time windows
     is_priority = models.BooleanField(
         default=False,
-        help_text=_("Signal generated during high win-rate hours (17:00-18:00 or 21:00-23:00 Nepal Time)")
+        help_text=_("Signal generated during high win-rate hours (16:00-17:00 or 21:00-23:00 Nepal Time)")
+    )
+
+    # Golden Window 2 flag for premium windows on specific days
+    is_golden_2 = models.BooleanField(
+        default=False,
+        help_text=_("Signal generated during premium windows (16:00-17:00 or 21:00-23:00 NPT) on Sun/Wed/Thu only")
     )
 
     # Additional information
@@ -453,14 +459,14 @@ class Signal(models.Model):
         """
         Check if current Nepal Time is within high win-rate trading windows.
         Windows (Nepal Time UTC+5:45):
-        - 17:00-18:00 NPT
+        - 16:00-17:00 NPT
         - 21:00-23:00 NPT
         """
         from datetime import datetime, timezone as dt_timezone, timedelta
 
         NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
         TRADING_WINDOWS = [
-            (17, 0, 18, 0),
+            (16, 0, 17, 0),
             (21, 0, 23, 0),
         ]
 
@@ -477,10 +483,47 @@ class Signal(models.Model):
 
         return False
 
+    @staticmethod
+    def is_golden_window_2():
+        """
+        Check if current Nepal Time is within premium trading windows on specific days.
+        Windows (Nepal Time UTC+5:45) on Sun/Wed/Thu only:
+        - 16:00-17:00 NPT
+        - 21:00-23:00 NPT
+        """
+        from datetime import datetime, timezone as dt_timezone, timedelta
+
+        NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
+        TRADING_WINDOWS = [
+            (16, 0, 17, 0),
+            (21, 0, 23, 0),
+        ]
+        GOLDEN_DAYS = [6, 2, 3]  # Sunday=6, Wednesday=2, Thursday=3
+
+        utc_now = datetime.now(dt_timezone.utc)
+        nepal_now = utc_now + NEPAL_TZ_OFFSET
+        current_time_minutes = nepal_now.hour * 60 + nepal_now.minute
+        weekday = nepal_now.weekday()  # 0=Mon, 6=Sun
+
+        # Check if it's a golden day
+        if weekday not in GOLDEN_DAYS:
+            return False
+
+        # Check if within trading window
+        for start_hour, start_min, end_hour, end_min in TRADING_WINDOWS:
+            window_start = start_hour * 60 + start_min
+            window_end = end_hour * 60 + end_min
+
+            if window_start <= current_time_minutes < window_end:
+                return True
+
+        return False
+
     def save(self, *args, **kwargs):
-        """Auto-set is_priority based on creation time for new signals."""
+        """Auto-set is_priority and is_golden_2 based on creation time for new signals."""
         if not self.pk:
             self.is_priority = self.is_high_winrate_hour()
+            self.is_golden_2 = self.is_golden_window_2()
         super().save(*args, **kwargs)
 
 

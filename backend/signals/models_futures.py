@@ -26,6 +26,22 @@ class FuturesTradingSettings(models.Model):
         help_text=_("Base trade amount in USDT (before leverage)")
     )
 
+    # New: Total capital to divide among trades
+    total_trading_capital = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('100.00'),
+        validators=[MinValueValidator(Decimal('10.00'))],
+        help_text=_("Total capital to divide equally among max_active_gw_trades")
+    )
+
+    # New: Max trades during golden window session
+    max_active_gw_trades = models.IntegerField(
+        default=4,
+        validators=[MinValueValidator(1), MaxValueValidator(10)],
+        help_text=_("Maximum trades to execute during a golden window session (capital divided equally)")
+    )
+
     leverage = models.IntegerField(
         default=10,
         validators=[MinValueValidator(1), MaxValueValidator(125)],
@@ -64,12 +80,18 @@ class FuturesTradingSettings(models.Model):
 
     use_trading_window = models.BooleanField(
         default=True,
-        help_text=_("Only trade during trading windows (NPT 17:00-18:00 & 21:00-23:00)")
+        help_text=_("Only trade during trading windows (NPT 16:00-17:00 & 21:00-23:00)")
     )
 
     trade_on_golden_window_2 = models.BooleanField(
         default=False,
         help_text=_("Specifically enable trading during Golden Window 2 (Sun/Wed/Thu 21:00-23:00 NPT)")
+    )
+
+    # New: Enable the golden window auto-trader task
+    gw_auto_trader_enabled = models.BooleanField(
+        default=False,
+        help_text=_("Enable automatic trading during golden windows (GW1/GW2)")
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -88,6 +110,19 @@ class FuturesTradingSettings(models.Model):
     def effective_position_size(self):
         """Calculate effective position size with leverage."""
         return self.trade_amount * self.leverage
+
+    @property
+    def per_trade_amount(self):
+        """Calculate per-trade amount when dividing total capital equally."""
+        return self.total_trading_capital / self.max_active_gw_trades
+
+    def get_available_gw_trade_slots(self):
+        """
+        Get number of available trade slots during golden window.
+        Returns how many more trades can be opened.
+        """
+        current_open = FuturesTrade.objects.filter(status='OPEN').count()
+        return max(0, self.max_active_gw_trades - current_open)
 
     @classmethod
     def get_settings(cls):
@@ -232,6 +267,49 @@ class FuturesTrade(models.Model):
         decimal_places=4,
         default=Decimal('0'),
         help_text=_("P/L percentage")
+    )
+
+    # Live data fields (updated by sync task)
+    mark_price = models.DecimalField(
+        max_digits=20,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text=_("Current mark price from Binance")
+    )
+
+    unrealized_pnl = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        default=Decimal('0'),
+        help_text=_("Unrealized P/L in USDT (live)")
+    )
+
+    unrealized_pnl_percentage = models.DecimalField(
+        max_digits=8,
+        decimal_places=4,
+        default=Decimal('0'),
+        help_text=_("Unrealized P/L percentage (live)")
+    )
+
+    liquidation_price = models.DecimalField(
+        max_digits=20,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text=_("Liquidation price from Binance")
+    )
+
+    margin_type = models.CharField(
+        max_length=20,
+        default='ISOLATED',
+        help_text=_("Margin type (ISOLATED/CROSS)")
+    )
+
+    last_sync_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_("Last time this trade was synced with Binance")
     )
 
     status = models.CharField(
