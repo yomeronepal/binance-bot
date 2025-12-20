@@ -2,8 +2,9 @@
  * Strategy Performance Dashboard
  * Visualizes backtest results across multiple configurations and volatility levels
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { BarChart3, TrendingUp, Target, Zap, PieChart, Activity } from 'lucide-react';
+import PullToRefresh from '../components/common/PullToRefresh';
 import WinRateByVolatilityChart from '../components/dashboard/WinRateByVolatilityChart';
 import PnLBySymbolChart from '../components/dashboard/PnLBySymbolChart';
 import ConfigurationComparisonTable from '../components/dashboard/ConfigurationComparisonTable';
@@ -40,7 +41,13 @@ const StrategyDashboard = () => {
     avgSharpe: performanceData.bySymbol.reduce((sum, s) => sum + (s.sharpeRatio || 0), 0) / performanceData.bySymbol.length
   } : null;
 
+  // Handle pull-to-refresh
+  const handleRefresh = useCallback(async () => {
+    await loadPerformanceData();
+  }, [timeRange]);
+
   return (
+    <PullToRefresh onRefresh={handleRefresh}>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -242,6 +249,7 @@ const StrategyDashboard = () => {
         </div>
       )}
     </div>
+    </PullToRefresh>
   );
 };
 

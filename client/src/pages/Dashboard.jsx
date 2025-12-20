@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useSignalStore } from '../store/useSignalStore';
 import { useWebSocket } from '../hooks/useWebSocket';
 import SignalCard from '../components/signals/SignalCard';
 import SignalFilters from '../components/signals/SignalFilters';
+import PullToRefresh from '../components/common/PullToRefresh';
 import { Clock, Activity, Calendar } from 'lucide-react';
 
 /**
@@ -69,6 +70,11 @@ const Dashboard = () => {
 
   // Get filtered and sorted signals
   const filteredSignals = getFilteredSignals();
+
+  // Handle pull-to-refresh
+  const handleRefresh = useCallback(async () => {
+    await fetchSignals();
+  }, [fetchSignals]);
 
   // Handle signal card click
   const handleSignalClick = (signal) => {
@@ -268,6 +274,7 @@ const Dashboard = () => {
   };
 
   return (
+    <PullToRefresh onRefresh={handleRefresh}>
     <div className="min-h-screen bg-gray-50 py-6 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
@@ -364,6 +371,7 @@ const Dashboard = () => {
         )}
       </div>
     </div>
+    </PullToRefresh>
   );
 };
 

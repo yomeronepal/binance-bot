@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Target, TrendingUp, AlertCircle, RefreshCw, Plus, X } from 'lucide-react';
 import usePaperTradeStore from '../store/usePaperTradeStore';
 import PerformanceMetrics from '../components/paper-trading/PerformanceMetrics';
 import PaperTradeCard from '../components/paper-trading/PaperTradeCard';
 import TradeHistory from '../components/paper-trading/TradeHistory';
 import TradingSessionStatus from '../components/common/TradingSessionStatus';
+import PullToRefresh from '../components/common/PullToRefresh';
 
 const PaperTrading = () => {
   const [activeTab, setActiveTab] = useState('open'); // 'open' or 'history'
@@ -111,12 +112,15 @@ const PaperTrading = () => {
     }
   };
 
-  const handleRefresh = () => {
-    fetchTrades();
-    fetchMetrics(metricsDays);
-  };
+  const handleRefresh = useCallback(async () => {
+    await Promise.all([
+      fetchTrades(),
+      fetchMetrics(metricsDays)
+    ]);
+  }, [fetchTrades, fetchMetrics, metricsDays]);
 
   return (
+    <PullToRefresh onRefresh={handleRefresh}>
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
@@ -402,6 +406,7 @@ const PaperTrading = () => {
         </div>
       )}
     </div>
+    </PullToRefresh>
   );
 };
 

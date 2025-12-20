@@ -1,10 +1,11 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Activity, X, Settings, Power, Calendar, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
 import { ShieldAlert } from 'lucide-react';
 import TradingSessionStatus from '../components/common/TradingSessionStatus';
+import PullToRefresh from '../components/common/PullToRefresh';
 
 const FuturesPerformance = () => {
     const [loading, setLoading] = useState(true);
@@ -185,7 +186,13 @@ const FuturesPerformance = () => {
         },
     ];
 
+    // Handle pull-to-refresh
+    const handleRefresh = useCallback(async () => {
+        await fetchData();
+    }, []);
+
     return (
+        <PullToRefresh onRefresh={handleRefresh} disabled={!isSuperUser}>
         <div className="min-h-screen bg-gray-50 dark:bg-gradient-to-br dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-4 sm:p-6">
             <div className="max-w-7xl mx-auto">
                 {/* Header */}
@@ -359,6 +366,7 @@ const FuturesPerformance = () => {
                 )}
             </div>
         </div>
+        </PullToRefresh>
     );
 };
 
