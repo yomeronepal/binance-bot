@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useSignalStore } from '../store/useSignalStore';
 import FuturesSignalCard from '../components/signals/FuturesSignalCard';
@@ -81,12 +81,12 @@ const Futures = () => {
   };
 
   // Handle pull-to-refresh
-  const handleRefresh = useCallback(async () => {
+  const handleRefresh = async () => {
     await Promise.all([
       fetchFuturesSignals(),
       fetchFuturesSymbolsCount()
     ]);
-  }, [fetchFuturesSignals, fetchFuturesSymbolsCount]);
+  };
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>

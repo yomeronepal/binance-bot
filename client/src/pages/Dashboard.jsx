@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSignalStore } from '../store/useSignalStore';
 import { useWebSocket } from '../hooks/useWebSocket';
 import SignalCard from '../components/signals/SignalCard';
@@ -72,9 +72,9 @@ const Dashboard = () => {
   const filteredSignals = getFilteredSignals();
 
   // Handle pull-to-refresh
-  const handleRefresh = useCallback(async () => {
+  const handleRefresh = async () => {
     await fetchSignals();
-  }, [fetchSignals]);
+  };
 
   // Handle signal card click
   const handleSignalClick = (signal) => {

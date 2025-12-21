@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
@@ -291,12 +291,12 @@ const BotPerformance = () => {
   ];
 
   // Handle pull-to-refresh
-  const handleRefresh = useCallback(async () => {
+  const handleRefresh = async () => {
     await Promise.all([
       fetchPerformanceData(),
       fetchTradeHistory()
     ]);
-  }, []);
+  };
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>

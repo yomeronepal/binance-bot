@@ -2,7 +2,7 @@
  * Strategy Performance Dashboard
  * Visualizes backtest results across multiple configurations and volatility levels
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { BarChart3, TrendingUp, Target, Zap, PieChart, Activity } from 'lucide-react';
 import PullToRefresh from '../components/common/PullToRefresh';
 import WinRateByVolatilityChart from '../components/dashboard/WinRateByVolatilityChart';
@@ -17,10 +17,6 @@ const StrategyDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState('30d');
 
-  useEffect(() => {
-    loadPerformanceData();
-  }, [timeRange]);
-
   const loadPerformanceData = async () => {
     try {
       setLoading(true);
@@ -33,6 +29,10 @@ const StrategyDashboard = () => {
     }
   };
 
+  useEffect(() => {
+    loadPerformanceData();
+  }, [timeRange]);
+
   // Calculate summary statistics
   const summaryStats = performanceData ? {
     avgWinRate: performanceData.bySymbol.reduce((sum, s) => sum + s.winRate, 0) / performanceData.bySymbol.length,
@@ -42,9 +42,9 @@ const StrategyDashboard = () => {
   } : null;
 
   // Handle pull-to-refresh
-  const handleRefresh = useCallback(async () => {
+  const handleRefresh = async () => {
     await loadPerformanceData();
-  }, [timeRange]);
+  };
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>

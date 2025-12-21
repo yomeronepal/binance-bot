@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Activity, X, Settings, Power, Calendar, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
@@ -187,9 +187,9 @@ const FuturesPerformance = () => {
     ];
 
     // Handle pull-to-refresh
-    const handleRefresh = useCallback(async () => {
+    const handleRefresh = async () => {
         await fetchData();
-    }, []);
+    };
 
     return (
         <PullToRefresh onRefresh={handleRefresh} disabled={!isSuperUser}>

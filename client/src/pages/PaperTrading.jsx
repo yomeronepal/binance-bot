@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Target, TrendingUp, AlertCircle, RefreshCw, Plus, X } from 'lucide-react';
 import usePaperTradeStore from '../store/usePaperTradeStore';
 import PerformanceMetrics from '../components/paper-trading/PerformanceMetrics';
@@ -112,12 +112,12 @@ const PaperTrading = () => {
     }
   };
 
-  const handleRefresh = useCallback(async () => {
+  const handleRefresh = async () => {
     await Promise.all([
       fetchTrades(),
       fetchMetrics(metricsDays)
     ]);
-  }, [fetchTrades, fetchMetrics, metricsDays]);
+  };
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>
