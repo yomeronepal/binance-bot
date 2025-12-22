@@ -36,6 +36,253 @@ def get_nepal_time():
     return utc_now + NEPAL_TZ_OFFSET
 
 
+def check_and_execute_cut_loser(
+    trade: FuturesTrade,
+    pnl_pct: Decimal,
+    settings: FuturesTradingSettings
+) -> Optional[dict]:
+    """
+    Check if a losing trade should be closed near breakeven (cut loser first).
+
+    Logic:
+    1. If trade is in loss >= trigger_loss_pct, mark cut_loser_triggered=True
+    2. Track max_loss_pct_reached
+    3. If cut_loser_triggered and trade recovers to close_at_pct, close it
+
+    Args:
+        trade: FuturesTrade instance
+        pnl_pct: Current unrealized PnL percentage
+        settings: FuturesTradingSettings instance
+
+    Returns:
+        dict with close info if trade should be closed, None otherwise
+    """
+    import asyncio
+    import threading
+
+    if not settings.cut_loser_enabled:
+        return None
+
+    trigger_loss = -abs(settings.cut_loser_trigger_loss_pct)
+    close_at = settings.cut_loser_close_at_pct
+
+    if pnl_pct < trade.max_loss_pct_reached:
+        trade.max_loss_pct_reached = pnl_pct
+        trade.save(update_fields=['max_loss_pct_reached'])
+
+    if not trade.cut_loser_triggered and pnl_pct <= trigger_loss:
+        trade.cut_loser_triggered = True
+        trade.save(update_fields=['cut_loser_triggered'])
+        logger.info(
+            f"🔻 Cut-loser triggered for {trade.symbol}: "
+            f"Loss {pnl_pct:.2f}% exceeded threshold {trigger_loss:.2f}%"
+        )
+
+    if trade.cut_loser_triggered and pnl_pct >= close_at:
+        logger.info(
+            f"✂️ Cut-loser closing {trade.symbol}: "
+            f"Recovered to {pnl_pct:.2f}% (target: {close_at:.2f}%)"
+        )
+
+        close_result = [None]
+        close_exception = [None]
+
+        def close_position():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    async def _close():
+                        trader = BinanceFuturesTrader(use_testnet=False)
+                        try:
+                            await trader.cancel_all_orders(trade.symbol)
+                            result = await trader.close_position(
+                                trade.symbol,
+                                trade.direction,
+                                trade.quantity
+                            )
+                            return result
+                        finally:
+                            await trader.close()
+                    close_result[0] = loop.run_until_complete(_close())
+                finally:
+                    loop.close()
+            except Exception as e:
+                close_exception[0] = e
+
+        thread = threading.Thread(target=close_position)
+        thread.start()
+        thread.join(timeout=30)
+
+        if close_exception[0]:
+            logger.error(f"Failed to close cut-loser trade {trade.symbol}: {close_exception[0]}")
+            return None
+
+        if close_result[0]:
+            exit_price = Decimal(close_result[0].get('avgPrice', '0'))
+            trade.close_trade(exit_price, 'CLOSED_MANUAL')
+            trade.error_message = f"Cut-loser: Closed at {pnl_pct:.2f}% (max loss was {trade.max_loss_pct_reached:.2f}%)"
+            trade.save()
+
+            return {
+                'trade_id': trade.id,
+                'symbol': trade.symbol,
+                'direction': trade.direction,
+                'exit_price': str(exit_price),
+                'pnl_pct': str(pnl_pct),
+                'max_loss_reached': str(trade.max_loss_pct_reached),
+                'reason': 'cut_loser'
+            }
+
+    return None
+
+
+def check_and_update_dynamic_trailing(
+    trade: FuturesTrade,
+    pnl_pct: Decimal,
+    settings: FuturesTradingSettings
+) -> Optional[dict]:
+    """
+    Check if trailing stop should be activated or tightened based on profit tiers.
+
+    When first tier is reached:
+    - Cancel fixed SL order
+    - Place trailing stop with tier's callback rate
+
+    When subsequent tiers are reached:
+    - Cancel old trailing order
+    - Place new trailing stop with tighter callback rate
+
+    Example tiers: [{profit_pct: 2, trailing_pct: 1}, {profit_pct: 3, trailing_pct: 2}]
+    - When profit reaches 2%, set trailing to 1% (lock in ~1% profit)
+    - When profit reaches 3%, set trailing to 2% (lock in ~1% profit)
+
+    Args:
+        trade: FuturesTrade instance
+        pnl_pct: Current unrealized PnL percentage
+        settings: FuturesTradingSettings instance
+
+    Returns:
+        dict with update info if trailing was updated, None otherwise
+    """
+    import asyncio
+    import threading
+
+    if not settings.dynamic_trailing_enabled:
+        return None
+
+    if not settings.dynamic_trailing_tiers:
+        return None
+
+    tiers = settings.dynamic_trailing_tiers
+    if not isinstance(tiers, list) or len(tiers) == 0:
+        return None
+
+    tiers = sorted(tiers, key=lambda x: float(x.get('profit_pct', 0)))
+
+    if pnl_pct > trade.max_profit_pct_reached:
+        trade.max_profit_pct_reached = pnl_pct
+        trade.save(update_fields=['max_profit_pct_reached'])
+
+    new_tier_index = 0
+    new_trailing_pct = None
+
+    for i, tier in enumerate(tiers):
+        tier_profit = Decimal(str(tier.get('profit_pct', 0)))
+        tier_trailing = Decimal(str(tier.get('trailing_pct', 1)))
+
+        if pnl_pct >= tier_profit:
+            new_tier_index = i + 1
+            new_trailing_pct = tier_trailing
+
+    if new_tier_index <= trade.current_trailing_tier:
+        return None
+
+    if new_trailing_pct is None:
+        return None
+
+    is_first_tier = trade.current_trailing_tier == 0
+    logger.info(
+        f"📈 Dynamic trailing {'activated' if is_first_tier else 'upgraded'} for {trade.symbol}: "
+        f"Profit {pnl_pct:.2f}% reached tier {new_tier_index}, "
+        f"{'replacing fixed SL with ' if is_first_tier else 'tightening to '}{new_trailing_pct}% trailing"
+    )
+
+    update_result = [None]
+    update_exception = [None]
+
+    def update_trailing():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                async def _update():
+                    trader = BinanceFuturesTrader(use_testnet=False)
+                    try:
+                        if is_first_tier:
+                            await trader.cancel_all_orders(trade.symbol)
+                            logger.info(f"Cancelled all orders (including fixed SL) for {trade.symbol}")
+                        elif trade.trailing_order_id:
+                            try:
+                                await trader._request(
+                                    'DELETE',
+                                    '/fapi/v1/order',
+                                    {
+                                        'symbol': trade.symbol,
+                                        'orderId': trade.trailing_order_id
+                                    },
+                                    signed=True
+                                )
+                                logger.info(f"Cancelled old trailing order {trade.trailing_order_id}")
+                            except Exception as e:
+                                logger.warning(f"Could not cancel old trailing order: {e}")
+
+                        sl_side = 'SELL' if trade.direction == 'LONG' else 'BUY'
+
+                        result = await trader.place_trailing_stop_order(
+                            trade.symbol,
+                            sl_side,
+                            trade.quantity,
+                            new_trailing_pct,
+                            None
+                        )
+                        return result
+                    finally:
+                        await trader.close()
+                update_result[0] = loop.run_until_complete(_update())
+            finally:
+                loop.close()
+        except Exception as e:
+            update_exception[0] = e
+
+    thread = threading.Thread(target=update_trailing)
+    thread.start()
+    thread.join(timeout=30)
+
+    if update_exception[0]:
+        logger.error(f"Failed to update trailing stop for {trade.symbol}: {update_exception[0]}")
+        return None
+
+    if update_result[0]:
+        new_order_id = str(update_result[0].get('orderId', ''))
+        trade.current_trailing_tier = new_tier_index
+        trade.trailing_order_id = new_order_id
+        trade.save(update_fields=['current_trailing_tier', 'trailing_order_id'])
+
+        return {
+            'trade_id': trade.id,
+            'symbol': trade.symbol,
+            'direction': trade.direction,
+            'profit_pct': str(pnl_pct),
+            'new_tier': new_tier_index,
+            'new_trailing_pct': str(new_trailing_pct),
+            'order_id': new_order_id,
+            'first_activation': is_first_tier
+        }
+
+    return None
+
+
 def is_in_golden_window() -> Tuple[bool, bool, Optional[str]]:
     """
     Check if current time is within any golden window.
@@ -158,7 +405,8 @@ def get_prioritized_signals(settings: FuturesTradingSettings, limit: int) -> Lis
 def execute_futures_trade(
     signal: Signal,
     position_size: Decimal,
-    leverage: int
+    leverage: int,
+    settings: FuturesTradingSettings = None
 ) -> Optional[FuturesTrade]:
     """
     Execute a single futures trade from a signal.
@@ -167,12 +415,16 @@ def execute_futures_trade(
         signal: Signal to trade
         position_size: USDT amount for this trade (margin)
         leverage: Leverage to use
+        settings: FuturesTradingSettings for trailing stop config
 
     Returns:
         FuturesTrade if successful, None otherwise
     """
     import asyncio
     import threading
+
+    if settings is None:
+        settings = FuturesTradingSettings.get_settings()
 
     symbol_name = signal.symbol.symbol
     direction = signal.direction
@@ -222,7 +474,6 @@ def execute_futures_trade(
                         if not current_price:
                             raise Exception(f"Could not get current price for {symbol_name}")
 
-                        # Place trade orders
                         result = await trader.place_trade_orders(
                             symbol_name,
                             direction,
@@ -353,7 +604,7 @@ def golden_window_auto_trader(self):
                 break
 
             try:
-                trade = execute_futures_trade(signal, per_trade_amount, leverage)
+                trade = execute_futures_trade(signal, per_trade_amount, leverage, settings)
                 if trade:
                     trades_executed.append({
                         'trade_id': trade.id,
@@ -561,7 +812,21 @@ def sync_futures_trades_with_binance(self):
                         'margin_type': margin_type,
                     })
 
-                    # Remove from map so we know it's synced
+                    cut_loser_result = check_and_execute_cut_loser(trade, pnl_pct, settings)
+                    if cut_loser_result:
+                        closed_trades.append(cut_loser_result)
+                        logger.info(
+                            f"✂️ Cut-loser closed: {trade.symbol} @ {cut_loser_result['exit_price']} "
+                            f"(PnL: {cut_loser_result['pnl_pct']}%)"
+                        )
+                    else:
+                        trailing_result = check_and_update_dynamic_trailing(trade, pnl_pct, settings)
+                        if trailing_result:
+                            logger.info(
+                                f"📈 Dynamic trailing updated: {trade.symbol} "
+                                f"Tier {trailing_result['new_tier']} ({trailing_result['new_trailing_pct']}%)"
+                            )
+
                     del binance_position_map[trade.symbol]
                 else:
                     # Direction mismatch - position may have been closed and reopened
@@ -720,12 +985,15 @@ def sync_futures_trades_with_binance(self):
             except Exception as e:
                 logger.error(f"Failed to import external position {symbol}: {e}")
 
+        cut_loser_closed = [t for t in closed_trades if t.get('reason') == 'cut_loser']
+
         result = {
             "status": "completed",
             "binance_positions": len(positions),
             "local_open_trades": local_open_trades.count(),
             "updated": len(updated_trades),
             "closed": len(closed_trades),
+            "cut_loser_closed": len(cut_loser_closed),
             "external": len(external_positions),
             "imported": len(imported_trades),
             "updated_trades": updated_trades,
@@ -734,6 +1002,8 @@ def sync_futures_trades_with_binance(self):
             "imported_trades": imported_trades,
         }
 
+        if cut_loser_closed:
+            logger.info(f"✂️ Cut-loser: {len(cut_loser_closed)} trades closed near breakeven")
         if closed_trades:
             logger.info(f"Sync completed: {len(closed_trades)} trades closed")
         if imported_trades:

@@ -88,10 +88,49 @@ class FuturesTradingSettings(models.Model):
         help_text=_("Specifically enable trading during Golden Window 2 (Sun/Wed/Thu 21:00-23:00 NPT)")
     )
 
-    # New: Enable the golden window auto-trader task
     gw_auto_trader_enabled = models.BooleanField(
         default=False,
         help_text=_("Enable automatic trading during golden windows (GW1/GW2)")
+    )
+
+    cut_loser_enabled = models.BooleanField(
+        default=False,
+        help_text=_("Enable 'cut loser first' - close losing trades when they recover near breakeven")
+    )
+
+    cut_loser_trigger_loss_pct = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=Decimal('2.0'),
+        validators=[MinValueValidator(Decimal('0.5')), MaxValueValidator(Decimal('10.0'))],
+        help_text=_("Trigger cut-loser when unrealized loss exceeds this % (0.5% - 10%)")
+    )
+
+    cut_loser_close_at_pct = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=Decimal('0.3'),
+        validators=[MinValueValidator(Decimal('-1.0')), MaxValueValidator(Decimal('1.0'))],
+        help_text=_("Close trade when it recovers to this % from entry (-1% to +1%, negative = small loss, positive = small profit)")
+    )
+
+    dynamic_trailing_enabled = models.BooleanField(
+        default=False,
+        help_text=_("Enable dynamic trailing stop that tightens as profit grows")
+    )
+
+    dynamic_trailing_tiers = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=_("List of profit tiers: [{profit_pct: 2, trailing_pct: 1}, {profit_pct: 3, trailing_pct: 2}]")
+    )
+
+    initial_trailing_callback = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=Decimal('1.5'),
+        validators=[MinValueValidator(Decimal('0.1')), MaxValueValidator(Decimal('5.0'))],
+        help_text=_("Initial trailing stop callback % before any tier is reached (0.1% - 5.0%)")
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -129,9 +168,40 @@ class FuturesTradingSettings(models.Model):
         """Get or create the singleton settings instance."""
         settings_obj, created = cls.objects.get_or_create(pk=1)
         if created:
-            settings_obj.allowed_symbols = ['BTCUSDT', 'ETHUSDT']
+            settings_obj.allowed_symbols = []
+            settings_obj.dynamic_trailing_tiers = [
+                {'profit_pct': 2, 'trailing_pct': 1},
+                {'profit_pct': 3, 'trailing_pct': 2},
+                {'profit_pct': 5, 'trailing_pct': 3},
+                {'profit_pct': 8, 'trailing_pct': 5},
+            ]
             settings_obj.save()
         return settings_obj
+
+    def get_trailing_tier_for_profit(self, profit_pct: Decimal):
+        """
+        Get the appropriate trailing stop % for a given profit level.
+
+        Args:
+            profit_pct: Current profit percentage
+
+        Returns:
+            Tuple of (tier_index, trailing_pct) or (0, None) if no tier reached
+        """
+        if not self.dynamic_trailing_tiers:
+            return 0, None
+
+        tiers = sorted(self.dynamic_trailing_tiers, key=lambda x: float(x.get('profit_pct', 0)))
+        tier_index = 0
+        trailing_pct = None
+
+        for i, tier in enumerate(tiers):
+            tier_profit = Decimal(str(tier.get('profit_pct', 0)))
+            if profit_pct >= tier_profit:
+                tier_index = i + 1
+                trailing_pct = Decimal(str(tier.get('trailing_pct', 1)))
+
+        return tier_index, trailing_pct
 
     def save(self, *args, **kwargs):
         self.pk = 1
@@ -336,6 +406,37 @@ class FuturesTrade(models.Model):
     error_message = models.TextField(
         blank=True,
         help_text=_("Error message if trade failed")
+    )
+
+    cut_loser_triggered = models.BooleanField(
+        default=False,
+        help_text=_("Whether cut-loser mode has been triggered for this trade")
+    )
+
+    max_loss_pct_reached = models.DecimalField(
+        max_digits=8,
+        decimal_places=4,
+        default=Decimal('0'),
+        help_text=_("Maximum loss percentage reached during trade")
+    )
+
+    max_profit_pct_reached = models.DecimalField(
+        max_digits=8,
+        decimal_places=4,
+        default=Decimal('0'),
+        help_text=_("Maximum profit percentage reached during trade")
+    )
+
+    current_trailing_tier = models.IntegerField(
+        default=0,
+        help_text=_("Current dynamic trailing tier level (0 = base tier)")
+    )
+
+    trailing_order_id = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text=_("Current trailing stop order ID on Binance")
     )
 
     entry_time = models.DateTimeField(

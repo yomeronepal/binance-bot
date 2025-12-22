@@ -390,6 +390,47 @@ class BinanceFuturesTrader:
             logger.error(f"Failed to place take profit order: {e}")
             return None
 
+    async def place_trailing_stop_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        callback_rate: Decimal,
+        activation_price: Optional[Decimal] = None
+    ) -> Optional[Dict]:
+        """
+        Place a trailing stop market order.
+
+        Args:
+            symbol: Trading pair
+            side: SELL for LONG positions, BUY for SHORT positions
+            quantity: Position quantity
+            callback_rate: Callback rate in percentage (0.1 to 5.0)
+            activation_price: Price at which trailing stop activates (optional)
+        """
+        params = {
+            'symbol': symbol,
+            'side': side,
+            'type': 'TRAILING_STOP_MARKET',
+            'quantity': str(quantity),
+            'callbackRate': str(callback_rate),
+            'reduceOnly': 'true',
+        }
+
+        if activation_price:
+            params['activationPrice'] = str(activation_price)
+
+        try:
+            result = await self._request('POST', '/fapi/v1/order', params, signed=True)
+            logger.info(
+                f"Trailing stop order placed: {side} {quantity} {symbol} "
+                f"(callback: {callback_rate}%, activation: {activation_price or 'immediate'})"
+            )
+            return result
+        except Exception as e:
+            logger.error(f"Failed to place trailing stop order: {e}")
+            return None
+
     async def cancel_all_orders(self, symbol: str) -> bool:
         """Cancel all open orders for a symbol."""
         try:
@@ -464,15 +505,12 @@ class BinanceFuturesTrader:
         current_price: Decimal
     ) -> Optional[Dict]:
         """
-        Place market order with SL/TP orders on Binance.
-        This method only handles API calls, no DB operations.
+        Place market order with fixed SL/TP orders on Binance.
+        Dynamic trailing stop will upgrade the SL later when profit tiers are reached.
         """
         errors = []
-        sl_order_id = None
-        tp_order_id = None
 
         try:
-            # Set margin type and leverage
             margin_ok = await self.set_margin_type(symbol, 'ISOLATED')
             if not margin_ok:
                 errors.append("Failed to set margin type")
@@ -481,7 +519,6 @@ class BinanceFuturesTrader:
             if not leverage_ok:
                 errors.append(f"Failed to set leverage to {leverage}x")
 
-            # Calculate quantity
             quantity = self._calculate_quantity(
                 symbol_info,
                 current_price,
@@ -499,19 +536,18 @@ class BinanceFuturesTrader:
                 raise Exception("Failed to place entry order - insufficient balance or invalid parameters")
 
             avg_price = Decimal(entry_result.get('avgPrice', str(current_price)))
-            entry_order_id = str(entry_result.get('orderId', ''))
 
             logger.info(f"✅ Entry order filled: {direction} {quantity} {symbol} @ {avg_price}")
 
-            # Place SL/TP orders
             sl_side = 'SELL' if direction == 'LONG' else 'BUY'
             tp_side = 'SELL' if direction == 'LONG' else 'BUY'
 
             sl_result = await self.place_stop_loss_order(symbol, sl_side, quantity, sl_rounded)
-            tp_result = await self.place_take_profit_order(symbol, tp_side, quantity, tp_rounded)
 
             if not sl_result:
-                logger.warning(f"Failed to place SL order for {symbol}, but entry was successful")
+                logger.warning(f"No stop loss protection for {symbol}!")
+
+            tp_result = await self.place_take_profit_order(symbol, tp_side, quantity, tp_rounded)
 
             if not tp_result:
                 logger.warning(f"Failed to place TP order for {symbol}, but entry was successful")
