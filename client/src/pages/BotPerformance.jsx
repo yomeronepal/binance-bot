@@ -4,6 +4,7 @@ import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
 import TradingSessionStatus from '../components/common/TradingSessionStatus';
+import PullToRefresh from '../components/common/PullToRefresh';
 
 const BotPerformance = () => {
   const { user } = useAuthStore();
@@ -289,7 +290,16 @@ const BotPerformance = () => {
     },
   ];
 
+  // Handle pull-to-refresh
+  const handleRefresh = async () => {
+    await Promise.all([
+      fetchPerformanceData(),
+      fetchTradeHistory()
+    ]);
+  };
+
   return (
+    <PullToRefresh onRefresh={handleRefresh}>
     <div className="min-h-screen bg-gray-50 dark:bg-gradient-to-br dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
@@ -686,6 +696,7 @@ const BotPerformance = () => {
         }
       </div >
     </div >
+    </PullToRefresh>
   );
 };
 

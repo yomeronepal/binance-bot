@@ -3,7 +3,7 @@ Signal serializers following DRY principles and clean architecture.
 """
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Symbol, Signal, UserSubscription, PaperTrade, PaperAccount
+from .models import Symbol, Signal, UserSubscription, PaperTrade, PaperAccount, TradingSession
 from .models_optimization import StrategyConfigHistory, OptimizationRun, TradeCounter
 
 
@@ -71,6 +71,58 @@ class SymbolListSerializer(serializers.ModelSerializer):
         fields = ['id', 'symbol', 'exchange']
 
 
+class TradingSessionSerializer(BaseModelSerializer):
+    """
+    Trading session serializer for frontend display.
+    Includes formatted time windows and active day names.
+    """
+    session_type_display = serializers.CharField(source='get_session_type_display', read_only=True)
+    time_window = serializers.SerializerMethodField()
+    time_window_minutes = serializers.SerializerMethodField()
+    active_day_names = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TradingSession
+        fields = [
+            'id',
+            'name',
+            'session_type',
+            'session_type_display',
+            'description',
+            'start_hour',
+            'start_minute',
+            'end_hour',
+            'end_minute',
+            'time_window',
+            'time_window_minutes',
+            'active_days',
+            'active_day_names',
+            'active',
+            'created_at',
+            'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_time_window(self, obj):
+        """Get formatted time window string."""
+        return f"{obj.start_hour:02d}:{obj.start_minute:02d} - {obj.end_hour:02d}:{obj.end_minute:02d}"
+    
+    def get_time_window_minutes(self, obj):
+        """Get time window as minutes from midnight."""
+        return {
+            'start': obj.start_hour * 60 + obj.start_minute,
+            'end': obj.end_hour * 60 + obj.end_minute
+        }
+    
+    def get_active_day_names(self, obj):
+        """Get active days as readable names."""
+        if not obj.active_days:
+            return []
+        
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        return [day_names[day] for day in obj.active_days if 0 <= day <= 6]
+
+
 class UserBasicSerializer(serializers.ModelSerializer):
     """
     Basic user serializer for nested representations.
@@ -123,6 +175,8 @@ class SignalSerializer(BaseModelSerializer):
             'created_by_detail',
             'risk_reward_ratio',
             'profit_percentage',
+            'is_priority',
+            'is_golden_2',
             'expires_at',
             'created_at',
             'updated_at'
@@ -252,7 +306,9 @@ class SignalListSerializer(serializers.ModelSerializer):
             'timeframe',
             'description',
             'trading_type',
-            'estimated_duration_hours'
+            'estimated_duration_hours',
+            'is_priority',
+            'is_golden_2'
         ]
 
     def get_risk_reward(self, obj):

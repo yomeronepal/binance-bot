@@ -3,6 +3,7 @@ import { useSignalStore } from '../store/useSignalStore';
 import { useWebSocket } from '../hooks/useWebSocket';
 import SignalCard from '../components/signals/SignalCard';
 import SignalFilters from '../components/signals/SignalFilters';
+import PullToRefresh from '../components/common/PullToRefresh';
 import { Clock, Activity, Calendar } from 'lucide-react';
 
 /**
@@ -69,6 +70,11 @@ const Dashboard = () => {
 
   // Get filtered and sorted signals
   const filteredSignals = getFilteredSignals();
+
+  // Handle pull-to-refresh
+  const handleRefresh = async () => {
+    await fetchSignals();
+  };
 
   // Handle signal card click
   const handleSignalClick = (signal) => {
@@ -169,7 +175,7 @@ const Dashboard = () => {
       const timeInMinutes = hour * 60 + minute;
 
       const windows = [
-        { start: 17 * 60, end: 18 * 60 },
+        { start: 16 * 60, end: 17 * 60 },
         { start: 21 * 60, end: 23 * 60 }
       ];
 
@@ -182,9 +188,9 @@ const Dashboard = () => {
       const minute = nepalTime.getMinutes();
       const timeInMinutes = hour * 60 + minute;
 
-      if (timeInMinutes < 17 * 60) return '17:00 NPT';
-      if (timeInMinutes >= 18 * 60 && timeInMinutes < 21 * 60) return '21:00 NPT';
-      return '17:00 NPT (tomorrow)';
+      if (timeInMinutes < 16 * 60) return '16:00 NPT';
+      if (timeInMinutes >= 17 * 60 && timeInMinutes < 21 * 60) return '21:00 NPT';
+      return '16:00 NPT (tomorrow)';
     };
 
     const nepalTime = getNepalTime(currentTime);
@@ -194,9 +200,9 @@ const Dashboard = () => {
 
     const tradingWindows = [
       {
-        npt: '17:00 - 18:00',
-        utc: '11:15 - 12:15',
-        us: '06:15 - 07:15 EST'
+        npt: '16:00 - 17:00',
+        utc: '10:15 - 11:15',
+        us: '05:15 - 06:15 EST'
       },
       {
         npt: '21:00 - 23:00',
@@ -268,6 +274,7 @@ const Dashboard = () => {
   };
 
   return (
+    <PullToRefresh onRefresh={handleRefresh}>
     <div className="min-h-screen bg-gray-50 py-6 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
@@ -364,6 +371,7 @@ const Dashboard = () => {
         )}
       </div>
     </div>
+    </PullToRefresh>
   );
 };
 

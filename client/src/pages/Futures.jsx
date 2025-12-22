@@ -3,6 +3,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useSignalStore } from '../store/useSignalStore';
 import FuturesSignalCard from '../components/signals/FuturesSignalCard';
 import TradingSessionStatus from '../components/common/TradingSessionStatus';
+import PullToRefresh from '../components/common/PullToRefresh';
 
 const Futures = () => {
   const {
@@ -79,7 +80,16 @@ const Futures = () => {
       : 0,
   };
 
+  // Handle pull-to-refresh
+  const handleRefresh = async () => {
+    await Promise.all([
+      fetchFuturesSignals(),
+      fetchFuturesSymbolsCount()
+    ]);
+  };
+
   return (
+    <PullToRefresh onRefresh={handleRefresh}>
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
       {/* Header */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
@@ -277,6 +287,7 @@ const Futures = () => {
         </div>
       </div>
     </div>
+    </PullToRefresh>
   );
 };
 

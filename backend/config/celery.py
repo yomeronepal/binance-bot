@@ -109,6 +109,20 @@ app.conf.beat_schedule = {
         'options': {'expires': 25.0},
     },
 
+    # Golden Window Auto-Trader - Runs every 30 seconds during GW sessions
+    'golden-window-auto-trader': {
+        'task': 'scanner.tasks.golden_window_trader.golden_window_auto_trader',
+        'schedule': 30.0,  # Every 30 seconds
+        'options': {'expires': 25.0},
+    },
+
+    # Sync Futures Trades with Binance - Runs every 30 seconds
+    'sync-futures-trades': {
+        'task': 'scanner.tasks.golden_window_trader.sync_futures_trades_with_binance',
+        'schedule': 30.0,  # Every 30 seconds
+        'options': {'expires': 25.0},
+    },
+
     # Fibonacci pullback monitoring - FREQUENT
     'monitor-fibonacci-pullbacks': {
         'task': 'scanner.tasks.celery_tasks.monitor_fibonacci_pullbacks',
@@ -161,6 +175,8 @@ app.conf.update(
         'scanner.tasks.celery_tasks.cleanup_expired_signals': {'queue': 'celery'},
         'scanner.tasks.celery_tasks.system_health_check': {'queue': 'celery'},
         'scanner.tasks.celery_tasks.check_and_close_paper_trades': {'queue': 'paper_trading'},
+        'scanner.tasks.golden_window_trader.golden_window_auto_trader': {'queue': 'futures_trading'},
+        'scanner.tasks.golden_window_trader.sync_futures_trades_with_binance': {'queue': 'futures_trading'},
         # Backtesting tasks
         'scanner.tasks.backtest_tasks.run_backtest_async': {'queue': 'backtesting'},
         'scanner.tasks.backtest_tasks.run_optimization_async': {'queue': 'backtesting'},

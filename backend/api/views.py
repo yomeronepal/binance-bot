@@ -103,9 +103,9 @@ def trading_session_status(request):
         'trading_windows': [
             {
                 'window': 1,
-                'npt': '17:00 - 18:00',
-                'utc': '11:15 - 12:15',
-                'us': '06:15 - 07:15 EST / 07:15 - 08:15 EDT',
+                'npt': '16:00 - 17:00',
+                'utc': '10:15 - 11:15',
+                'us': '05:15 - 06:15 EST / 06:15 - 07:15 EDT',
             },
             {
                 'window': 2,

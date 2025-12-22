@@ -8,7 +8,8 @@ from signals.views import (
     SymbolViewSet,
     SignalViewSet,
     UserSubscriptionViewSet,
-    AnalyticsViewSet
+    AnalyticsViewSet,
+    TradingSessionViewSet
 )
 from signals.views_paper_trading import PaperTradeViewSet, PaperAccountViewSet
 from signals.views_public_dashboard import public_paper_trading_dashboard
@@ -90,6 +91,9 @@ router.register(r'mlmodels', MLModelViewSet, basename='mlmodel')
 
 # Blacklist endpoints
 router.register(r'blacklist', BlacklistedSymbolViewSet, basename='blacklist')
+
+# Trading Sessions endpoints
+router.register(r'trading-sessions', TradingSessionViewSet, basename='trading-session')
 
 urlpatterns = [
     path('health/', views.health_check, name='health-check'),

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
 
 TRADING_WINDOWS = [
-    (17, 0, 18, 0),
+    (16, 0, 17, 0),
     (21, 0, 23, 0),
 ]
 
@@ -24,7 +24,7 @@ def is_within_trading_window():
     """
     Check if current time is within allowed trading windows.
     Trading windows are in Nepal Time (UTC+5:45):
-    - 17:00-18:00 NPT
+    - 16:00-17:00 NPT
     - 21:00-23:00 NPT
     """
     utc_now = datetime.now(timezone.utc)
@@ -326,7 +326,7 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
     - Only executes on new ACTIVE FUTURES signals
     - Skips blacklisted symbols
     - Only executes within trading windows (Nepal Time):
-      - 17:00-18:00 NPT
+      - 16:00-17:00 NPT
       - 21:00-23:00 NPT
     - Results displayed on public dashboard
     - Prevents duplicate trades for same symbol+direction
@@ -360,7 +360,7 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
     #     current_time = get_nepal_time_str()
     #     logger.info(
     #         f"⏰ Signal {instance.id} ({instance.symbol.symbol}) outside trading window "
-    #         f"(current: {current_time}). Windows: 17:00-18:00 & 21:00-23:00 NPT"
+    #         f"(current: {current_time}). Windows: 16:00-17:00 & 21:00-23:00 NPT"
     #     )
     #     return
 

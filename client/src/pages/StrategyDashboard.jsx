@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from 'react';
 import { BarChart3, TrendingUp, Target, Zap, PieChart, Activity } from 'lucide-react';
+import PullToRefresh from '../components/common/PullToRefresh';
 import WinRateByVolatilityChart from '../components/dashboard/WinRateByVolatilityChart';
 import PnLBySymbolChart from '../components/dashboard/PnLBySymbolChart';
 import ConfigurationComparisonTable from '../components/dashboard/ConfigurationComparisonTable';
@@ -15,10 +16,6 @@ const StrategyDashboard = () => {
   const [performanceData, setPerformanceData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState('30d');
-
-  useEffect(() => {
-    loadPerformanceData();
-  }, [timeRange]);
 
   const loadPerformanceData = async () => {
     try {
@@ -32,6 +29,10 @@ const StrategyDashboard = () => {
     }
   };
 
+  useEffect(() => {
+    loadPerformanceData();
+  }, [timeRange]);
+
   // Calculate summary statistics
   const summaryStats = performanceData ? {
     avgWinRate: performanceData.bySymbol.reduce((sum, s) => sum + s.winRate, 0) / performanceData.bySymbol.length,
@@ -40,7 +41,13 @@ const StrategyDashboard = () => {
     avgSharpe: performanceData.bySymbol.reduce((sum, s) => sum + (s.sharpeRatio || 0), 0) / performanceData.bySymbol.length
   } : null;
 
+  // Handle pull-to-refresh
+  const handleRefresh = async () => {
+    await loadPerformanceData();
+  };
+
   return (
+    <PullToRefresh onRefresh={handleRefresh}>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -242,6 +249,7 @@ const StrategyDashboard = () => {
         </div>
       )}
     </div>
+    </PullToRefresh>
   );
 };
 

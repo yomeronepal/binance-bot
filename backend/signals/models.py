@@ -56,6 +56,182 @@ class Symbol(models.Model):
         return f"<Symbol: {self.symbol}>"
 
 
+class TradingSession(models.Model):
+    """
+    Trading session model for managing trading time windows.
+    Replaces hardcoded trading window logic with flexible database configuration.
+    """
+    SESSION_TYPE_CHOICES = [
+        ('GOLDEN_WINDOW', _('Golden Window')),  # Premium window (time + specific days)
+        ('ACTIVE_TRADING_WINDOW', _('Active Trading Window')),  # Active window (time only)
+    ]
+
+    # Basic information
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        help_text=_("Session name (e.g., GW1, GW2)")
+    )
+    session_type = models.CharField(
+        max_length=30,
+        choices=SESSION_TYPE_CHOICES,
+        help_text=_("Type of trading session")
+    )
+    description = models.TextField(
+        blank=True,
+        help_text=_("Session description")
+    )
+
+    # Time window (Nepal Time)
+    start_hour = models.IntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(23)],
+        help_text=_("Start hour in Nepal Time (0-23)")
+    )
+    start_minute = models.IntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(59)],
+        default=0,
+        help_text=_("Start minute (0-59)")
+    )
+    end_hour = models.IntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(23)],
+        help_text=_("End hour in Nepal Time (0-23)")
+    )
+    end_minute = models.IntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(59)],
+        default=0,
+        help_text=_("End minute (0-59)")
+    )
+
+    # Active days (for GOLDEN_WINDOW type)
+    # Python weekday: Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6
+    active_days = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=_("Active days for GOLDEN_WINDOW type (0=Mon, 6=Sun). Empty = all days")
+    )
+
+    # Enable/disable
+    active = models.BooleanField(
+        default=True,
+        help_text=_("Whether this session is active")
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'trading_sessions'
+        ordering = ['start_hour', 'start_minute']
+        verbose_name = _('Trading Session')
+        verbose_name_plural = _('Trading Sessions')
+        indexes = [
+            models.Index(fields=['active', 'session_type']),
+            models.Index(fields=['start_hour', 'end_hour']),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.start_hour:02d}:{self.start_minute:02d}-{self.end_hour:02d}:{self.end_minute:02d} NPT)"
+
+    def __repr__(self):
+        return f"<TradingSession: {self.name}>"
+
+    @property
+    def time_window_minutes(self):
+        """Get time window in minutes from midnight."""
+        return (
+            self.start_hour * 60 + self.start_minute,
+            self.end_hour * 60 + self.end_minute
+        )
+
+    def is_time_in_window(self, npt_datetime):
+        """
+        Check if a given Nepal time is within this session's time window.
+        
+        Args:
+            npt_datetime: datetime object in Nepal Time
+            
+        Returns:
+            bool: True if time is within window
+        """
+        current_minutes = npt_datetime.hour * 60 + npt_datetime.minute
+        start_minutes, end_minutes = self.time_window_minutes
+        return start_minutes <= current_minutes < end_minutes
+
+    def is_day_active(self, npt_datetime):
+        """
+        Check if a given Nepal time falls on an active day for this session.
+        
+        Args:
+            npt_datetime: datetime object in Nepal Time
+            
+        Returns:
+            bool: True if day is active (or no active_days restriction)
+        """
+        if not self.active_days:
+            return True  # No day restriction
+        return npt_datetime.weekday() in self.active_days
+
+    def matches(self, npt_datetime):
+        """
+        Check if a datetime matches this trading session.
+        
+        For GOLDEN_WINDOW: Must match both time AND active days
+        For ACTIVE_TRADING_WINDOW: Must match time only
+        
+        Args:
+            npt_datetime: datetime object in Nepal Time
+            
+        Returns:
+            bool: True if datetime matches session criteria
+        """
+        if not self.active:
+            return False
+
+        # Check time window
+        if not self.is_time_in_window(npt_datetime):
+            return False
+
+        # For GOLDEN_WINDOW, also check day
+        if self.session_type == 'GOLDEN_WINDOW':
+            return self.is_day_active(npt_datetime)
+
+        # ACTIVE_TRADING_WINDOW only needs time match
+        return True
+
+    @classmethod
+    def get_active_sessions(cls):
+        """Get all active trading sessions."""
+        return cls.objects.filter(active=True)
+
+    @classmethod
+    def get_matching_session(cls, npt_datetime):
+        """
+        Get the first matching session for a given datetime.
+        Prioritizes GOLDEN_WINDOW over ACTIVE_TRADING_WINDOW.
+        
+        Args:
+            npt_datetime: datetime object in Nepal Time
+            
+        Returns:
+            TradingSession or None
+        """
+        sessions = cls.get_active_sessions().order_by(
+            models.Case(
+                models.When(session_type='GOLDEN_WINDOW', then=0),
+                models.When(session_type='ACTIVE_TRADING_WINDOW', then=1),
+                default=2
+            )
+        )
+        
+        for session in sessions:
+            if session.matches(npt_datetime):
+                return session
+        
+        return None
+
+
+
 class Signal(models.Model):
     """
     Trading signal model with entry, stop-loss, and take-profit levels.
@@ -188,7 +364,13 @@ class Signal(models.Model):
     # Priority flag for high win-rate time windows
     is_priority = models.BooleanField(
         default=False,
-        help_text=_("Signal generated during high win-rate hours (17:00-18:00 or 21:00-23:00 Nepal Time)")
+        help_text=_("Signal generated during high win-rate hours (16:00-17:00 or 21:00-23:00 Nepal Time)")
+    )
+
+    # Golden Window 2 flag for premium windows on specific days
+    is_golden_2 = models.BooleanField(
+        default=False,
+        help_text=_("Signal generated during premium windows (16:00-17:00 or 21:00-23:00 NPT) on Sun/Wed/Thu only")
     )
 
     # Additional information
@@ -277,14 +459,14 @@ class Signal(models.Model):
         """
         Check if current Nepal Time is within high win-rate trading windows.
         Windows (Nepal Time UTC+5:45):
-        - 17:00-18:00 NPT
+        - 16:00-17:00 NPT
         - 21:00-23:00 NPT
         """
         from datetime import datetime, timezone as dt_timezone, timedelta
 
         NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
         TRADING_WINDOWS = [
-            (17, 0, 18, 0),
+            (16, 0, 17, 0),
             (21, 0, 23, 0),
         ]
 
@@ -301,10 +483,47 @@ class Signal(models.Model):
 
         return False
 
+    @staticmethod
+    def is_golden_window_2():
+        """
+        Check if current Nepal Time is within premium trading windows on specific days.
+        Windows (Nepal Time UTC+5:45) on Sun/Wed/Thu only:
+        - 16:00-17:00 NPT
+        - 21:00-23:00 NPT
+        """
+        from datetime import datetime, timezone as dt_timezone, timedelta
+
+        NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
+        TRADING_WINDOWS = [
+            (16, 0, 17, 0),
+            (21, 0, 23, 0),
+        ]
+        GOLDEN_DAYS = [6, 2, 3]  # Sunday=6, Wednesday=2, Thursday=3
+
+        utc_now = datetime.now(dt_timezone.utc)
+        nepal_now = utc_now + NEPAL_TZ_OFFSET
+        current_time_minutes = nepal_now.hour * 60 + nepal_now.minute
+        weekday = nepal_now.weekday()  # 0=Mon, 6=Sun
+
+        # Check if it's a golden day
+        if weekday not in GOLDEN_DAYS:
+            return False
+
+        # Check if within trading window
+        for start_hour, start_min, end_hour, end_min in TRADING_WINDOWS:
+            window_start = start_hour * 60 + start_min
+            window_end = end_hour * 60 + end_min
+
+            if window_start <= current_time_minutes < window_end:
+                return True
+
+        return False
+
     def save(self, *args, **kwargs):
-        """Auto-set is_priority based on creation time for new signals."""
+        """Auto-set is_priority and is_golden_2 based on creation time for new signals."""
         if not self.pk:
             self.is_priority = self.is_high_winrate_hour()
+            self.is_golden_2 = self.is_golden_window_2()
         super().save(*args, **kwargs)
 
 

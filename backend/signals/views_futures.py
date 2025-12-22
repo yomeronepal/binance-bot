@@ -210,7 +210,30 @@ def futures_summary(request):
         total=Sum('profit_loss')
     )['total'] or Decimal('0')
 
-    open_pnl = Decimal('0')
+    # Calculate unrealized PnL from open positions
+    unrealized_pnl = open_trades.aggregate(
+        total=Sum('unrealized_pnl')
+    )['total'] or Decimal('0')
+
+    # Get open positions with their live data
+    open_positions_data = []
+    for trade in open_trades:
+        open_positions_data.append({
+            'id': trade.id,
+            'symbol': trade.symbol,
+            'direction': trade.direction,
+            'leverage': trade.leverage,
+            'entry_price': str(trade.entry_price),
+            'mark_price': str(trade.mark_price) if trade.mark_price else None,
+            'quantity': str(trade.quantity),
+            'position_size_usdt': str(trade.position_size_usdt),
+            'unrealized_pnl': str(trade.unrealized_pnl),
+            'unrealized_pnl_percentage': str(trade.unrealized_pnl_percentage),
+            'liquidation_price': str(trade.liquidation_price) if trade.liquidation_price else None,
+            'stop_loss': str(trade.stop_loss),
+            'take_profit': str(trade.take_profit),
+            'last_sync_time': trade.last_sync_time.isoformat() if trade.last_sync_time else None,
+        })
 
     return Response({
         'settings': {
@@ -220,15 +243,21 @@ def futures_summary(request):
             'effective_position_size': str(settings_obj.effective_position_size),
             'max_concurrent_trades': settings_obj.max_concurrent_trades,
             'allowed_symbols': settings_obj.allowed_symbols,
+            'gw_auto_trader_enabled': settings_obj.gw_auto_trader_enabled,
+            'total_trading_capital': str(settings_obj.total_trading_capital),
+            'max_active_gw_trades': settings_obj.max_active_gw_trades,
         },
         'statistics': {
             'total_trades': total_trades,
             'winning_trades': winning_trades,
             'losing_trades': losing_trades,
             'win_rate': round(win_rate, 2),
-            'total_pnl': str(total_pnl),
-            'open_positions': open_trades.count(),
-        }
+            'realized_pnl': str(total_pnl),
+            'unrealized_pnl': str(unrealized_pnl),
+            'total_pnl': str(total_pnl + unrealized_pnl),
+            'open_positions_count': open_trades.count(),
+        },
+        'open_positions': open_positions_data,
     })
 
 
