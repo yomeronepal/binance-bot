@@ -1862,22 +1862,58 @@ class FuturesTradingSettingsAdmin(admin.ModelAdmin):
     list_display = (
         "id", "is_enabled_badge", "trade_amount", "leverage",
         "effective_position_size_display", "max_concurrent_trades",
-        "min_signal_confidence", "use_trading_window", "updated_at"
+        "gw_auto_trader_badge", "dynamic_trailing_badge",
+        "cut_loser_badge", "updated_at"
     )
     readonly_fields = ("created_at", "updated_at")
 
     fieldsets = (
-        ('Status', {
-            'fields': ('is_enabled',)
+        ('Master Switch', {
+            'fields': ('is_enabled',),
+            'description': 'Enable or disable all futures trading'
         }),
-        ('Trade Settings', {
-            'fields': ('trade_amount', 'leverage', 'max_concurrent_trades')
-        }),
-        ('Filters', {
+        ('Capital Management', {
             'fields': (
-                'min_signal_confidence', 'allowed_symbols',
-                'trade_long', 'trade_short', 'use_trading_window'
-            )
+                'trade_amount',
+                'total_trading_capital',
+                'max_active_gw_trades',
+                'leverage',
+                'max_concurrent_trades',
+            ),
+            'description': 'Configure trading capital and position sizing'
+        }),
+        ('Signal Filters', {
+            'fields': (
+                'min_signal_confidence',
+                'allowed_symbols',
+                'trade_long',
+                'trade_short',
+            ),
+            'description': 'Filter which signals to trade'
+        }),
+        ('Trading Windows', {
+            'fields': (
+                'use_trading_window',
+                'trade_on_golden_window_2',
+                'gw_auto_trader_enabled',
+            ),
+            'description': 'Configure when trading is allowed'
+        }),
+        ('Cut Loser Strategy', {
+            'fields': (
+                'cut_loser_enabled',
+                'cut_loser_trigger_loss_pct',
+                'cut_loser_close_at_pct',
+            ),
+            'description': 'Close losing trades early when they recover near breakeven'
+        }),
+        ('Dynamic Trailing Stop', {
+            'fields': (
+                'dynamic_trailing_enabled',
+                'initial_trailing_callback',
+                'dynamic_trailing_tiers',
+            ),
+            'description': 'Trailing stop that tightens as profit grows'
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
@@ -1896,7 +1932,7 @@ class FuturesTradingSettingsAdmin(admin.ModelAdmin):
             '<span style="background-color: #dc3545; color: white; padding: 3px 10px; '
             'border-radius: 3px; font-weight: bold;">DISABLED</span>'
         )
-    is_enabled_badge.short_description = 'Status'
+    is_enabled_badge.short_description = 'Trading'
 
     def effective_position_size_display(self, obj):
         """Display effective position size."""
@@ -1904,7 +1940,46 @@ class FuturesTradingSettingsAdmin(admin.ModelAdmin):
             '<span style="font-weight: bold;">${}</span>',
             f"{float(obj.effective_position_size):.2f}"
         )
-    effective_position_size_display.short_description = 'Effective Size'
+    effective_position_size_display.short_description = 'Position Size'
+
+    def gw_auto_trader_badge(self, obj):
+        """Display golden window auto trader status."""
+        if obj.gw_auto_trader_enabled:
+            return format_html(
+                '<span style="background-color: #9333ea; color: white; padding: 2px 6px; '
+                'border-radius: 3px; font-size: 11px;">GW AUTO</span>'
+            )
+        return format_html(
+            '<span style="background-color: #6c757d; color: white; padding: 2px 6px; '
+            'border-radius: 3px; font-size: 11px;">GW OFF</span>'
+        )
+    gw_auto_trader_badge.short_description = 'GW Auto'
+
+    def dynamic_trailing_badge(self, obj):
+        """Display dynamic trailing stop status."""
+        if obj.dynamic_trailing_enabled:
+            return format_html(
+                '<span style="background-color: #059669; color: white; padding: 2px 6px; '
+                'border-radius: 3px; font-size: 11px;">TRAILING</span>'
+            )
+        return format_html(
+            '<span style="background-color: #6c757d; color: white; padding: 2px 6px; '
+            'border-radius: 3px; font-size: 11px;">FIXED SL</span>'
+        )
+    dynamic_trailing_badge.short_description = 'SL Type'
+
+    def cut_loser_badge(self, obj):
+        """Display cut loser status."""
+        if obj.cut_loser_enabled:
+            return format_html(
+                '<span style="background-color: #f59e0b; color: white; padding: 2px 6px; '
+                'border-radius: 3px; font-size: 11px;">CUT LOSER</span>'
+            )
+        return format_html(
+            '<span style="background-color: #6c757d; color: white; padding: 2px 6px; '
+            'border-radius: 3px; font-size: 11px;">STANDARD</span>'
+        )
+    cut_loser_badge.short_description = 'Risk Mgmt'
 
     def has_add_permission(self, request):
         return not FuturesTradingSettings.objects.exists()
@@ -1918,16 +1993,21 @@ class FuturesTradeAdmin(BaseModelAdmin):
     """Admin interface for Futures Trades."""
     list_display = (
         "id", "symbol", "direction_badge", "leverage",
-        "entry_price", "exit_price", "status_badge",
-        "pnl_display", "profit_loss_percentage",
-        "entry_time", "exit_time"
+        "entry_price", "mark_price", "status_badge",
+        "unrealized_pnl_display", "pnl_display",
+        "trailing_tier_badge", "cut_loser_badge",
+        "entry_time"
     )
-    list_filter = ("status", "direction", "symbol", "entry_time")
+    list_filter = ("status", "direction", "symbol", "cut_loser_triggered", "entry_time")
     search_fields = ("symbol", "binance_order_id")
     ordering = ("-created_at",)
     readonly_fields = (
-        "signal", "binance_order_id", "binance_exit_order_id",
+        "signal", "binance_order_id", "binance_exit_order_id", "trailing_order_id",
         "entry_time", "exit_time", "profit_loss", "profit_loss_percentage",
+        "mark_price", "unrealized_pnl", "unrealized_pnl_percentage",
+        "liquidation_price", "margin_type", "last_sync_time",
+        "cut_loser_triggered", "max_loss_pct_reached", "max_profit_pct_reached",
+        "current_trailing_tier",
         "created_at", "updated_at"
     )
 
@@ -1936,15 +2016,38 @@ class FuturesTradeAdmin(BaseModelAdmin):
             'fields': ('signal', 'symbol', 'direction', 'status')
         }),
         ('Position Details', {
-            'fields': ('leverage', 'quantity', 'position_size_usdt')
+            'fields': ('leverage', 'quantity', 'position_size_usdt', 'margin_type')
         }),
         ('Price Levels', {
             'fields': ('entry_price', 'stop_loss', 'take_profit', 'exit_price')
         }),
-        ('Performance', {
+        ('Live Data (from Binance)', {
+            'fields': (
+                'mark_price', 'liquidation_price',
+                'unrealized_pnl', 'unrealized_pnl_percentage',
+                'last_sync_time'
+            ),
+            'description': 'Real-time data synced from Binance'
+        }),
+        ('Realized Performance', {
             'fields': ('profit_loss', 'profit_loss_percentage')
         }),
-        ('Binance Info', {
+        ('Cut Loser Tracking', {
+            'fields': (
+                'cut_loser_triggered',
+                'max_loss_pct_reached',
+            ),
+            'description': 'Tracking for cut-loser risk management'
+        }),
+        ('Dynamic Trailing Stop Tracking', {
+            'fields': (
+                'current_trailing_tier',
+                'max_profit_pct_reached',
+                'trailing_order_id',
+            ),
+            'description': 'Tracking for dynamic trailing stop'
+        }),
+        ('Binance Order IDs', {
             'fields': ('binance_order_id', 'binance_exit_order_id', 'error_message'),
             'classes': ('collapse',)
         }),
@@ -1984,7 +2087,7 @@ class FuturesTradeAdmin(BaseModelAdmin):
     status_badge.short_description = 'Status'
 
     def pnl_display(self, obj):
-        """Display P/L with color."""
+        """Display realized P/L with color."""
         if obj.profit_loss is None:
             return '-'
         pnl = float(obj.profit_loss)
@@ -2001,7 +2104,54 @@ class FuturesTradeAdmin(BaseModelAdmin):
             '<span style="color: {}; font-weight: bold;">{} USDT</span>',
             color, f"{sign}{pnl:.4f}"
         )
-    pnl_display.short_description = 'P/L'
+    pnl_display.short_description = 'Realized P/L'
+
+    def unrealized_pnl_display(self, obj):
+        """Display unrealized P/L with color."""
+        if obj.unrealized_pnl is None or obj.status != 'OPEN':
+            return '-'
+        pnl = float(obj.unrealized_pnl)
+        pnl_pct = float(obj.unrealized_pnl_percentage)
+        if pnl > 0:
+            color = 'green'
+            sign = '+'
+        elif pnl < 0:
+            color = 'red'
+            sign = ''
+        else:
+            color = 'gray'
+            sign = ''
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}{:.2f} ({}{:.2f}%)</span>',
+            color, sign, pnl, sign, pnl_pct
+        )
+    unrealized_pnl_display.short_description = 'Unrealized'
+
+    def trailing_tier_badge(self, obj):
+        """Display current trailing tier."""
+        tier = obj.current_trailing_tier
+        if tier == 0:
+            return format_html(
+                '<span style="background-color: #6c757d; color: white; padding: 2px 6px; '
+                'border-radius: 3px; font-size: 11px;">T0</span>'
+            )
+        color = '#059669' if tier >= 2 else '#10b981'
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 2px 6px; '
+            'border-radius: 3px; font-size: 11px;">T{}</span>',
+            color, tier
+        )
+    trailing_tier_badge.short_description = 'Trail Tier'
+
+    def cut_loser_badge(self, obj):
+        """Display cut loser status."""
+        if obj.cut_loser_triggered:
+            return format_html(
+                '<span style="background-color: #f59e0b; color: white; padding: 2px 6px; '
+                'border-radius: 3px; font-size: 11px;">TRIGGERED</span>'
+            )
+        return '-'
+    cut_loser_badge.short_description = 'Cut Loser'
 
     def get_queryset(self, request):
         """Optimize queryset."""
