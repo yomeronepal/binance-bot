@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
 TRADING_WINDOWS = [
-    (17, 0, 18, 0),
+    (16, 0, 17, 0),
     (21, 0, 23, 0),
 ]
 
@@ -161,6 +161,30 @@ class BinanceFuturesTrader:
                 return True
             logger.error(f"Failed to set margin type for {symbol}: {e}")
             return False
+
+    def _get_price_precision(self, symbol_info: Dict) -> Tuple[Decimal, int]:
+        """Get tick size and price precision from symbol info."""
+        tick_size = Decimal('0.01')
+        price_precision = 2
+
+        for f in symbol_info.get('filters', []):
+            if f['filterType'] == 'PRICE_FILTER':
+                tick_size = Decimal(f['tickSize'])
+                tick_str = f['tickSize'].rstrip('0').rstrip('.')
+                if '.' in tick_str:
+                    price_precision = len(tick_str.split('.')[1])
+                else:
+                    price_precision = 0
+                break
+
+        return tick_size, price_precision
+
+    def _round_price(self, price: Decimal, symbol_info: Dict) -> Decimal:
+        """Round price to symbol's tick size precision."""
+        tick_size, price_precision = self._get_price_precision(symbol_info)
+        steps = (price / tick_size).quantize(Decimal('1'), rounding=ROUND_DOWN)
+        rounded_price = steps * tick_size
+        return rounded_price.quantize(Decimal(10) ** -price_precision)
 
     def _calculate_quantity(
         self,
@@ -356,6 +380,9 @@ class BinanceFuturesTrader:
                 leverage
             )
 
+            sl_rounded = self._round_price(sl, symbol_info)
+            tp_rounded = self._round_price(tp, symbol_info)
+
             side = 'BUY' if direction == 'LONG' else 'SELL'
             entry_result = await self.place_market_order(symbol, side, quantity)
 
@@ -367,18 +394,26 @@ class BinanceFuturesTrader:
             sl_side = 'SELL' if direction == 'LONG' else 'BUY'
             tp_side = 'SELL' if direction == 'LONG' else 'BUY'
 
-            await self.place_stop_loss_order(symbol, sl_side, quantity, sl)
-            await self.place_take_profit_order(symbol, tp_side, quantity, tp)
+            sl_result = await self.place_stop_loss_order(symbol, sl_side, quantity, sl_rounded)
+            tp_result = await self.place_take_profit_order(symbol, tp_side, quantity, tp_rounded)
+
+            if not sl_result:
+                logger.warning(f"Failed to place SL order for {symbol}, but entry was successful")
+
+            if not tp_result:
+                logger.warning(f"Failed to place TP order for {symbol}, but entry was successful")
 
             logger.info(
                 f"✅ Futures trade opened: {direction} {quantity} {symbol} @ {avg_price} "
-                f"(SL: {sl}, TP: {tp}, Leverage: {leverage}x)"
+                f"(SL: {sl_rounded}, TP: {tp_rounded}, Leverage: {leverage}x)"
             )
 
             return {
                 'quantity': quantity,
                 'entry_price': avg_price,
-                'order_id': str(entry_result.get('orderId', ''))
+                'order_id': str(entry_result.get('orderId', '')),
+                'sl_order_id': str(sl_result.get('orderId', '')) if sl_result else None,
+                'tp_order_id': str(tp_result.get('orderId', '')) if tp_result else None
             }
 
         except Exception as e:
