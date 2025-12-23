@@ -345,9 +345,20 @@ class BinanceFuturesTrader:
         symbol: str,
         side: str,
         quantity: Decimal,
-        stop_price: Decimal
+        stop_price: Decimal,
+        current_price: Optional[Decimal] = None
     ) -> Optional[Dict]:
         """Place a stop-market order for stop loss."""
+        logger.info(f"Placing SL order: {symbol} {side} qty={quantity} stopPrice={stop_price} currentPrice={current_price}")
+
+        if current_price:
+            if side == 'SELL' and stop_price >= current_price:
+                logger.error(f"SL price {stop_price} must be BELOW current price {current_price} for LONG position")
+                return None
+            if side == 'BUY' and stop_price <= current_price:
+                logger.error(f"SL price {stop_price} must be ABOVE current price {current_price} for SHORT position")
+                return None
+
         params = {
             'symbol': symbol,
             'side': side,
@@ -359,10 +370,11 @@ class BinanceFuturesTrader:
 
         try:
             result = await self._request('POST', '/fapi/v1/order', params, signed=True)
-            logger.info(f"Stop loss order placed: {side} {quantity} {symbol} @ {stop_price}")
+            logger.info(f"✅ Stop loss order placed: {side} {quantity} {symbol} @ {stop_price} | OrderID: {result.get('orderId')}")
             return result
         except Exception as e:
-            logger.error(f"Failed to place stop loss order: {e}")
+            logger.error(f"❌ Failed to place stop loss order for {symbol}: {e}")
+            logger.error(f"   SL params: {params}")
             return None
 
     async def place_take_profit_order(
@@ -370,9 +382,20 @@ class BinanceFuturesTrader:
         symbol: str,
         side: str,
         quantity: Decimal,
-        take_profit_price: Decimal
+        take_profit_price: Decimal,
+        current_price: Optional[Decimal] = None
     ) -> Optional[Dict]:
         """Place a take-profit-market order."""
+        logger.info(f"Placing TP order: {symbol} {side} qty={quantity} stopPrice={take_profit_price} currentPrice={current_price}")
+
+        if current_price:
+            if side == 'SELL' and take_profit_price <= current_price:
+                logger.error(f"TP price {take_profit_price} must be ABOVE current price {current_price} for LONG position")
+                return None
+            if side == 'BUY' and take_profit_price >= current_price:
+                logger.error(f"TP price {take_profit_price} must be BELOW current price {current_price} for SHORT position")
+                return None
+
         params = {
             'symbol': symbol,
             'side': side,
@@ -384,10 +407,11 @@ class BinanceFuturesTrader:
 
         try:
             result = await self._request('POST', '/fapi/v1/order', params, signed=True)
-            logger.info(f"Take profit order placed: {side} {quantity} {symbol} @ {take_profit_price}")
+            logger.info(f"✅ Take profit order placed: {side} {quantity} {symbol} @ {take_profit_price} | OrderID: {result.get('orderId')}")
             return result
         except Exception as e:
-            logger.error(f"Failed to place take profit order: {e}")
+            logger.error(f"❌ Failed to place take profit order for {symbol}: {e}")
+            logger.error(f"   TP params: {params}")
             return None
 
     async def place_trailing_stop_order(
@@ -526,9 +550,6 @@ class BinanceFuturesTrader:
                 leverage
             )
 
-            sl_rounded = self._round_price(sl, symbol_info)
-            tp_rounded = self._round_price(tp, symbol_info)
-
             side = 'BUY' if direction == 'LONG' else 'SELL'
             entry_result = await self.place_market_order(symbol, side, quantity)
 
@@ -542,12 +563,35 @@ class BinanceFuturesTrader:
             sl_side = 'SELL' if direction == 'LONG' else 'BUY'
             tp_side = 'SELL' if direction == 'LONG' else 'BUY'
 
-            sl_result = await self.place_stop_loss_order(symbol, sl_side, quantity, sl_rounded)
+            sl_valid = sl
+            tp_valid = tp
+
+            if direction == 'LONG':
+                if sl >= avg_price:
+                    sl_valid = avg_price * Decimal('0.97')
+                    logger.warning(f"SL {sl} >= entry {avg_price}, adjusted to {sl_valid}")
+                if tp <= avg_price:
+                    tp_valid = avg_price * Decimal('1.05')
+                    logger.warning(f"TP {tp} <= entry {avg_price}, adjusted to {tp_valid}")
+            else:
+                if sl <= avg_price:
+                    sl_valid = avg_price * Decimal('1.03')
+                    logger.warning(f"SL {sl} <= entry {avg_price}, adjusted to {sl_valid}")
+                if tp >= avg_price:
+                    tp_valid = avg_price * Decimal('0.95')
+                    logger.warning(f"TP {tp} >= entry {avg_price}, adjusted to {tp_valid}")
+
+            sl_rounded = self._round_price(sl_valid, symbol_info)
+            tp_rounded = self._round_price(tp_valid, symbol_info)
+
+            logger.info(f"SL/TP after validation: SL={sl_rounded}, TP={tp_rounded}, Entry={avg_price}")
+
+            sl_result = await self.place_stop_loss_order(symbol, sl_side, quantity, sl_rounded, avg_price)
 
             if not sl_result:
-                logger.warning(f"No stop loss protection for {symbol}!")
+                logger.error(f"⚠️ CRITICAL: No stop loss protection for {symbol}! Position is unprotected!")
 
-            tp_result = await self.place_take_profit_order(symbol, tp_side, quantity, tp_rounded)
+            tp_result = await self.place_take_profit_order(symbol, tp_side, quantity, tp_rounded, avg_price)
 
             if not tp_result:
                 logger.warning(f"Failed to place TP order for {symbol}, but entry was successful")
