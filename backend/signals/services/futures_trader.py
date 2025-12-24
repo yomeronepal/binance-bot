@@ -358,10 +358,11 @@ class BinanceFuturesTrader:
         logger.info(f"Placing SL order: {symbol} {side} closePosition=true triggerPrice={stop_price}")
 
         if current_price:
-            if side == 'SELL' and stop_price >= current_price:
+            tolerance = current_price * Decimal('0.001')
+            if side == 'SELL' and stop_price >= (current_price + tolerance):
                 logger.error(f"SL price {stop_price} must be BELOW current price {current_price} for LONG position")
                 return None
-            if side == 'BUY' and stop_price <= current_price:
+            if side == 'BUY' and stop_price <= (current_price - tolerance):
                 logger.error(f"SL price {stop_price} must be ABOVE current price {current_price} for SHORT position")
                 return None
 
@@ -403,10 +404,11 @@ class BinanceFuturesTrader:
         logger.info(f"Placing TP order: {symbol} {side} closePosition=true triggerPrice={take_profit_price}")
 
         if current_price:
-            if side == 'SELL' and take_profit_price <= current_price:
+            tolerance = current_price * Decimal('0.001')
+            if side == 'SELL' and take_profit_price <= (current_price - tolerance):
                 logger.error(f"TP price {take_profit_price} must be ABOVE current price {current_price} for LONG position")
                 return None
-            if side == 'BUY' and take_profit_price >= current_price:
+            if side == 'BUY' and take_profit_price >= (current_price + tolerance):
                 logger.error(f"TP price {take_profit_price} must be BELOW current price {current_price} for SHORT position")
                 return None
 
