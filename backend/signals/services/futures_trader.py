@@ -351,9 +351,10 @@ class BinanceFuturesTrader:
     ) -> Optional[Dict]:
         """
         Place a stop loss order using Binance Algo Order API.
+        Uses closePosition=true so the order auto-cancels when position is closed.
         As of Dec 2024, conditional orders must use /fapi/v1/algoOrder endpoint.
         """
-        logger.info(f"Placing SL order: {symbol} {side} qty={quantity} triggerPrice={stop_price}")
+        logger.info(f"Placing SL order: {symbol} {side} closePosition=true triggerPrice={stop_price}")
 
         if current_price:
             if side == 'SELL' and stop_price >= current_price:
@@ -371,15 +372,14 @@ class BinanceFuturesTrader:
             'side': side,
             'algoType': 'CONDITIONAL',
             'type': 'STOP_MARKET',
-            'quantity': str(quantity),
+            'closePosition': 'true',
             'triggerPrice': str(stop_price),
-            'reduceOnly': 'true',
         }
 
         try:
             result = await self._request('POST', '/fapi/v1/algoOrder', params, signed=True)
             algo_id = result.get('algoId')
-            logger.info(f"✅ Stop loss order placed: {side} {quantity} {symbol} @ {stop_price} | AlgoID: {algo_id}")
+            logger.info(f"✅ Stop loss order placed: {side} {symbol} @ {stop_price} (closePosition) | AlgoID: {algo_id}")
             return {'orderId': str(algo_id), 'algoId': algo_id, **result}
         except Exception as e:
             logger.error(f"❌ Failed to place SL order for {symbol}: {e}")
@@ -396,9 +396,10 @@ class BinanceFuturesTrader:
     ) -> Optional[Dict]:
         """
         Place a take profit order using Binance Algo Order API.
+        Uses closePosition=true so the order auto-cancels when position is closed.
         As of Dec 2024, conditional orders must use /fapi/v1/algoOrder endpoint.
         """
-        logger.info(f"Placing TP order: {symbol} {side} qty={quantity} triggerPrice={take_profit_price}")
+        logger.info(f"Placing TP order: {symbol} {side} closePosition=true triggerPrice={take_profit_price}")
 
         if current_price:
             if side == 'SELL' and take_profit_price <= current_price:
@@ -416,15 +417,14 @@ class BinanceFuturesTrader:
             'side': side,
             'algoType': 'CONDITIONAL',
             'type': 'TAKE_PROFIT_MARKET',
-            'quantity': str(quantity),
+            'closePosition': 'true',
             'triggerPrice': str(take_profit_price),
-            'reduceOnly': 'true',
         }
 
         try:
             result = await self._request('POST', '/fapi/v1/algoOrder', params, signed=True)
             algo_id = result.get('algoId')
-            logger.info(f"✅ Take profit order placed: {side} {quantity} {symbol} @ {take_profit_price} | AlgoID: {algo_id}")
+            logger.info(f"✅ Take profit order placed: {side} {symbol} @ {take_profit_price} (closePosition) | AlgoID: {algo_id}")
             return {'orderId': str(algo_id), 'algoId': algo_id, **result}
         except Exception as e:
             logger.error(f"❌ Failed to place TP order for {symbol}: {e}")
