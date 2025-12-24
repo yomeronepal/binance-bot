@@ -349,8 +349,11 @@ class BinanceFuturesTrader:
         current_price: Optional[Decimal] = None,
         symbol_info: Optional[Dict] = None
     ) -> Optional[Dict]:
-        """Place a stop loss order using STOP type with limit price."""
-        logger.info(f"Placing SL order: {symbol} {side} qty={quantity} stopPrice={stop_price} currentPrice={current_price}")
+        """
+        Place a stop loss order using Binance Algo Order API.
+        As of Dec 2024, conditional orders must use /fapi/v1/algoOrder endpoint.
+        """
+        logger.info(f"Placing SL order: {symbol} {side} qty={quantity} triggerPrice={stop_price}")
 
         if current_price:
             if side == 'SELL' and stop_price >= current_price:
@@ -360,52 +363,27 @@ class BinanceFuturesTrader:
                 logger.error(f"SL price {stop_price} must be ABOVE current price {current_price} for SHORT position")
                 return None
 
-        slippage = Decimal('0.005')
-        if side == 'SELL':
-            limit_price = stop_price * (1 - slippage)
-        else:
-            limit_price = stop_price * (1 + slippage)
-
         if symbol_info:
-            limit_price = self._round_price(limit_price, symbol_info)
             stop_price = self._round_price(stop_price, symbol_info)
 
         params = {
             'symbol': symbol,
             'side': side,
-            'type': 'STOP',
+            'algoType': 'CONDITIONAL',
+            'type': 'STOP_MARKET',
             'quantity': str(quantity),
-            'price': str(limit_price),
-            'stopPrice': str(stop_price),
+            'triggerPrice': str(stop_price),
             'reduceOnly': 'true',
-            'timeInForce': 'GTC',
         }
 
         try:
-            result = await self._request('POST', '/fapi/v1/order', params, signed=True)
-            logger.info(f"✅ Stop loss order placed: {side} {quantity} {symbol} @ {stop_price} | OrderID: {result.get('orderId')}")
-            return result
+            result = await self._request('POST', '/fapi/v1/algoOrder', params, signed=True)
+            algo_id = result.get('algoId')
+            logger.info(f"✅ Stop loss order placed: {side} {quantity} {symbol} @ {stop_price} | AlgoID: {algo_id}")
+            return {'orderId': str(algo_id), 'algoId': algo_id, **result}
         except Exception as e:
-            error_str = str(e)
-            logger.error(f"❌ Failed to place STOP order for {symbol}: {e}")
-
-            logger.info(f"Trying STOP_MARKET for {symbol}...")
-            params_market = {
-                'symbol': symbol,
-                'side': side,
-                'type': 'STOP_MARKET',
-                'quantity': str(quantity),
-                'stopPrice': str(stop_price),
-                'reduceOnly': 'true',
-                'workingType': 'MARK_PRICE',
-            }
-            try:
-                result = await self._request('POST', '/fapi/v1/order', params_market, signed=True)
-                logger.info(f"✅ Stop loss (STOP_MARKET) placed: {side} {quantity} {symbol} @ {stop_price}")
-                return result
-            except Exception as e2:
-                logger.error(f"❌ STOP_MARKET also failed for {symbol}: {e2}")
-                return None
+            logger.error(f"❌ Failed to place SL order for {symbol}: {e}")
+            return None
 
     async def place_take_profit_order(
         self,
@@ -416,8 +394,11 @@ class BinanceFuturesTrader:
         current_price: Optional[Decimal] = None,
         symbol_info: Optional[Dict] = None
     ) -> Optional[Dict]:
-        """Place a take profit order using TAKE_PROFIT type with limit price."""
-        logger.info(f"Placing TP order: {symbol} {side} qty={quantity} stopPrice={take_profit_price} currentPrice={current_price}")
+        """
+        Place a take profit order using Binance Algo Order API.
+        As of Dec 2024, conditional orders must use /fapi/v1/algoOrder endpoint.
+        """
+        logger.info(f"Placing TP order: {symbol} {side} qty={quantity} triggerPrice={take_profit_price}")
 
         if current_price:
             if side == 'SELL' and take_profit_price <= current_price:
@@ -427,52 +408,27 @@ class BinanceFuturesTrader:
                 logger.error(f"TP price {take_profit_price} must be BELOW current price {current_price} for SHORT position")
                 return None
 
-        slippage = Decimal('0.005')
-        if side == 'SELL':
-            limit_price = take_profit_price * (1 - slippage)
-        else:
-            limit_price = take_profit_price * (1 + slippage)
-
         if symbol_info:
-            limit_price = self._round_price(limit_price, symbol_info)
             take_profit_price = self._round_price(take_profit_price, symbol_info)
 
         params = {
             'symbol': symbol,
             'side': side,
-            'type': 'TAKE_PROFIT',
+            'algoType': 'CONDITIONAL',
+            'type': 'TAKE_PROFIT_MARKET',
             'quantity': str(quantity),
-            'price': str(limit_price),
-            'stopPrice': str(take_profit_price),
+            'triggerPrice': str(take_profit_price),
             'reduceOnly': 'true',
-            'timeInForce': 'GTC',
         }
 
         try:
-            result = await self._request('POST', '/fapi/v1/order', params, signed=True)
-            logger.info(f"✅ Take profit order placed: {side} {quantity} {symbol} @ {take_profit_price} | OrderID: {result.get('orderId')}")
-            return result
+            result = await self._request('POST', '/fapi/v1/algoOrder', params, signed=True)
+            algo_id = result.get('algoId')
+            logger.info(f"✅ Take profit order placed: {side} {quantity} {symbol} @ {take_profit_price} | AlgoID: {algo_id}")
+            return {'orderId': str(algo_id), 'algoId': algo_id, **result}
         except Exception as e:
-            error_str = str(e)
-            logger.error(f"❌ Failed to place TAKE_PROFIT order for {symbol}: {e}")
-
-            logger.info(f"Trying TAKE_PROFIT_MARKET for {symbol}...")
-            params_market = {
-                'symbol': symbol,
-                'side': side,
-                'type': 'TAKE_PROFIT_MARKET',
-                'quantity': str(quantity),
-                'stopPrice': str(take_profit_price),
-                'reduceOnly': 'true',
-                'workingType': 'MARK_PRICE',
-            }
-            try:
-                result = await self._request('POST', '/fapi/v1/order', params_market, signed=True)
-                logger.info(f"✅ Take profit (TAKE_PROFIT_MARKET) placed: {side} {quantity} {symbol} @ {take_profit_price}")
-                return result
-            except Exception as e2:
-                logger.error(f"❌ TAKE_PROFIT_MARKET also failed for {symbol}: {e2}")
-                return None
+            logger.error(f"❌ Failed to place TP order for {symbol}: {e}")
+            return None
 
     async def place_trailing_stop_order(
         self,
@@ -516,7 +472,9 @@ class BinanceFuturesTrader:
             return None
 
     async def cancel_all_orders(self, symbol: str) -> bool:
-        """Cancel all open orders for a symbol."""
+        """Cancel all open orders for a symbol (both regular and algo orders)."""
+        success = True
+
         try:
             await self._request(
                 'DELETE',
@@ -524,11 +482,36 @@ class BinanceFuturesTrader:
                 {'symbol': symbol},
                 signed=True
             )
-            logger.info(f"All orders cancelled for {symbol}")
-            return True
+            logger.info(f"Regular orders cancelled for {symbol}")
         except Exception as e:
-            logger.error(f"Failed to cancel orders for {symbol}: {e}")
-            return False
+            logger.warning(f"Failed to cancel regular orders for {symbol}: {e}")
+            success = False
+
+        try:
+            algo_orders = await self._request(
+                'GET',
+                '/fapi/v1/allAlgoOrders',
+                {'symbol': symbol, 'algoStatus': 'NEW'},
+                signed=True
+            )
+            orders_list = algo_orders if isinstance(algo_orders, list) else algo_orders.get('rows', [])
+            for order in orders_list:
+                algo_id = order.get('algoId')
+                if algo_id:
+                    try:
+                        await self._request(
+                            'DELETE',
+                            '/fapi/v1/algoOrder',
+                            {'symbol': symbol, 'algoId': algo_id},
+                            signed=True
+                        )
+                        logger.info(f"Cancelled algo order {algo_id} for {symbol}")
+                    except Exception as e:
+                        logger.warning(f"Failed to cancel algo order {algo_id}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to cancel algo orders for {symbol}: {e}")
+
+        return success
 
     async def close_position(self, symbol: str, direction: str, quantity: Decimal) -> Optional[Dict]:
         """Close an open position."""
