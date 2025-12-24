@@ -35,8 +35,8 @@ class SignalConfig:
     # LONG signal thresholds (Buy when oversold - mean reversion)
     long_rsi_min: float = 25.0  # Buy when RSI is low (oversold)
     long_rsi_max: float = 35.0  # Maximum RSI for LONG entry
-    long_adx_min: float = 22.0  # Require stronger trend
-    long_volume_multiplier: float = 1.2
+    long_adx_min: float = 25.0  # Require stronger trend (increased from 22.0)
+    long_volume_multiplier: float = 1.5  # Increased from 1.2 for stronger confirmation
 
     # SHORT signal thresholds (Sell when overbought - mean reversion)
     short_rsi_min: float = 65.0  # Minimum RSI for SHORT entry
@@ -598,19 +598,31 @@ class SignalDetectionEngine:
         fib_meta = {}
 
         try:
-            # 1. MACD Crossover
-            if previous['macd_hist'] <= 0 and current['macd_hist'] > 0:
+            # 1. MACD Crossover - LONG SPECIFIC: Require histogram increasing
+            macd_crossed = previous['macd_hist'] <= 0 and current['macd_hist'] > 0
+            macd_increasing = current['macd_hist'] > previous['macd_hist']
+
+            if macd_crossed and macd_increasing:
                 score += config.macd_weight
+                conditions['macd_crossover'] = True
+            elif macd_crossed:
+                score += config.macd_weight * 0.5
+                conditions['macd_crossover'] = True
+            elif macd_increasing and current['macd_hist'] > 0:
+                score += config.macd_weight * 0.3
                 conditions['macd_crossover'] = True
             else:
                 conditions['macd_crossover'] = False
 
-            # 2. RSI Range
-            if config.long_rsi_min < current['rsi'] < config.long_rsi_max:
+            # 2. RSI Range - MUST be in range AND rising for LONG
+            rsi_in_range = config.long_rsi_min < current['rsi'] < config.long_rsi_max
+            rsi_rising = current['rsi'] > previous['rsi']
+
+            if rsi_in_range and rsi_rising:
                 score += config.rsi_weight
                 conditions['rsi_favorable'] = True
-            elif current['rsi'] > previous['rsi']:
-                score += config.rsi_weight * 0.5
+            elif rsi_in_range:
+                score += config.rsi_weight * 0.4
                 conditions['rsi_favorable'] = True
             else:
                 conditions['rsi_favorable'] = False
@@ -653,26 +665,32 @@ class SignalDetectionEngine:
             else:
                 conditions['ema_aligned'] = False
 
-            # 8. +DI > -DI (Directional Movement)
-            if current['plus_di'] > current['minus_di']:
+            # 8. +DI > -DI (Directional Movement) - LONG SPECIFIC: +DI must also be rising
+            di_positive = current['plus_di'] > current['minus_di']
+            di_rising = current['plus_di'] > previous['plus_di']
+
+            if di_positive and di_rising:
                 di_diff = current['plus_di'] - current['minus_di']
                 if di_diff > 10:
                     score += config.di_weight
                 else:
                     score += config.di_weight * min(di_diff / 10, 1.0)
                 conditions['positive_di'] = True
+            elif di_positive:
+                score += config.di_weight * 0.3
+                conditions['positive_di'] = True
             else:
                 conditions['positive_di'] = False
 
-            # 9. Bollinger Bands Position
+            # 9. Bollinger Bands Position - LONG SPECIFIC: Prefer price near lower band (mean reversion)
             bb_range = current['bb_upper'] - current['bb_lower']
             if bb_range > 0:
                 bb_position = (current['close'] - current['bb_lower']) / bb_range
-                if 0.3 < bb_position < 0.7:
+                if bb_position < 0.25:
                     score += config.bb_weight
                     conditions['bb_favorable'] = True
-                elif bb_position < 0.3:
-                    score += config.bb_weight * 0.7
+                elif bb_position < 0.4:
+                    score += config.bb_weight * 0.6
                     conditions['bb_favorable'] = True
                 else:
                     conditions['bb_favorable'] = False
@@ -756,6 +774,25 @@ class SignalDetectionEngine:
 
             confidence = min(confidence, 0.92)  # Cap at 92% for realism
             triggered = score >= (max_score * config.min_confidence)
+
+            # LONG-SPECIFIC: Require minimum bullish confirmations to avoid weak entries
+            if triggered:
+                bullish_checks = [
+                    conditions.get('supertrend_bullish', False),
+                    conditions.get('positive_di', False),
+                    conditions.get('ema_aligned', False),
+                    conditions.get('ha_bullish', False),
+                    conditions.get('psar_bullish', False),
+                ]
+                bullish_count = sum(bullish_checks)
+
+                if bullish_count < 3:
+                    logger.debug(
+                        f"LONG rejected: Only {bullish_count}/5 bullish confirmations "
+                        f"(need 3+). ST={conditions.get('supertrend_bullish')}, "
+                        f"+DI={conditions.get('positive_di')}, EMA={conditions.get('ema_aligned')}"
+                    )
+                    triggered = False
 
             return triggered, confidence, conditions
 
