@@ -2057,6 +2057,7 @@ class FuturesTradeAdmin(BaseModelAdmin):
         }),
     )
 
+    @admin.display(description='Direction')
     def direction_badge(self, obj):
         """Display direction as colored badge."""
         color = "#28a745" if obj.direction == "LONG" else "#dc3545"
@@ -2065,8 +2066,8 @@ class FuturesTradeAdmin(BaseModelAdmin):
             'border-radius: 3px; font-weight: bold;">{}</span>',
             color, obj.direction
         )
-    direction_badge.short_description = 'Direction'
 
+    @admin.display(description='Status')
     def status_badge(self, obj):
         """Display status with colored badge."""
         colors = {
@@ -2084,13 +2085,13 @@ class FuturesTradeAdmin(BaseModelAdmin):
             'border-radius: 3px; font-size: 11px;">{}</span>',
             color, obj.status.replace('_', ' ')
         )
-    status_badge.short_description = 'Status'
 
+    @admin.display(description='Realized P/L')
     def pnl_display(self, obj):
         """Display realized P/L with color."""
         if obj.profit_loss is None:
             return '-'
-        pnl = float(obj.profit_loss)
+        pnl = float(obj.profit_loss or 0)
         if pnl > 0:
             color = 'green'
             sign = '+'
@@ -2104,14 +2105,14 @@ class FuturesTradeAdmin(BaseModelAdmin):
             '<span style="color: {}; font-weight: bold;">{} USDT</span>',
             color, f"{sign}{pnl:.4f}"
         )
-    pnl_display.short_description = 'Realized P/L'
 
+    @admin.display(description='Unrealized')
     def unrealized_pnl_display(self, obj):
         """Display unrealized P/L with color."""
         if obj.unrealized_pnl is None or obj.status != 'OPEN':
             return '-'
-        pnl = float(obj.unrealized_pnl)
-        pnl_pct = float(obj.unrealized_pnl_percentage)
+        pnl = float(obj.unrealized_pnl or 0)
+        pnl_pct = float(obj.unrealized_pnl_percentage or 0)
         if pnl > 0:
             color = 'green'
             sign = '+'
@@ -2125,11 +2126,11 @@ class FuturesTradeAdmin(BaseModelAdmin):
             '<span style="color: {}; font-weight: bold;">{}{:.2f} ({}{:.2f}%)</span>',
             color, sign, pnl, sign, pnl_pct
         )
-    unrealized_pnl_display.short_description = 'Unrealized'
 
+    @admin.display(description='Trail Tier')
     def trailing_tier_badge(self, obj):
         """Display current trailing tier."""
-        tier = obj.current_trailing_tier
+        tier = obj.current_trailing_tier or 0
         if tier == 0:
             return format_html(
                 '<span style="background-color: #6c757d; color: white; padding: 2px 6px; '
@@ -2141,8 +2142,8 @@ class FuturesTradeAdmin(BaseModelAdmin):
             'border-radius: 3px; font-size: 11px;">T{}</span>',
             color, tier
         )
-    trailing_tier_badge.short_description = 'Trail Tier'
 
+    @admin.display(description='Cut Loser')
     def cut_loser_badge(self, obj):
         """Display cut loser status."""
         if obj.cut_loser_triggered:
@@ -2151,7 +2152,6 @@ class FuturesTradeAdmin(BaseModelAdmin):
                 'border-radius: 3px; font-size: 11px;">TRIGGERED</span>'
             )
         return '-'
-    cut_loser_badge.short_description = 'Cut Loser'
 
     def get_queryset(self, request):
         """Optimize queryset."""

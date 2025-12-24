@@ -14,6 +14,7 @@ from datetime import datetime, timezone, timedelta
 import aiohttp
 from django.conf import settings
 from django.utils import timezone as dj_timezone
+from django.db import transaction
 
 from ..models_futures import FuturesTradingSettings, FuturesTrade
 from ..models import Signal
@@ -575,6 +576,12 @@ class BinanceFuturesTrader:
         Place market order with fixed SL/TP orders on Binance.
         Dynamic trailing stop will upgrade the SL later when profit tiers are reached.
         """
+        logger.info(
+            f"📊 TRADE EXECUTION START: {symbol} {direction} | "
+            f"Margin: ${position_size} | Leverage: {leverage}x | "
+            f"Notional: ${position_size * leverage} | Price: ${current_price} | "
+            f"SL: ${sl} | TP: ${tp}"
+        )
         errors = []
 
         try:
@@ -591,6 +598,11 @@ class BinanceFuturesTrader:
                 current_price,
                 position_size,
                 leverage
+            )
+
+            logger.info(
+                f"📊 Quantity calculated: {quantity} {symbol} | "
+                f"Expected Notional: ${float(quantity) * float(current_price):.2f}"
             )
 
             side = 'BUY' if direction == 'LONG' else 'SELL'
@@ -724,27 +736,28 @@ class FuturesTradingService:
             logger.info(f"Cannot trade signal {signal.id}: {reason}")
             return None
 
-        existing_trade = FuturesTrade.objects.filter(
-            symbol=symbol_name,
-            direction=direction,
-            status='OPEN'
-        ).exists()
+        with transaction.atomic():
+            existing_trade = FuturesTrade.objects.select_for_update().filter(
+                symbol=symbol_name,
+                direction=direction,
+                status__in=['OPEN', 'PENDING']
+            ).exists()
 
-        if existing_trade:
-            logger.info(f"Already have open {direction} position on {symbol_name}")
-            return None
+            if existing_trade:
+                logger.info(f"Already have open/pending {direction} position on {symbol_name}")
+                return None
 
-        futures_trade = FuturesTrade.objects.create(
-            signal=signal,
-            symbol=symbol_name,
-            direction=direction,
-            leverage=trade_settings.leverage,
-            quantity=Decimal('0'),
-            stop_loss=signal.sl,
-            take_profit=signal.tp,
-            position_size_usdt=trade_settings.trade_amount,
-            status='PENDING'
-        )
+            futures_trade = FuturesTrade.objects.create(
+                signal=signal,
+                symbol=symbol_name,
+                direction=direction,
+                leverage=trade_settings.leverage,
+                quantity=Decimal('0'),
+                stop_loss=signal.sl,
+                take_profit=signal.tp,
+                position_size_usdt=trade_settings.trade_amount,
+                status='PENDING'
+            )
 
         import threading
 

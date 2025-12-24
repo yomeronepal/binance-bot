@@ -498,7 +498,7 @@ class Signal(models.Model):
             (16, 0, 17, 0),
             (21, 0, 23, 0),
         ]
-        GOLDEN_DAYS = [6, 2, 3]  # Sunday=6, Wednesday=2, Thursday=3
+        GOLDEN_DAYS = [6, 2, 3, 1]  # Sunday=6, Wednesday=2, Thursday=3, Tuesday=1
 
         utc_now = datetime.now(dt_timezone.utc)
         nepal_now = utc_now + NEPAL_TZ_OFFSET
