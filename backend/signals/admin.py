@@ -2123,8 +2123,8 @@ class FuturesTradeAdmin(BaseModelAdmin):
             color = 'gray'
             sign = ''
         return format_html(
-            '<span style="color: {}; font-weight: bold;">{}{:.2f} ({}{:.2f}%)</span>',
-            color, sign, pnl, sign, pnl_pct
+            '<span style="color: {}; font-weight: bold;">{} ({}%)</span>',
+            color, f"{sign}{pnl:.2f}", f"{sign}{pnl_pct:.2f}"
         )
 
     @admin.display(description='Trail Tier')
