@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
 
 TRADING_WINDOWS = [
-    (16, 0, 17, 0),
     (21, 0, 23, 0),
 ]
 
@@ -24,7 +23,6 @@ def is_within_trading_window():
     """
     Check if current time is within allowed trading windows.
     Trading windows are in Nepal Time (UTC+5:45):
-    - 16:00-17:00 NPT
     - 21:00-23:00 NPT
     """
     utc_now = datetime.now(timezone.utc)

@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
 TRADING_WINDOWS = [
-    (16, 0, 17, 0),
     (21, 0, 23, 0),
 ]
 

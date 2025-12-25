@@ -459,14 +459,12 @@ class Signal(models.Model):
         """
         Check if current Nepal Time is within high win-rate trading windows.
         Windows (Nepal Time UTC+5:45):
-        - 16:00-17:00 NPT
         - 21:00-23:00 NPT
         """
         from datetime import datetime, timezone as dt_timezone, timedelta
 
         NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
         TRADING_WINDOWS = [
-            (16, 0, 17, 0),
             (21, 0, 23, 0),
         ]
 
@@ -487,15 +485,13 @@ class Signal(models.Model):
     def is_golden_window_2():
         """
         Check if current Nepal Time is within premium trading windows on specific days.
-        Windows (Nepal Time UTC+5:45) on Sun/Wed/Thu only:
-        - 16:00-17:00 NPT
+        Windows (Nepal Time UTC+5:45) on Sun/Tue/Wed/Thu only:
         - 21:00-23:00 NPT
         """
         from datetime import datetime, timezone as dt_timezone, timedelta
 
         NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
         TRADING_WINDOWS = [
-            (16, 0, 17, 0),
             (21, 0, 23, 0),
         ]
         GOLDEN_DAYS = [6, 2, 3, 1]  # Sunday=6, Wednesday=2, Thursday=3, Tuesday=1
