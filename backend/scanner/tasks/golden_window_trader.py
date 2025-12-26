@@ -422,6 +422,7 @@ def execute_futures_trade(
     """
     import asyncio
     import threading
+    from django.db import transaction
 
     if settings is None:
         settings = FuturesTradingSettings.get_settings()
@@ -429,29 +430,28 @@ def execute_futures_trade(
     symbol_name = signal.symbol.symbol
     direction = signal.direction
 
-    # Check for existing trade on same symbol/direction
-    existing = FuturesTrade.objects.filter(
-        symbol=symbol_name,
-        direction=direction,
-        status='OPEN'
-    ).exists()
+    with transaction.atomic():
+        existing = FuturesTrade.objects.select_for_update().filter(
+            symbol=symbol_name,
+            direction=direction,
+            status__in=['OPEN', 'PENDING']
+        ).exists()
 
-    if existing:
-        logger.info(f"Already have open {direction} on {symbol_name}, skipping")
-        return None
+        if existing:
+            logger.info(f"Already have open/pending {direction} on {symbol_name}, skipping")
+            return None
 
-    # Create pending trade record
-    futures_trade = FuturesTrade.objects.create(
-        signal=signal,
-        symbol=symbol_name,
-        direction=direction,
-        leverage=leverage,
-        quantity=Decimal('0'),
-        stop_loss=signal.sl,
-        take_profit=signal.tp,
-        position_size_usdt=position_size,
-        status='PENDING'
-    )
+        futures_trade = FuturesTrade.objects.create(
+            signal=signal,
+            symbol=symbol_name,
+            direction=direction,
+            leverage=leverage,
+            quantity=Decimal('0'),
+            stop_loss=signal.sl,
+            take_profit=signal.tp,
+            position_size_usdt=position_size,
+            status='PENDING'
+        )
 
     # Execute API calls in a separate thread
     api_result = [None]
