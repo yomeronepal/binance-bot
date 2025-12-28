@@ -369,11 +369,15 @@ def get_prioritized_signals(settings: FuturesTradingSettings, limit: int) -> Lis
     # Filter by minimum confidence
     queryset = queryset.filter(confidence__gte=float(settings.min_signal_confidence))
 
-    # Exclude symbols with existing open trades
-    open_trade_symbols = FuturesTrade.objects.filter(
-        status='OPEN'
+    open_or_pending_symbols = FuturesTrade.objects.filter(
+        status__in=['OPEN', 'PENDING']
     ).values_list('symbol', flat=True)
-    queryset = queryset.exclude(symbol__symbol__in=open_trade_symbols)
+    queryset = queryset.exclude(symbol__symbol__in=open_or_pending_symbols)
+
+    already_traded_signal_ids = FuturesTrade.objects.exclude(
+        status='FAILED'
+    ).values_list('signal_id', flat=True)
+    queryset = queryset.exclude(id__in=already_traded_signal_ids)
 
     # Add priority scoring for ordering
     # Higher score = higher priority
@@ -431,6 +435,14 @@ def execute_futures_trade(
     direction = signal.direction
 
     with transaction.atomic():
+        signal_already_traded = FuturesTrade.objects.select_for_update().filter(
+            signal=signal
+        ).exclude(status='FAILED').exists()
+
+        if signal_already_traded:
+            logger.info(f"Signal {signal.id} already has a futures trade, skipping")
+            return None
+
         existing = FuturesTrade.objects.select_for_update().filter(
             symbol=symbol_name,
             direction=direction,

@@ -738,6 +738,14 @@ class FuturesTradingService:
             return None
 
         with transaction.atomic():
+            signal_already_traded = FuturesTrade.objects.select_for_update().filter(
+                signal=signal
+            ).exclude(status='FAILED').exists()
+
+            if signal_already_traded:
+                logger.info(f"Signal {signal.id} already has a futures trade, skipping")
+                return None
+
             existing_trade = FuturesTrade.objects.select_for_update().filter(
                 symbol=symbol_name,
                 direction=direction,
