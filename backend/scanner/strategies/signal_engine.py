@@ -548,7 +548,7 @@ class SignalDetectionEngine:
 
             entry = float(signal.entry)
             risk_percentage = 0.03
-            profit_percentage = 0.09
+            profit_percentage = 0.06
 
             if signal.direction == 'LONG':
                 sl = entry * (1 - risk_percentage)
@@ -1003,16 +1003,16 @@ class SignalDetectionEngine:
         Create new active signal with PERCENTAGE-BASED Risk/Reward.
 
         Risk: 3% of position size
-        Profit: 9% of position size (maintaining 1:3 ratio)
+        Profit: 6% of position size (1:2 R/R ratio)
 
         SL and TP are calculated to achieve exactly:
         - 3% loss if SL is hit
-        - 9% gain if TP is hit
+        - 6% gain if TP is hit (1:2 R/R ratio)
         """
         entry = float(current['close'])
 
         risk_percentage = 0.03
-        profit_percentage = 0.09
+        profit_percentage = 0.06
 
         if direction == 'LONG':
             sl = entry * (1 - risk_percentage)
