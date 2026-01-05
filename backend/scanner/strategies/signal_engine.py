@@ -35,8 +35,8 @@ class SignalConfig:
     # LONG signal thresholds (Buy when oversold - mean reversion)
     long_rsi_min: float = 25.0  # Buy when RSI is low (oversold)
     long_rsi_max: float = 35.0  # Maximum RSI for LONG entry
-    long_adx_min: float = 25.0  # Require stronger trend (increased from 22.0)
-    long_volume_multiplier: float = 1.5  # Increased from 1.2 for stronger confirmation
+    long_adx_min: float = 22.0  # Require stronger trend
+    long_volume_multiplier: float = 1.2  # Volume confirmation multiplier
 
     # SHORT signal thresholds (Sell when overbought - mean reversion)
     short_rsi_min: float = 65.0  # Minimum RSI for SHORT entry
