@@ -547,7 +547,7 @@ class SignalDetectionEngine:
             signal.conditions_met = conditions
 
             entry = float(signal.entry)
-            risk_percentage = 0.03
+            risk_percentage = 0.025
             profit_percentage = 0.06
 
             if signal.direction == 'LONG':
@@ -1007,11 +1007,11 @@ class SignalDetectionEngine:
 
         SL and TP are calculated to achieve exactly:
         - 3% loss if SL is hit
-        - 6% gain if TP is hit (1:2 R/R ratio)
+        - 6% gain if TP is hit (1:2.4 R/R ratio)
         """
         entry = float(current['close'])
 
-        risk_percentage = 0.03
+        risk_percentage = 0.025
         profit_percentage = 0.06
 
         if direction == 'LONG':
