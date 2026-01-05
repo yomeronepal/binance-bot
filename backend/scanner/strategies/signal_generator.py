@@ -110,11 +110,11 @@ class SignalGenerator:
     def _calculate_long_levels(self, df, entry):
         """
         Calculate LONG TP/SL with percentage-based Risk/Reward.
-        Risk: 3% of position (entry price)
-        Profit: 9% of position (entry price)
+        Risk: 2.5% of position (entry price)
+        Profit: 6% of position (entry price)
         """
-        risk_percentage = 0.03
-        profit_percentage = 0.09
+        risk_percentage = 0.025
+        profit_percentage = 0.06
 
         sl = entry * (1 - risk_percentage)
         tp = entry * (1 + profit_percentage)
@@ -128,11 +128,11 @@ class SignalGenerator:
     def _calculate_short_levels(self, df, entry):
         """
         Calculate SHORT TP/SL with percentage-based Risk/Reward.
-        Risk: 3% of position (entry price)
-        Profit: 9% of position (entry price)
+        Risk: 2.5% of position (entry price)
+        Profit: 6% of position (entry price)
         """
-        risk_percentage = 0.03
-        profit_percentage = 0.09
+        risk_percentage = 0.025
+        profit_percentage = 0.06
 
         sl = entry * (1 + risk_percentage)
         tp = entry * (1 - profit_percentage)

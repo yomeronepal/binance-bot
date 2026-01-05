@@ -328,10 +328,9 @@ async def scan_futures_timeframe(
             batch_size=5  # Conservative batch size
         )
 
-        # Create engine with futures-specific config
         engine = SignalDetectionEngine(
             config=config,
-            use_volatility_aware=True  # Enable volatility-aware SL/TP
+            use_volatility_aware=False
         )
 
         # Process each symbol

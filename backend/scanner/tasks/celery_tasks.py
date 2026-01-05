@@ -36,8 +36,7 @@ def scan_binance_market(self):
             long_adx_min=20.0,             # Filter choppy markets (minimum trend strength)
             short_adx_min=20.0             # Avoid low-confidence ranging conditions
         )
-        # Enable volatility-aware mode for dynamic SL/TP adjustment per coin
-        engine = SignalDetectionEngine(config, use_volatility_aware=True)
+        engine = SignalDetectionEngine(config, use_volatility_aware=False)
 
         # Run async scanning using asyncio.run() to prevent memory leaks
         # This properly creates, uses, and cleans up the event loop
@@ -661,8 +660,7 @@ def scan_futures_market(self):
             long_adx_min=20.0,             # Filter choppy markets (minimum trend strength)
             short_adx_min=20.0             # Avoid low-confidence ranging conditions
         )
-        # Enable volatility-aware mode for dynamic SL/TP adjustment per coin
-        engine = SignalDetectionEngine(config, use_volatility_aware=True)
+        engine = SignalDetectionEngine(config, use_volatility_aware=False)
 
         # Run async scanning
         loop = asyncio.new_event_loop()
