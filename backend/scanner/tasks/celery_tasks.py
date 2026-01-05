@@ -244,44 +244,33 @@ async def _save_symbols_to_db(symbols: List[str]):
 
 def _determine_trading_type_and_duration(timeframe: str, confidence: float):
     """
-    Determine trading type, estimated duration, and risk-reward ratio based on timeframe and confidence.
+    Determine trading type and estimated duration based on timeframe.
 
-    Trading Type Risk Profiles:
-    - SCALPING: Higher R/R (2.0-3.0) - Quick exits, tighter stops
-    - DAY: Moderate R/R (1.5-2.5) - Balance between risk and reward
-    - SWING: Lower R/R (1.2-2.0) - Wider stops, bigger targets
+    Fixed R/R ratio of 2.4 (2.5% SL, 6% TP) for all timeframes.
 
-    Returns: (trading_type, estimated_duration_hours, risk_reward_ratio)
+    Returns: (trading_type, estimated_duration_hours, risk_reward_ratio=2.4)
     """
-    # timeframe: (trading_type, base_duration_hours, base_risk_reward)
     timeframe_map = {
-        '1m': ('SCALPING', 0.25, 2.5),   # 15 minutes, 2.5:1 R/R
-        '5m': ('SCALPING', 1, 2.0),       # 1 hour, 2.0:1 R/R
-        '15m': ('DAY', 3, 2.0),           # 3 hours, 2.0:1 R/R
-        '30m': ('DAY', 6, 1.8),           # 6 hours, 1.8:1 R/R
-        '1h': ('DAY', 12, 1.5),           # 12 hours, 1.5:1 R/R
-        '4h': ('SWING', 48, 1.5),         # 2 days, 1.5:1 R/R
-        '1d': ('SWING', 168, 1.3),        # 7 days, 1.3:1 R/R
-        '1w': ('SWING', 720, 1.2),        # 30 days, 1.2:1 R/R
+        '1m': ('SCALPING', 0.25),
+        '5m': ('SCALPING', 1),
+        '15m': ('DAY', 3),
+        '30m': ('DAY', 6),
+        '1h': ('DAY', 12),
+        '4h': ('SWING', 48),
+        '1d': ('SWING', 168),
+        '1w': ('SWING', 720),
     }
 
-    trading_type, base_duration, base_rr = timeframe_map.get(timeframe, ('DAY', 12, 1.8))
+    trading_type, base_duration = timeframe_map.get(timeframe, ('DAY', 12))
 
-    # Adjust duration and R/R based on confidence
     if confidence >= 0.85:
-        # High confidence: faster targets, better R/R
-        duration = base_duration * 0.7  # 30% faster
-        risk_reward = base_rr * 1.2     # 20% better R/R
+        duration = base_duration * 0.7
     elif confidence >= 0.75:
-        # Medium confidence: normal parameters
         duration = base_duration
-        risk_reward = base_rr
     else:
-        # Lower confidence: slower targets, conservative R/R
-        duration = base_duration * 1.3  # 30% slower
-        risk_reward = base_rr * 0.9     # 10% more conservative
+        duration = base_duration * 1.3
 
-    return trading_type, int(duration), round(risk_reward, 2)
+    return trading_type, int(duration), 2.4
 
 
 async def _save_signal_async(signal_data: Dict):

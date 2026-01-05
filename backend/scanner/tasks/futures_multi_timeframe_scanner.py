@@ -277,18 +277,15 @@ async def _save_futures_signal_with_dedup(signal_data: Dict, timeframe: str) -> 
 
 def _determine_trading_type(timeframe: str, confidence: float) -> tuple:
     """Determine trading type, duration, and target R/R based on timeframe"""
-    if timeframe == '1d':
-        return ('SWING', '3-7 days', 3.0)
-    elif timeframe == '4h':
-        return ('DAY', '1-2 days', 3.0)
-    elif timeframe == '1h':
-        return ('INTRADAY', '4-12 hours', 3.0)
-    elif timeframe == '15m':
-        return ('SCALP', '30-90 min', 3.0)
-    elif timeframe == '5m':
-        return ('ULTRA_SCALP', '10-30 min', 3.0)
-    else:
-        return ('INTRADAY', '4-12 hours', 3.0)
+    timeframe_map = {
+        '1d': ('SWING', '3-7 days'),
+        '4h': ('DAY', '1-2 days'),
+        '1h': ('INTRADAY', '4-12 hours'),
+        '15m': ('SCALP', '30-90 min'),
+        '5m': ('ULTRA_SCALP', '10-30 min'),
+    }
+    trading_type, duration = timeframe_map.get(timeframe, ('INTRADAY', '4-12 hours'))
+    return (trading_type, duration, 2.4)
 
 
 async def scan_futures_timeframe(
