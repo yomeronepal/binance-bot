@@ -255,41 +255,28 @@ def public_performance(request):
             # Get unique symbols
             symbols = set(trade.symbol for trade in open_trades_queryset)
 
-            # Fetch prices
-            binance_client = BinanceClient()
-
             async def fetch_prices():
                 prices = {}
                 failed_symbols = {}
-                for symbol in symbols:
-                    try:
-                        price_data = await binance_client.get_price(symbol)
-                        if price_data and 'price' in price_data:
-                            prices[symbol] = Decimal(str(price_data['price']))
-                    except Exception as e:
-                        error_msg = str(e)
-                        # Check if it's a 400 error (likely delisted coin)
-                        if '400' in error_msg or 'Bad Request' in error_msg:
-                            failed_symbols[symbol] = error_msg
-                            logger.error(f"❌ Request failed: {error_msg}")
+                async with BinanceClient() as client:
+                    for symbol in symbols:
+                        try:
+                            price_data = await client.get_price(symbol)
+                            if price_data and 'price' in price_data:
+                                prices[symbol] = Decimal(str(price_data['price']))
+                        except Exception as e:
+                            error_msg = str(e)
+                            if '400' in error_msg or 'Bad Request' in error_msg:
+                                failed_symbols[symbol] = error_msg
+                                logger.error(f"❌ Request failed: {error_msg}")
                 return prices, failed_symbols
 
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                current_prices, failed_symbols = loop.run_until_complete(fetch_prices())
+            current_prices, failed_symbols = asyncio.run(fetch_prices())
 
-                # Handle failed symbols - blacklist and close trades
-                for symbol, error_msg in failed_symbols.items():
-                    # Find all open trades for this symbol
-                    failing_trades = open_trades_queryset.filter(symbol=symbol)
-                    for trade in failing_trades:
-                        handle_failing_symbol(symbol, error_msg, trade)
-
-            finally:
-                # Properly close the client session
-                loop.run_until_complete(binance_client.close())
-                loop.close()
+            for symbol, error_msg in failed_symbols.items():
+                failing_trades = open_trades_queryset.filter(symbol=symbol)
+                for trade in failing_trades:
+                    handle_failing_symbol(symbol, error_msg, trade)
 
             # Calculate unrealized P/L (skip failed symbols)
             total_unrealized_pnl = Decimal('0')
@@ -388,47 +375,34 @@ def public_open_positions(request):
             'positions': []
         })
 
-    # Fetch real-time prices from Binance
     try:
         from scanner.services.binance_client import BinanceClient
 
         symbols = set(trade.symbol for trade in open_trades)
-        binance_client = BinanceClient()
 
         async def fetch_prices():
             prices = {}
             failed_symbols = {}
-            for symbol in symbols:
-                try:
-                    price_data = await binance_client.get_price(symbol)
-                    if price_data and 'price' in price_data:
-                        prices[symbol] = Decimal(str(price_data['price']))
-                except Exception as e:
-                    error_msg = str(e)
-                    # Check if it's a 400 error (likely delisted coin)
-                    if '400' in error_msg or 'Bad Request' in error_msg:
-                        failed_symbols[symbol] = error_msg
-                        logger.error(f"❌ Request failed: {error_msg}")
+            async with BinanceClient() as client:
+                for symbol in symbols:
+                    try:
+                        price_data = await client.get_price(symbol)
+                        if price_data and 'price' in price_data:
+                            prices[symbol] = Decimal(str(price_data['price']))
+                    except Exception as e:
+                        error_msg = str(e)
+                        if '400' in error_msg or 'Bad Request' in error_msg:
+                            failed_symbols[symbol] = error_msg
+                            logger.error(f"❌ Request failed: {error_msg}")
             return prices, failed_symbols
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            current_prices, failed_symbols = loop.run_until_complete(fetch_prices())
+        current_prices, failed_symbols = asyncio.run(fetch_prices())
 
-            # Handle failed symbols - blacklist and close trades
-            for symbol, error_msg in failed_symbols.items():
-                # Find all open trades for this symbol
-                failing_trades = [t for t in open_trades if t.symbol == symbol]
-                for trade in failing_trades:
-                    handle_failing_symbol(symbol, error_msg, trade)
-                    # Remove from open_trades list
-                    open_trades.remove(trade)
-
-        finally:
-            # Properly close the client session
-            loop.run_until_complete(binance_client.close())
-            loop.close()
+        for symbol, error_msg in failed_symbols.items():
+            failing_trades = [t for t in open_trades if t.symbol == symbol]
+            for trade in failing_trades:
+                handle_failing_symbol(symbol, error_msg, trade)
+                open_trades.remove(trade)
 
     except Exception as e:
         logger.error(f"❌ Error fetching prices: {e}")
@@ -535,28 +509,20 @@ def public_close_trade(request, trade_id):
     try:
         from scanner.services.binance_client import BinanceClient
 
-        binance_client = BinanceClient()
-
         async def fetch_price():
-            try:
-                price_data = await binance_client.get_price(trade.symbol)
-                if price_data and 'price' in price_data:
-                    return Decimal(str(price_data['price'])), None
-            except Exception as e:
-                error_msg = str(e)
-                # Check if it's a 400 error (likely delisted coin)
-                if '400' in error_msg or 'Bad Request' in error_msg:
-                    logger.error(f"❌ Request failed: {error_msg}")
-                    return None, error_msg
+            async with BinanceClient() as client:
+                try:
+                    price_data = await client.get_price(trade.symbol)
+                    if price_data and 'price' in price_data:
+                        return Decimal(str(price_data['price'])), None
+                except Exception as e:
+                    error_msg = str(e)
+                    if '400' in error_msg or 'Bad Request' in error_msg:
+                        logger.error(f"❌ Request failed: {error_msg}")
+                        return None, error_msg
             return None, None
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            current_price, error_msg = loop.run_until_complete(fetch_price())
-        finally:
-            loop.run_until_complete(binance_client.close())
-            loop.close()
+        current_price, error_msg = asyncio.run(fetch_price())
 
         if not current_price:
             # If 400 error, blacklist and close at entry price

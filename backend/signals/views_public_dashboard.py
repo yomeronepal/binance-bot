@@ -64,33 +64,24 @@ def public_paper_trading_dashboard(request):
             'avg_win_rate': float(all_accounts.aggregate(Avg('win_rate'))['win_rate__avg'] or 0),
         }
 
-        # Get all open positions
         open_trades = PaperTrade.objects.filter(status='OPEN').order_by('-created_at')
 
-        # Fetch real-time prices for open trades
         if open_trades.exists():
             symbols = set(trade.symbol for trade in open_trades)
-            binance_client = BinanceClient()
 
             async def fetch_prices():
                 prices = {}
-                for symbol in symbols:
-                    try:
-                        price_data = await binance_client.get_price(symbol)
-                        if price_data and 'price' in price_data:
-                            prices[symbol] = Decimal(str(price_data['price']))
-                    except Exception:
-                        pass
+                async with BinanceClient() as client:
+                    for symbol in symbols:
+                        try:
+                            price_data = await client.get_price(symbol)
+                            if price_data and 'price' in price_data:
+                                prices[symbol] = Decimal(str(price_data['price']))
+                        except Exception:
+                            pass
                 return prices
 
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                current_prices = loop.run_until_complete(fetch_prices())
-            finally:
-                # Properly close the client session
-                loop.run_until_complete(binance_client.close())
-                loop.close()
+            current_prices = asyncio.run(fetch_prices())
         else:
             current_prices = {}
 

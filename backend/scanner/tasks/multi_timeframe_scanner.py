@@ -435,66 +435,58 @@ async def _scan_multi_timeframe_async():
     Uses market-specific universal configs (Forex vs Binance) for each symbol.
     """
 
-    # Initialize clients
-    client = BinanceClient()
+    async with BinanceClient() as client:
+        usdt_pairs = await client.get_usdt_pairs()
 
-    # Get all USDT pairs
-    usdt_pairs = await client.get_usdt_pairs()
+        top_pairs = await _get_top_pairs_by_volume(client, usdt_pairs, top_n=len(usdt_pairs))
+        logger.info(f"📊 Scanning ALL {len(top_pairs)} Binance USDT pairs with UNIVERSAL CONFIG")
 
-    # Get all pairs sorted by volume (no limit - scan ALL Binance coins)
-    top_pairs = await _get_top_pairs_by_volume(client, usdt_pairs, top_n=len(usdt_pairs))
-    logger.info(f"📊 Scanning ALL {len(top_pairs)} Binance USDT pairs with UNIVERSAL CONFIG")
+        timeframes = ['1d', '4h', '1h', '15m']
 
-    # Timeframes to scan (in order of priority: longer to shorter)
-    timeframes = ['1d', '4h', '1h', '15m']
+        total_counts = {'created': 0, 'updated': 0, 'invalidated': 0, 'skipped_no_config': 0}
 
-    total_counts = {'created': 0, 'updated': 0, 'invalidated': 0, 'skipped_no_config': 0}
+        for timeframe in timeframes:
+            try:
+                if timeframe == '15m':
+                    limit = 300
+                elif timeframe == '1h':
+                    limit = 250
+                elif timeframe == '4h':
+                    limit = 200
+                else:
+                    limit = 100
 
-    for timeframe in timeframes:
-        try:
-            # Determine candle limit based on timeframe
-            if timeframe == '15m':
-                limit = 300  # More candles for short timeframe
-            elif timeframe == '1h':
-                limit = 250
-            elif timeframe == '4h':
-                limit = 200
-            else:  # 1d
-                limit = 100
+                counts = await scan_timeframe(
+                    client=client,
+                    timeframe=timeframe,
+                    top_pairs=top_pairs,
+                    limit=limit,
+                    use_universal_config=True
+                )
 
-            # Scan this timeframe with universal config
-            counts = await scan_timeframe(
-                client=client,
-                timeframe=timeframe,
-                top_pairs=top_pairs,
-                limit=limit,
-                use_universal_config=True  # Enable universal configuration
-            )
+                for key in counts:
+                    total_counts[key] += counts[key]
 
-            # Aggregate counts
-            for key in counts:
-                total_counts[key] += counts[key]
+            except Exception as e:
+                logger.error(f"Error scanning {timeframe}: {e}", exc_info=True)
+                continue
 
-        except Exception as e:
-            logger.error(f"Error scanning {timeframe}: {e}", exc_info=True)
-            continue
+        logger.info(
+            f"🎯 Multi-timeframe scan complete! "
+            f"Total: {total_counts['created']} new signals, "
+            f"{total_counts['updated']} updates, "
+            f"{total_counts['invalidated']} invalidated, "
+            f"{total_counts.get('skipped_no_config', 0)} skipped (no config)"
+        )
 
-    logger.info(
-        f"🎯 Multi-timeframe scan complete! "
-        f"Total: {total_counts['created']} new signals, "
-        f"{total_counts['updated']} updates, "
-        f"{total_counts['invalidated']} invalidated, "
-        f"{total_counts.get('skipped_no_config', 0)} skipped (no config)"
-    )
-
-    return {
-        'success': True,
-        'timeframes_scanned': timeframes,
-        'signals_created': total_counts['created'],
-        'signals_updated': total_counts['updated'],
-        'signals_invalidated': total_counts['invalidated'],
-        'timestamp': datetime.utcnow().isoformat()
-    }
+        return {
+            'success': True,
+            'timeframes_scanned': timeframes,
+            'signals_created': total_counts['created'],
+            'signals_updated': total_counts['updated'],
+            'signals_invalidated': total_counts['invalidated'],
+            'timestamp': datetime.utcnow().isoformat()
+        }
 
 
 @shared_task(
@@ -587,39 +579,34 @@ async def _scan_single_timeframe_async(timeframe: str):
     Returns:
         Dict with scan results
     """
-    client = BinanceClient()
+    async with BinanceClient() as client:
+        usdt_pairs = await client.get_usdt_pairs()
 
-    # Get all USDT pairs
-    usdt_pairs = await client.get_usdt_pairs()
+        top_pairs = await _get_top_pairs_by_volume(client, usdt_pairs, top_n=len(usdt_pairs))
 
-    # Get all pairs sorted by volume (scan ALL coins)
-    top_pairs = await _get_top_pairs_by_volume(client, usdt_pairs, top_n=len(usdt_pairs))
+        if timeframe == '15m':
+            limit = 300
+        elif timeframe == '1h':
+            limit = 250
+        elif timeframe == '4h':
+            limit = 200
+        else:
+            limit = 100
 
-    # Determine candle limit based on timeframe
-    if timeframe == '15m':
-        limit = 300  # More candles for short timeframe
-    elif timeframe == '1h':
-        limit = 250
-    elif timeframe == '4h':
-        limit = 200
-    else:  # 1d
-        limit = 100
+        counts = await scan_timeframe(
+            client=client,
+            timeframe=timeframe,
+            top_pairs=top_pairs,
+            limit=limit,
+            use_universal_config=True
+        )
 
-    # Scan with universal configuration
-    counts = await scan_timeframe(
-        client=client,
-        timeframe=timeframe,
-        top_pairs=top_pairs,
-        limit=limit,
-        use_universal_config=True  # Enable market-specific universal configs
-    )
-
-    return {
-        'success': True,
-        'timeframe': timeframe,
-        'signals_created': counts['created'],
-        'signals_updated': counts['updated'],
-        'signals_invalidated': counts['invalidated'],
-        'skipped_no_config': counts.get('skipped_no_config', 0),
-        'timestamp': datetime.utcnow().isoformat()
-    }
+        return {
+            'success': True,
+            'timeframe': timeframe,
+            'signals_created': counts['created'],
+            'signals_updated': counts['updated'],
+            'signals_invalidated': counts['invalidated'],
+            'skipped_no_config': counts.get('skipped_no_config', 0),
+            'timestamp': datetime.utcnow().isoformat()
+        }

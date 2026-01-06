@@ -270,33 +270,22 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
             )
 
             if open_trades_queryset.exists():
-                # Get unique symbols
                 symbols = set(trade.symbol for trade in open_trades_queryset)
-
-                # Fetch prices
-                binance_client = BinanceClient()
 
                 async def fetch_prices():
                     prices = {}
-                    for symbol in symbols:
-                        try:
-                            price_data = await binance_client.get_price(symbol)
-                            if price_data and 'price' in price_data:
-                                prices[symbol] = Decimal(str(price_data['price']))
-                        except Exception as e:
-                            pass
+                    async with BinanceClient() as client:
+                        for symbol in symbols:
+                            try:
+                                price_data = await client.get_price(symbol)
+                                if price_data and 'price' in price_data:
+                                    prices[symbol] = Decimal(str(price_data['price']))
+                            except Exception:
+                                pass
                     return prices
 
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    current_prices = loop.run_until_complete(fetch_prices())
-                finally:
-                    # Properly close the client session
-                    loop.run_until_complete(binance_client.close())
-                    loop.close()
+                current_prices = asyncio.run(fetch_prices())
 
-                # Calculate unrealized P/L
                 total_unrealized_pnl = Decimal('0')
                 for trade in open_trades_queryset:
                     current_price = current_prices.get(trade.symbol)
@@ -360,36 +349,27 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
                 'positions': []
             })
 
-        # Fetch real-time prices from Binance
         try:
             from scanner.services.binance_client import BinanceClient
             import asyncio
 
             symbols = set(trade.symbol for trade in open_trades)
-            binance_client = BinanceClient()
 
             async def fetch_prices():
                 prices = {}
-                for symbol in symbols:
-                    try:
-                        price_data = await binance_client.get_price(symbol)
-                        if price_data and 'price' in price_data:
-                            prices[symbol] = Decimal(str(price_data['price']))
-                    except Exception as e:
-                        pass
+                async with BinanceClient() as client:
+                    for symbol in symbols:
+                        try:
+                            price_data = await client.get_price(symbol)
+                            if price_data and 'price' in price_data:
+                                prices[symbol] = Decimal(str(price_data['price']))
+                        except Exception:
+                            pass
                 return prices
 
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                current_prices = loop.run_until_complete(fetch_prices())
-            finally:
-                # Properly close the client session
-                loop.run_until_complete(binance_client.close())
-                loop.close()
+            current_prices = asyncio.run(fetch_prices())
 
-        except Exception as e:
-            # If price fetching fails, return positions without current prices
+        except Exception:
             current_prices = {}
 
         # Calculate positions with real-time P/L
@@ -657,42 +637,31 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
         try:
             account = PaperAccount.objects.get(user=request.user)
 
-            # Update account metrics with current prices
             try:
                 from scanner.services.binance_client import BinanceClient
                 import asyncio
 
-                # Get open trades
                 open_trades = PaperTrade.objects.filter(user=request.user, status='OPEN')
                 if open_trades.exists():
                     symbols = set(trade.symbol for trade in open_trades)
-                    binance_client = BinanceClient()
 
                     async def fetch_prices():
                         prices = {}
-                        for symbol in symbols:
-                            try:
-                                price_data = await binance_client.get_price(symbol)
-                                if price_data and 'price' in price_data:
-                                    prices[symbol] = Decimal(str(price_data['price']))
-                            except Exception:
-                                pass
+                        async with BinanceClient() as client:
+                            for symbol in symbols:
+                                try:
+                                    price_data = await client.get_price(symbol)
+                                    if price_data and 'price' in price_data:
+                                        prices[symbol] = Decimal(str(price_data['price']))
+                                except Exception:
+                                    pass
                         return prices
 
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        current_prices = loop.run_until_complete(fetch_prices())
-                        # Update account equity with current prices
-                        from signals.services.auto_trader import auto_trading_service
-                        auto_trading_service.update_account_equity(account, current_prices)
-                    finally:
-                        # Properly close the client session
-                        loop.run_until_complete(binance_client.close())
-                        loop.close()
+                    current_prices = asyncio.run(fetch_prices())
+                    from signals.services.auto_trader import auto_trading_service
+                    auto_trading_service.update_account_equity(account, current_prices)
 
-            except Exception as e:
-                # If price fetching fails, just return current state
+            except Exception:
                 pass
 
             serializer = self.get_serializer(account)
