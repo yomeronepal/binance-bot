@@ -944,23 +944,19 @@ def check_and_close_paper_trades(self):
         symbols = set(trade.symbol for trade in open_trades)
         logger.info(f"📊 Checking {open_trades.count()} open trades across {len(symbols)} symbols")
 
-        # Fetch current prices from Binance
-        binance_client = BinanceClient()
-        current_prices = {}
-
         async def fetch_prices():
             prices = {}
-            for symbol in symbols:
-                try:
-                    price_data = await binance_client.get_price(symbol)
-                    if price_data and 'price' in price_data:
-                        prices[symbol] = Decimal(str(price_data['price']))
-                except Exception as e:
-                    logger.warning(f"Failed to fetch price for {symbol}: {e}")
-                    continue
+            async with BinanceClient() as client:
+                for symbol in symbols:
+                    try:
+                        price_data = await client.get_price(symbol)
+                        if price_data and 'price' in price_data:
+                            prices[symbol] = Decimal(str(price_data['price']))
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch price for {symbol}: {e}")
+                        continue
             return prices
 
-        # Run async price fetching using asyncio.run() to prevent memory leaks
         current_prices = asyncio.run(fetch_prices())
 
         # Check and close trades

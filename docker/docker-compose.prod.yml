@@ -115,12 +115,29 @@ services:
       retries: 3
 
   # -------------------------
-  # Celery Worker
+  # Celery Worker (General Tasks)
   # -------------------------
   celery:
     image: yomeronepal/binance-bot-backend:latest
     container_name: binancebot_celery_prod
-    command: sh -c "celery -A config worker -l info --concurrency=4 -Q celery,scanner,paper_trading,notifications,maintenance,backtesting,futures_trading"
+    command: sh -c "celery -A config worker -l info --concurrency=2 -Q celery,paper_trading,notifications,maintenance,backtesting,futures_trading"
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+      - web
+    networks:
+      - binancebot_network
+    restart: unless-stopped
+
+  # -------------------------
+  # Celery Worker (Scanner - Dedicated)
+  # -------------------------
+  celery-scanner:
+    image: yomeronepal/binance-bot-backend:latest
+    container_name: binancebot_celery_scanner_prod
+    command: sh -c "celery -A config worker -l info --concurrency=2 -Q scanner -n scanner@%h"
     env_file:
       - .env
     depends_on:

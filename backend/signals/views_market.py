@@ -33,22 +33,13 @@ def get_order_book(request, symbol):
         if not symbol.endswith('USDT'):
             symbol = f"{symbol}USDT"
         
-        # Fetch order book from Binance
         async def fetch_orderbook():
-            client = BinanceClient()
-            try:
+            async with BinanceClient() as client:
                 data = await client.get_order_book(symbol, limit=limit)
                 price_data = await client.get_price(symbol)
                 return data, float(price_data.get('price', 0))
-            finally:
-                await client.close()
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            orderbook, current_price = loop.run_until_complete(fetch_orderbook())
-        finally:
-            loop.close()
+
+        orderbook, current_price = asyncio.run(fetch_orderbook())
         
         # Process bids and asks
         bids = []

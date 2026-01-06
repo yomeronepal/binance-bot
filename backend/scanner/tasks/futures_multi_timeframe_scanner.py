@@ -244,7 +244,6 @@ async def _save_futures_signal_with_dedup(signal_data: Dict, timeframe: str) -> 
                     signal_data['confidence']
                 )
 
-                # Create new futures signal
                 signal = Signal.objects.create(
                     symbol=symbol_obj,
                     direction=direction,
@@ -254,11 +253,10 @@ async def _save_futures_signal_with_dedup(signal_data: Dict, timeframe: str) -> 
                     confidence=signal_data['confidence'],
                     timeframe=timeframe,
                     market_type='FUTURES',
-                    leverage=signal_data.get('leverage', 10),  # Default 10x
+                    leverage=signal_data.get('leverage', 10),
                     status='ACTIVE',
                     trading_type=trading_type,
-                    estimated_duration=estimated_duration,
-                    risk_reward_ratio=target_rr
+                    estimated_duration=estimated_duration
                 )
 
                 logger.info(
