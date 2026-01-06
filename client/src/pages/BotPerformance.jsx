@@ -27,6 +27,12 @@ const BotPerformance = () => {
   const [hour, setHour] = useState(() => {
     return localStorage.getItem('bot_perf_hour') || 'ALL';
   });
+  const [month, setMonth] = useState(() => {
+    return localStorage.getItem('bot_perf_month') || 'ALL';
+  });
+  const [year, setYear] = useState(() => {
+    return localStorage.getItem('bot_perf_year') || 'ALL';
+  });
   const [totalTradesCount, setTotalTradesCount] = useState(0);
 
   useEffect(() => {
@@ -44,6 +50,14 @@ const BotPerformance = () => {
   useEffect(() => {
     localStorage.setItem('bot_perf_hour', hour);
   }, [hour]);
+
+  useEffect(() => {
+    localStorage.setItem('bot_perf_month', month);
+  }, [month]);
+
+  useEffect(() => {
+    localStorage.setItem('bot_perf_year', year);
+  }, [year]);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -87,6 +101,8 @@ const BotPerformance = () => {
       if (direction !== 'ALL') params.append('direction', direction);
       if (weekday !== 'ALL') params.append('weekday', weekday);
       if (hour !== 'ALL') params.append('hour', hour);
+      if (month !== 'ALL') params.append('month', month);
+      if (year !== 'ALL') params.append('year', year);
 
       const queryParams = params.toString() ? `?${params.toString()}` : '';
 
@@ -138,6 +154,8 @@ const BotPerformance = () => {
       if (direction !== 'ALL') params.append('direction', direction);
       if (weekday !== 'ALL') params.append('weekday', weekday);
       if (hour !== 'ALL') params.append('hour', hour);
+      if (month !== 'ALL') params.append('month', month);
+      if (year !== 'ALL') params.append('year', year);
 
       const res = await axios.get(`${baseURL}/public/paper-trading/?${params.toString()}`);
 
@@ -159,11 +177,11 @@ const BotPerformance = () => {
 
   useEffect(() => {
     fetchPerformanceData();
-  }, [activeWindow, direction, weekday, hour]);
+  }, [activeWindow, direction, weekday, hour, month, year]);
 
   useEffect(() => {
     fetchTradeHistory();
-  }, [activeWindow, direction, weekday, hour, currentPage]);
+  }, [activeWindow, direction, weekday, hour, month, year, currentPage]);
 
   // Show loading only on initial load (when summary is null)
   if (loading && !summary) {
@@ -479,6 +497,42 @@ const BotPerformance = () => {
                   {Array.from({ length: 24 }, (_, i) => i).map((h) => (
                     <option key={h} value={String(h)}>
                       {String(h).padStart(2, '0')}:00 - {String(h).padStart(2, '0')}:59
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Month and Year Filter */}
+            <div className="flex items-center justify-between gap-4 bg-white dark:bg-gray-800 rounded-xl p-2 shadow-sm border border-gray-100 dark:border-gray-700">
+              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                <Calendar className="w-4 h-4" />
+                <span className="font-medium">Period:</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={month}
+                  onChange={(e) => setMonth(e.target.value)}
+                  className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 transition-all"
+                >
+                  <option value="ALL">All Months</option>
+                  {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, index) => (
+                    <option key={m} value={String(index + 1)}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={year}
+                  onChange={(e) => setYear(e.target.value)}
+                  className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 transition-all"
+                >
+                  <option value="ALL">All Years</option>
+                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((y) => (
+                    <option key={y} value={String(y)}>
+                      {y}
                     </option>
                   ))}
                 </select>
