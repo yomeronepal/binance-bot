@@ -187,6 +187,12 @@ app.conf.update(
         'scanner.tasks.montecarlo_tasks.run_montecarlo_simulation_async': {'queue': 'backtesting'},
         # ML-Based Tuning tasks
         'scanner.tasks.mltuning_tasks.run_ml_tuning_async': {'queue': 'backtesting'},
+        # SPOT Multi-timeframe scanning tasks
+        'scanner.tasks.multi_timeframe_scanner.scan_1d_timeframe': {'queue': 'scanner'},
+        'scanner.tasks.multi_timeframe_scanner.scan_4h_timeframe': {'queue': 'scanner'},
+        'scanner.tasks.multi_timeframe_scanner.scan_1h_timeframe': {'queue': 'scanner'},
+        'scanner.tasks.multi_timeframe_scanner.scan_15m_timeframe': {'queue': 'scanner'},
+        'scanner.tasks.multi_timeframe_scanner.scan_multi_timeframe': {'queue': 'scanner'},
         # Futures multi-timeframe scanning tasks
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1d': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_4h': {'queue': 'scanner'},
