@@ -141,7 +141,8 @@ def check_fibonacci_pullback(
     direction: str,
     lookback: int = 50,
     entry_zone_min: float = 0.5,
-    entry_zone_max: float = 0.618
+    entry_zone_max: float = 0.618,
+    symbol: str = None
 ) -> Tuple[bool, Dict]:
     """
     Check if current price is in Fibonacci pullback entry zone.
@@ -155,6 +156,7 @@ def check_fibonacci_pullback(
         lookback: Candles to search for swing high/low
         entry_zone_min: Minimum Fib level for entry (0.5 = 50%)
         entry_zone_max: Maximum Fib level for entry (0.618 = 61.8%)
+        symbol: Symbol name for logging
 
     Returns:
         (valid: bool, fib_data: Dict) tuple
@@ -167,7 +169,7 @@ def check_fibonacci_pullback(
         return False, {}
 
     if swing_high <= swing_low:
-        logger.warning(f"Invalid swings: high={swing_high} <= low={swing_low}")
+        logger.warning(f"{symbol or 'Unknown'}: Invalid swings - high={swing_high} <= low={swing_low}")
         return False, {}
 
     fib_levels = compute_fib_levels(swing_high, swing_low, direction)

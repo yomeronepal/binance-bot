@@ -26,15 +26,16 @@ def scan_binance_market(self):
         from scanner.services.dispatcher import signal_dispatcher
         from signals.models import Signal, Symbol
 
-        # Initialize components with quality-focused thresholds
         config = SignalConfig(
-            min_confidence=0.70,           # 70% confidence for higher quality signals
-            long_rsi_min=25.0,             # True oversold conditions (tight range)
-            long_rsi_max=35.0,             # Mean reversion buy zone
-            short_rsi_min=65.0,            # True overbought conditions (tight range)
-            short_rsi_max=75.0,            # Mean reversion sell zone
-            long_adx_min=20.0,             # Filter choppy markets (minimum trend strength)
-            short_adx_min=20.0             # Avoid low-confidence ranging conditions
+            min_confidence=0.73,
+            long_rsi_min=23.0,
+            long_rsi_max=33.0,
+            short_rsi_min=67.0,
+            short_rsi_max=77.0,
+            long_adx_min=22.0,
+            short_adx_min=22.0,
+            sl_atr_multiplier=1.5,
+            tp_atr_multiplier=5.25
         )
         engine = SignalDetectionEngine(config, use_volatility_aware=False)
 
@@ -639,15 +640,16 @@ def scan_futures_market(self):
         from scanner.services.dispatcher import signal_dispatcher
         from signals.models import Signal, Symbol
 
-        # Initialize components with quality-focused thresholds
         config = SignalConfig(
-            min_confidence=0.70,           # 70% confidence for higher quality signals
-            long_rsi_min=25.0,             # True oversold conditions (tight range)
-            long_rsi_max=35.0,             # Mean reversion buy zone
-            short_rsi_min=65.0,            # True overbought conditions (tight range)
-            short_rsi_max=75.0,            # Mean reversion sell zone
-            long_adx_min=20.0,             # Filter choppy markets (minimum trend strength)
-            short_adx_min=20.0             # Avoid low-confidence ranging conditions
+            min_confidence=0.73,
+            long_rsi_min=23.0,
+            long_rsi_max=33.0,
+            short_rsi_min=67.0,
+            short_rsi_max=77.0,
+            long_adx_min=22.0,
+            short_adx_min=22.0,
+            sl_atr_multiplier=1.5,
+            tp_atr_multiplier=5.25
         )
         engine = SignalDetectionEngine(config, use_volatility_aware=False)
 
