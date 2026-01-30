@@ -417,31 +417,9 @@ class SignalDetectionEngine:
         #     )
         #     return None
 
-        # PHASE 3 OPTIMIZATION: Volatility-Based No-Trade Zones
-        # Avoid trading in ranging/choppy markets (low ADX)
-        if current['adx'] < 18:
-            logger.debug(
-                f"{symbol}: Market is ranging (ADX: {current['adx']:.1f} < 18), "
-                f"skipping signal detection to avoid false breakouts"
-            )
-            return None
 
-        # PHASE 3 OPTIMIZATION: Volume Spike Confirmation
-        # For breakout strategies, require above-average volume to confirm momentum
-        # This is different from Phase 1 volume filter - we need volume SPIKE, not just absolute volume
-        volume_ma_20 = df['volume'].rolling(20).mean().iloc[-1]
-        volume_spike_ratio = current['volume'] / volume_ma_20 if volume_ma_20 > 0 else 0
-
-        if volume_spike_ratio < 1.2:
-            logger.debug(
-                f"{symbol}: No volume spike detected ({volume_spike_ratio:.2f}x vs 20-period avg), "
-                f"waiting for stronger momentum confirmation"
-            )
-            return None
-
-        # Check LONG conditions
         long_signal, long_conf, long_conditions = self._check_long_conditions(
-            df, current, previous, config
+            df, current, previous, config, symbol
         )
 
         if long_signal and long_conf >= config.min_confidence:
@@ -473,9 +451,8 @@ class SignalDetectionEngine:
             logger.debug(f"Returning signal for DB save: {symbol} {signal.direction} @ {signal.entry}")
             return {'action': 'created', 'signal': signal_dict}
 
-        # Check SHORT conditions
         short_signal, short_conf, short_conditions = self._check_short_conditions(
-            df, current, previous, config
+            df, current, previous, config, symbol
         )
 
         if short_signal and short_conf >= config.min_confidence:
@@ -521,11 +498,10 @@ class SignalDetectionEngine:
         current = df.iloc[-1]
         previous = df.iloc[-2]
 
-        # Check if signal conditions are still valid
         if signal.direction == 'LONG':
-            valid, conf, conditions = self._check_long_conditions(df, current, previous, config)
+            valid, conf, conditions = self._check_long_conditions(df, current, previous, config, symbol)
         else:
-            valid, conf, conditions = self._check_short_conditions(df, current, previous, config)
+            valid, conf, conditions = self._check_short_conditions(df, current, previous, config, symbol)
 
         # Check for signal invalidation
         if not valid or conf < config.min_confidence * 0.7:  # 30% tolerance
@@ -574,7 +550,7 @@ class SignalDetectionEngine:
 
         return None  # No significant change
 
-    def _check_long_conditions(self, df, current, previous, config: SignalConfig) -> tuple[bool, float, Dict[str, bool]]:
+    def _check_long_conditions(self, df, current, previous, config: SignalConfig, symbol: str = None) -> tuple[bool, float, Dict[str, bool]]:
         """Check LONG signal conditions with realistic confidence scoring."""
         score = 0.0
         max_score = (
@@ -732,14 +708,14 @@ class SignalDetectionEngine:
             else:
                 conditions['psar_bullish'] = False
 
-            # 14. Fibonacci Pullback (Golden Ratio Zone)
             if config.fib_enable_pullback and FIBONACCI_AVAILABLE:
                 try:
                     in_zone, fib_data = check_fibonacci_pullback(
                         df, current, 'LONG',
                         lookback=config.fib_lookback_candles,
                         entry_zone_min=config.fib_entry_zone_min,
-                        entry_zone_max=config.fib_entry_zone_max
+                        entry_zone_max=config.fib_entry_zone_max,
+                        symbol=symbol
                     )
                     if in_zone:
                         score += config.fibonacci_weight
@@ -800,7 +776,7 @@ class SignalDetectionEngine:
             logger.error(f"Error checking LONG conditions: {e}")
             return False, 0.0, {}
 
-    def _check_short_conditions(self, df, current, previous, config: SignalConfig) -> tuple[bool, float, Dict[str, bool]]:
+    def _check_short_conditions(self, df, current, previous, config: SignalConfig, symbol: str = None) -> tuple[bool, float, Dict[str, bool]]:
         """CHECK SHORT signal conditions with realistic confidence scoring."""
         score = 0.0
         max_score = (
@@ -940,14 +916,14 @@ class SignalDetectionEngine:
             else:
                 conditions['psar_bearish'] = False
 
-            # 14. Fibonacci Pullback (Golden Ratio Zone) for SHORT
             if config.fib_enable_pullback and FIBONACCI_AVAILABLE:
                 try:
                     in_zone, fib_data = check_fibonacci_pullback(
                         df, current, 'SHORT',
                         lookback=config.fib_lookback_candles,
                         entry_zone_min=config.fib_entry_zone_min,
-                        entry_zone_max=config.fib_entry_zone_max
+                        entry_zone_max=config.fib_entry_zone_max,
+                        symbol=symbol
                     )
                     if in_zone:
                         score += config.fibonacci_weight
