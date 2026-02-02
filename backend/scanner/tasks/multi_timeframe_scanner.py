@@ -59,55 +59,50 @@ async def _get_top_pairs_by_volume(client: BinanceClient, pairs: List[str], top_
         return pairs[:top_n]
 
 
-# Optimized breathing room parameters (based on backtest results)
 BREATHING_ROOM_CONFIGS = {
     '1d': SignalConfig(
-        # Daily timeframe - Conservative approach (swing trading)
-        min_confidence=0.70,
-        long_adx_min=30.0,
-        short_adx_min=30.0,
-        long_rsi_min=23.0,
-        long_rsi_max=33.0,
-        short_rsi_min=67.0,
-        short_rsi_max=77.0,
-        sl_atr_multiplier=3.0,   # Wide stop for breathing room
-        tp_atr_multiplier=8.0    # 1:2.67 R/R
+        min_confidence=0.65,
+        long_adx_min=20.0,
+        short_adx_min=20.0,
+        long_rsi_min=20.0,
+        long_rsi_max=40.0,
+        short_rsi_min=60.0,
+        short_rsi_max=80.0,
+        sl_atr_multiplier=3.0,
+        tp_atr_multiplier=9.0
     ),
     '4h': SignalConfig(
-        # 4-hour timeframe - Balanced approach (day trading)
-        min_confidence=0.70,
-        long_adx_min=28.0,
-        short_adx_min=28.0,
-        long_rsi_min=23.0,
-        long_rsi_max=33.0,
-        short_rsi_min=67.0,
-        short_rsi_max=77.0,
-        sl_atr_multiplier=2.5,   # Good breathing room
-        tp_atr_multiplier=7.0    # 1:2.8 R/R
+        min_confidence=0.65,
+        long_adx_min=18.0,
+        short_adx_min=18.0,
+        long_rsi_min=20.0,
+        long_rsi_max=40.0,
+        short_rsi_min=60.0,
+        short_rsi_max=80.0,
+        sl_atr_multiplier=2.5,
+        tp_atr_multiplier=7.5
     ),
     '1h': SignalConfig(
-        # 1-hour timeframe - More active (intraday)
-        min_confidence=0.73,
-        long_adx_min=26.0,
-        short_adx_min=26.0,
-        long_rsi_min=23.0,
-        long_rsi_max=33.0,
-        short_rsi_min=67.0,
-        short_rsi_max=77.0,
-        sl_atr_multiplier=2.5,   # Moderate breathing room
-        tp_atr_multiplier=6.5    # 1:2.6 R/R
+        min_confidence=0.65,
+        long_adx_min=18.0,
+        short_adx_min=18.0,
+        long_rsi_min=20.0,
+        long_rsi_max=40.0,
+        short_rsi_min=60.0,
+        short_rsi_max=80.0,
+        sl_atr_multiplier=2.5,
+        tp_atr_multiplier=7.5
     ),
     '15m': SignalConfig(
-        # 15-minute timeframe - Active trading (scalping)
-        min_confidence=0.75,  # Higher confidence for short timeframe
-        long_adx_min=25.0,    # Stronger trend required
-        short_adx_min=25.0,
-        long_rsi_min=25.0,    # Slightly wider RSI ranges
-        long_rsi_max=35.0,
-        short_rsi_min=65.0,
-        short_rsi_max=75.0,
-        sl_atr_multiplier=2.0,   # Tighter stop for scalping
-        tp_atr_multiplier=5.0    # 1:2.5 R/R
+        min_confidence=0.65,
+        long_adx_min=18.0,
+        short_adx_min=18.0,
+        long_rsi_min=20.0,
+        long_rsi_max=40.0,
+        short_rsi_min=60.0,
+        short_rsi_max=80.0,
+        sl_atr_multiplier=2.0,
+        tp_atr_multiplier=6.0
     )
 }
 

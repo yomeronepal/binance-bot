@@ -25,7 +25,7 @@ BINANCE_CONFIG = {
     # ========================================
     "long_rsi_min": 23.0,              # RSI minimum for LONG entry (oversold threshold)
     "long_rsi_max": 33.0,              # RSI maximum for LONG entry
-    "long_adx_min": 25.0,              # ADX minimum (trend strength requirement) - OPTIMIZED
+    "long_adx_min": 20.0,              # ADX minimum (trend strength requirement)
     "long_volume_multiplier": 1.2,     # Volume must be > 1.2x average
 
     # ========================================
@@ -33,7 +33,7 @@ BINANCE_CONFIG = {
     # ========================================
     "short_rsi_min": 67.0,             # RSI minimum for SHORT entry
     "short_rsi_max": 77.0,             # RSI maximum for SHORT entry (overbought threshold)
-    "short_adx_min": 25.0,             # ADX minimum for SHORT - OPTIMIZED
+    "short_adx_min": 20.0,             # ADX minimum for SHORT
     "short_volume_multiplier": 1.2,    # Volume requirement
 
     # ========================================
@@ -46,8 +46,7 @@ BINANCE_CONFIG = {
     # ========================================
     # Signal Quality Filter
     # ========================================
-    "min_confidence": 0.73,            # Minimum confidence threshold (0.0 - 1.0)
-                                        # Higher = fewer but better quality signals
+    "min_confidence": 0.70,            # Minimum confidence threshold (0.0 - 1.0)
 
     # ========================================
     # Signal Management
@@ -148,65 +147,60 @@ FOREX_CONFIG = {
 # Leave empty {} to use the base config (BINANCE_CONFIG or FOREX_CONFIG).
 
 TIMEFRAME_OVERRIDES = {
-    # 15-minute timeframe - ELIMINATE OR FIX
     "15m": {
         "binance": {
-            "long_adx_min": 30.0,          # ⬆️ VERY strong trends only
-            "min_confidence": 0.78,        # ⬆️ VERY high confidence
-            "sl_atr_multiplier": 3.0,      # ⬆️ Wider stops
-            "tp_atr_multiplier": 9.0,      # ⬆️ Much bigger targets
-            # Risk-Reward: 1:3.0 (requires 25% win rate)
+            "long_adx_min": 18.0,
+            "short_adx_min": 18.0,
+            "min_confidence": 0.65,
+            "sl_atr_multiplier": 2.0,
+            "tp_atr_multiplier": 6.0,
         },
         "forex": {
-            "long_adx_min": 25.0,
-            "min_confidence": 0.75,
-            "sl_atr_multiplier": 3.0,
-            "tp_atr_multiplier": 9.0,
+            "long_adx_min": 18.0,
+            "short_adx_min": 18.0,
+            "min_confidence": 0.65,
+            "sl_atr_multiplier": 2.0,
+            "tp_atr_multiplier": 6.0,
         }
     },
-
-    # 1-hour timeframe - MAJOR IMPROVEMENT
     "1h": {
         "binance": {
-            "long_adx_min": 28.0,          # ⬆️ Stronger trends
-            "min_confidence": 0.75,        # ⬆️ Higher confidence
-            "sl_atr_multiplier": 3.0,      # ⬆️ Wider stops
-            "tp_atr_multiplier": 9.0,      # ⬆️ Bigger targets
-            # Risk-Reward: 1:3.0 (requires 25% win rate)
+            "long_adx_min": 18.0,
+            "short_adx_min": 18.0,
+            "min_confidence": 0.65,
+            "sl_atr_multiplier": 2.5,
+            "tp_atr_multiplier": 7.5,
         },
         "forex": {
-            "long_adx_min": 22.0,
-            "min_confidence": 0.72,
+            "long_adx_min": 18.0,
+            "short_adx_min": 18.0,
+            "min_confidence": 0.65,
             "sl_atr_multiplier": 2.5,
             "tp_atr_multiplier": 7.5,
         }
     },
-
-    # 4-hour timeframe - OPTIMIZED FOR YOUR WIN RATE
     "4h": {
         "binance": {
-            "long_adx_min": 25.0,          # Your proven sweet spot
-            "min_confidence": 0.73,        # Your proven confidence
-            "sl_atr_multiplier": 3.0,      # ⬆️ CRITICAL: From 2.5
-            "tp_atr_multiplier": 9.0,      # ⬆️ CRITICAL: From 6.5
-            # Risk-Reward: 1:3.0 (requires 25% win rate)
-            # Your Win Rate: 29.4% = PROFITABLE ✅
+            "long_adx_min": 20.0,
+            "short_adx_min": 20.0,
+            "min_confidence": 0.68,
+            "sl_atr_multiplier": 3.0,
+            "tp_atr_multiplier": 9.0,
         },
-        "forex": {},  # Use FOREX_CONFIG base
+        "forex": {},
     },
-
-    # Daily timeframe - OPTIMIZED
     "1d": {
         "binance": {
-            "long_adx_min": 30.0,
-            "min_confidence": 0.70,
-            "sl_atr_multiplier": 4.0,      # ⬆️ Very wide for swing trades
-            "tp_atr_multiplier": 12.0,     # ⬆️ Very big targets
-            # Risk-Reward: 1:3.0 (requires 25% win rate)
+            "long_adx_min": 22.0,
+            "short_adx_min": 22.0,
+            "min_confidence": 0.68,
+            "sl_atr_multiplier": 4.0,
+            "tp_atr_multiplier": 12.0,
         },
         "forex": {
-            "long_adx_min": 25.0,
-            "min_confidence": 0.68,
+            "long_adx_min": 20.0,
+            "short_adx_min": 20.0,
+            "min_confidence": 0.65,
             "sl_atr_multiplier": 4.0,
             "tp_atr_multiplier": 12.0,
         }

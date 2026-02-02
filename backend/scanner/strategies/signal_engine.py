@@ -32,27 +32,22 @@ except ImportError:
 @dataclass
 class SignalConfig:
     """Configuration for signal detection rules."""
-    # LONG signal thresholds (Buy when oversold - mean reversion)
-    long_rsi_min: float = 25.0  # Buy when RSI is low (oversold)
-    long_rsi_max: float = 35.0  # Maximum RSI for LONG entry
-    long_adx_min: float = 22.0  # Require stronger trend
-    long_volume_multiplier: float = 1.2  # Volume confirmation multiplier
+    long_rsi_min: float = 20.0
+    long_rsi_max: float = 40.0
+    long_adx_min: float = 18.0
+    long_volume_multiplier: float = 1.2
 
-    # SHORT signal thresholds (Sell when overbought - mean reversion)
-    short_rsi_min: float = 65.0  # Minimum RSI for SHORT entry
-    short_rsi_max: float = 75.0  # Sell when RSI is high (overbought)
-    short_adx_min: float = 22.0  # Require stronger trend
+    short_rsi_min: float = 60.0
+    short_rsi_max: float = 80.0
+    short_adx_min: float = 18.0
     short_volume_multiplier: float = 1.2
 
-    # Stop loss and take profit multipliers (ATR-based)
-    sl_atr_multiplier: float = 1.5  # 1.5x ATR for stop loss (good risk management)
-    tp_atr_multiplier: float = 5.25  # 5.25x ATR for take profit (3.5:1 R/R)
+    sl_atr_multiplier: float = 2.5
+    tp_atr_multiplier: float = 7.5
 
-    # STRICT Risk/Reward Ratio - ALWAYS enforced
-    risk_reward_ratio: float = 3.0  # MUST be exactly 1:3 for all signals
+    risk_reward_ratio: float = 3.0
 
-    # Signal management
-    min_confidence: float = 0.75  # Increased to filter marginal signals
+    min_confidence: float = 0.65
     max_candles_cache: int = 200
     signal_expiry_minutes: int = 60
 
@@ -423,32 +418,14 @@ class SignalDetectionEngine:
         )
 
         if long_signal and long_conf >= config.min_confidence:
-            # PHASE 2 OPTIMIZATION: Multi-Timeframe Confirmation
-            # Only take LONG signals aligned with higher timeframe trend
-            higher_tf_trend = self._get_higher_timeframe_trend(symbol, timeframe)
-
-            if higher_tf_trend == "BEARISH":
-                logger.info(
-                    f"{symbol}: LONG signal detected (Conf: {long_conf:.0%}) but higher TF trend is BEARISH, "
-                    f"skipping to avoid counter-trend trade"
-                )
-                return None
-            elif higher_tf_trend == "NEUTRAL":
-                logger.info(
-                    f"{symbol}: LONG signal detected (Conf: {long_conf:.0%}), higher TF trend NEUTRAL, "
-                    f"proceeding with caution"
-                )
-
             signal = self._create_signal(
                 symbol, 'LONG', df, current, long_conf, long_conditions, timeframe, config
             )
             self.active_signals[symbol] = signal
             logger.info(
-                f"🆕 NEW LONG signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%}, "
-                f"Higher TF Trend: {higher_tf_trend})"
+                f"🆕 NEW LONG signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%})"
             )
             signal_dict = signal.to_dict()
-            logger.debug(f"Returning signal for DB save: {symbol} {signal.direction} @ {signal.entry}")
             return {'action': 'created', 'signal': signal_dict}
 
         short_signal, short_conf, short_conditions = self._check_short_conditions(
@@ -456,32 +433,14 @@ class SignalDetectionEngine:
         )
 
         if short_signal and short_conf >= config.min_confidence:
-            # PHASE 2 OPTIMIZATION: Multi-Timeframe Confirmation
-            # Only take SHORT signals aligned with higher timeframe trend
-            higher_tf_trend = self._get_higher_timeframe_trend(symbol, timeframe)
-
-            if higher_tf_trend == "BULLISH":
-                logger.info(
-                    f"{symbol}: SHORT signal detected (Conf: {short_conf:.0%}) but higher TF trend is BULLISH, "
-                    f"skipping to avoid counter-trend trade"
-                )
-                return None
-            elif higher_tf_trend == "NEUTRAL":
-                logger.info(
-                    f"{symbol}: SHORT signal detected (Conf: {short_conf:.0%}), higher TF trend NEUTRAL, "
-                    f"proceeding with caution"
-                )
-
             signal = self._create_signal(
                 symbol, 'SHORT', df, current, short_conf, short_conditions, timeframe, config
             )
             self.active_signals[symbol] = signal
             logger.info(
-                f"🆕 NEW SHORT signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%}, "
-                f"Higher TF Trend: {higher_tf_trend})"
+                f"🆕 NEW SHORT signal: {symbol} @ ${signal.entry} (Conf: {signal.confidence:.0%})"
             )
             signal_dict = signal.to_dict()
-            logger.debug(f"Returning signal for DB save: {symbol} {signal.direction} @ {signal.entry}")
             return {'action': 'created', 'signal': signal_dict}
 
         return None
