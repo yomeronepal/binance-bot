@@ -797,6 +797,8 @@ class PaperTrade(models.Model):
             models.Index(fields=['market_type', 'status'], name='paper_trade_market_status_idx'),
             models.Index(fields=['timeframe', 'status'], name='paper_trade_timefra_idx'),
             models.Index(fields=['confidence', 'status'], name='paper_trade_confide_idx'),
+            models.Index(fields=['is_priority', 'status'], name='paper_trade_gw1_status_idx'),
+            models.Index(fields=['is_golden_2', 'status'], name='paper_trade_gw2_status_idx'),
         ]
 
     def __str__(self):

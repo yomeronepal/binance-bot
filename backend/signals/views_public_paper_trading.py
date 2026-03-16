@@ -615,16 +615,22 @@ def public_summary(request):
     if cached is not None:
         return Response(cached)
 
-    queryset = PaperTrade.objects.filter(user__isnull=True)
-    queryset = _apply_common_filters(queryset, params)
+    all_system_trades = PaperTrade.objects.filter(user__isnull=True)
+
+    gw_counts = all_system_trades.aggregate(
+        total=Count('id'),
+        gw1=Count('id', filter=Q(is_priority=True)),
+        gw2=Count('id', filter=Q(is_golden_2=True)),
+        outside=Count('id', filter=Q(is_priority=False, is_golden_2=False)),
+    )
+
+    queryset = _apply_common_filters(all_system_trades, params)
 
     metrics = _compute_performance_metrics(queryset)
     metrics['unrealized_pnl'] = 0.0
     metrics['total_pnl'] = metrics['total_profit_loss']
 
-    open_count = PaperTrade.objects.filter(
-        status='OPEN', user__isnull=True
-    ).count()
+    open_count = queryset.filter(status='OPEN').count()
 
     page_size = min(int(request.query_params.get('recent_limit', 10)), 50)
 
@@ -643,6 +649,12 @@ def public_summary(request):
         'bot_total_trades': metrics['total_trades'],
         'bot_realized_pnl': metrics['total_profit_loss'],
         'bot_unrealized_pnl': metrics['unrealized_pnl'],
+        'gw_distribution': {
+            'total_trades': gw_counts['total'] or 0,
+            'gw1_trades': gw_counts['gw1'] or 0,
+            'gw2_trades': gw_counts['gw2'] or 0,
+            'outside_gw_trades': gw_counts['outside'] or 0,
+        },
     }
 
     cache.set(cache_key, summary, CACHE_TTL_SUMMARY)

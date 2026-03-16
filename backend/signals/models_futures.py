@@ -432,6 +432,20 @@ class FuturesTrade(models.Model):
         help_text=_("Current dynamic trailing tier level (0 = base tier)")
     )
 
+    sl_order_id = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text=_("Binance order/algo ID for stop loss")
+    )
+
+    tp_order_id = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text=_("Binance order/algo ID for take profit")
+    )
+
     trailing_order_id = models.CharField(
         max_length=100,
         null=True,

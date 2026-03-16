@@ -689,31 +689,44 @@ class PaperTradeAdmin(BaseModelAdmin):
         if data.get('exit_time'):
             exit_time = datetime.fromisoformat(data['exit_time'].replace('Z', '+00:00'))
 
+        gw1 = data.get('is_priority', False)
+        gw2 = data.get('is_golden_2', False)
+        if entry_time and not gw1:
+            from datetime import timedelta as td
+            npt = entry_time + td(hours=5, minutes=45)
+            dm = npt.hour * 60 + npt.minute
+            wd = npt.weekday()
+            gw1 = (960 <= dm < 1020) or (1260 <= dm < 1380)
+            gw2 = gw1 and (wd in [6, 2, 3])
+
         PaperTrade.objects.create(
             user=user,
-            signal=signal, # Might be None if original signal deleted/missing
+            signal=signal,
             symbol=data.get('symbol'),
             direction=data.get('direction'),
             market_type=data.get('market_type', 'SPOT'),
             timeframe=signal_data.get('timeframe') if signal_data else None,
             confidence=signal_data.get('confidence') if signal_data else None,
-            
+
             status=data.get('status', 'CLOSED_MANUAL'),
-            
+
             entry_price=to_dec(data.get('entry_price')),
             entry_time=entry_time,
             position_size=to_dec(data.get('position_size', 100)),
             quantity=to_dec(data.get('quantity')),
             leverage=data.get('leverage'),
-            
+
             stop_loss=to_dec(data.get('stop_loss')),
             take_profit=to_dec(data.get('take_profit')),
-            
+
             exit_price=to_dec(data.get('exit_price')),
             exit_time=exit_time,
-            
+
             profit_loss=to_dec(data.get('profit_loss', 0)),
-            profit_loss_percentage=to_dec(data.get('profit_loss_percentage', 0))
+            profit_loss_percentage=to_dec(data.get('profit_loss_percentage', 0)),
+
+            is_priority=gw1,
+            is_golden_2=gw2,
         )
 
     def _decimal_to_float(self, obj):

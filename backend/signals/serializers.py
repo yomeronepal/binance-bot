@@ -455,6 +455,7 @@ class PaperTradeSerializer(BaseModelSerializer):
             'exit_price', 'exit_price_formatted', 'exit_time',
             'profit_loss', 'profit_loss_formatted', 'profit_loss_percentage',
             'leverage', 'status',
+            'is_priority', 'is_golden_2',
             'created_at', 'updated_at',
             'duration_hours', 'risk_reward_ratio',
             'is_open', 'is_closed', 'is_profitable'

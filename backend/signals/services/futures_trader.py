@@ -350,41 +350,37 @@ class BinanceFuturesTrader:
         symbol_info: Optional[Dict] = None
     ) -> Optional[Dict]:
         """
-        Place a stop loss order using Binance Algo Order API.
-        Uses closePosition=true so the order auto-cancels when position is closed.
-        As of Dec 2024, conditional orders must use /fapi/v1/algoOrder endpoint.
+        Place a stop loss order with 3-level fallback.
+        Order: quantity+reduceOnly -> closePosition -> algo order.
         """
-        logger.info(f"Placing SL order: {symbol} {side} closePosition=true triggerPrice={stop_price}")
-
         if current_price:
-            tolerance = current_price * Decimal('0.001')
-            if side == 'SELL' and stop_price >= (current_price + tolerance):
-                logger.error(f"SL price {stop_price} must be BELOW current price {current_price} for LONG position")
-                return None
-            if side == 'BUY' and stop_price <= (current_price - tolerance):
-                logger.error(f"SL price {stop_price} must be ABOVE current price {current_price} for SHORT position")
-                return None
+            if side == 'SELL' and stop_price >= current_price:
+                stop_price = current_price * Decimal('0.97')
+                logger.warning(f"SL auto-corrected to 3% below entry: {stop_price}")
+            if side == 'BUY' and stop_price <= current_price:
+                stop_price = current_price * Decimal('1.03')
+                logger.warning(f"SL auto-corrected to 3% above entry: {stop_price}")
 
         if symbol_info:
             stop_price = self._round_price(stop_price, symbol_info)
 
-        params = {
-            'symbol': symbol,
-            'side': side,
-            'algoType': 'CONDITIONAL',
-            'type': 'STOP_MARKET',
-            'closePosition': 'true',
-            'triggerPrice': str(stop_price),
-        }
+        logger.info(f"Placing SL: {symbol} {side} STOP_MARKET @ {stop_price}")
 
-        try:
-            result = await self._request('POST', '/fapi/v1/algoOrder', params, signed=True)
-            algo_id = result.get('algoId')
-            logger.info(f"✅ Stop loss order placed: {side} {symbol} @ {stop_price} (closePosition) | AlgoID: {algo_id}")
-            return {'orderId': str(algo_id), 'algoId': algo_id, **result}
-        except Exception as e:
-            logger.error(f"❌ Failed to place SL order for {symbol}: {e}")
-            return None
+        result = await self._place_with_quantity(
+            symbol, side, quantity, stop_price, 'STOP_MARKET', 'SL'
+        )
+        if result:
+            return result
+
+        result = await self._place_with_close_position(
+            symbol, side, stop_price, 'STOP_MARKET', 'SL'
+        )
+        if result:
+            return result
+
+        return await self._place_with_algo(
+            symbol, side, stop_price, 'STOP_MARKET', 'SL'
+        )
 
     async def place_take_profit_order(
         self,
@@ -396,40 +392,134 @@ class BinanceFuturesTrader:
         symbol_info: Optional[Dict] = None
     ) -> Optional[Dict]:
         """
-        Place a take profit order using Binance Algo Order API.
-        Uses closePosition=true so the order auto-cancels when position is closed.
-        As of Dec 2024, conditional orders must use /fapi/v1/algoOrder endpoint.
+        Place a take profit order with 3-level fallback.
+        Order: quantity+reduceOnly -> closePosition -> algo order.
         """
-        logger.info(f"Placing TP order: {symbol} {side} closePosition=true triggerPrice={take_profit_price}")
-
         if current_price:
-            tolerance = current_price * Decimal('0.001')
-            if side == 'SELL' and take_profit_price <= (current_price - tolerance):
-                logger.error(f"TP price {take_profit_price} must be ABOVE current price {current_price} for LONG position")
-                return None
-            if side == 'BUY' and take_profit_price >= (current_price + tolerance):
-                logger.error(f"TP price {take_profit_price} must be BELOW current price {current_price} for SHORT position")
-                return None
+            if side == 'SELL' and take_profit_price <= current_price:
+                take_profit_price = current_price * Decimal('1.05')
+                logger.warning(f"TP auto-corrected to 5% above entry: {take_profit_price}")
+            if side == 'BUY' and take_profit_price >= current_price:
+                take_profit_price = current_price * Decimal('0.95')
+                logger.warning(f"TP auto-corrected to 5% below entry: {take_profit_price}")
 
         if symbol_info:
             take_profit_price = self._round_price(take_profit_price, symbol_info)
 
+        logger.info(f"Placing TP: {symbol} {side} TAKE_PROFIT_MARKET @ {take_profit_price}")
+
+        result = await self._place_with_quantity(
+            symbol, side, quantity, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP'
+        )
+        if result:
+            return result
+
+        result = await self._place_with_close_position(
+            symbol, side, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP'
+        )
+        if result:
+            return result
+
+        return await self._place_with_algo(
+            symbol, side, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP'
+        )
+
+    async def _place_with_quantity(self, symbol, side, quantity, stop_price, order_type, label):
+        """
+        Method 1 (most reliable): Standard order with quantity + reduceOnly.
+        This is what Binance UI uses internally.
+
+        Args:
+            symbol: Trading pair
+            side: BUY or SELL
+            quantity: Exact position quantity
+            stop_price: Trigger price
+            order_type: STOP_MARKET or TAKE_PROFIT_MARKET
+            label: SL or TP for logging
+
+        Returns:
+            Dict with orderId or None
+        """
+        params = {
+            'symbol': symbol,
+            'side': side,
+            'type': order_type,
+            'quantity': str(quantity),
+            'stopPrice': str(stop_price),
+            'reduceOnly': 'true',
+            'workingType': 'MARK_PRICE',
+            'priceProtect': 'true',
+        }
+        try:
+            result = await self._request('POST', '/fapi/v1/order', params, signed=True)
+            order_id = result.get('orderId')
+            logger.info(f"[QTY] {label} placed: {side} {quantity} {symbol} @ {stop_price} | OrderID: {order_id}")
+            return {'orderId': str(order_id), 'method': 'quantity', **result}
+        except Exception as e:
+            logger.warning(f"[QTY] {label} failed for {symbol}: {e}")
+            return None
+
+    async def _place_with_close_position(self, symbol, side, stop_price, order_type, label):
+        """
+        Method 2: Standard order with closePosition=true (no quantity needed).
+
+        Args:
+            symbol: Trading pair
+            side: BUY or SELL
+            stop_price: Trigger price
+            order_type: STOP_MARKET or TAKE_PROFIT_MARKET
+            label: SL or TP for logging
+
+        Returns:
+            Dict with orderId or None
+        """
+        params = {
+            'symbol': symbol,
+            'side': side,
+            'type': order_type,
+            'closePosition': 'true',
+            'stopPrice': str(stop_price),
+            'workingType': 'MARK_PRICE',
+            'priceProtect': 'true',
+        }
+        try:
+            result = await self._request('POST', '/fapi/v1/order', params, signed=True)
+            order_id = result.get('orderId')
+            logger.info(f"[CLOSE_POS] {label} placed: {side} {symbol} @ {stop_price} | OrderID: {order_id}")
+            return {'orderId': str(order_id), 'method': 'closePosition', **result}
+        except Exception as e:
+            logger.warning(f"[CLOSE_POS] {label} failed for {symbol}: {e}")
+            return None
+
+    async def _place_with_algo(self, symbol, side, stop_price, order_type, label):
+        """
+        Method 3 (last resort): Algo order endpoint.
+
+        Args:
+            symbol: Trading pair
+            side: BUY or SELL
+            stop_price: Trigger price
+            order_type: STOP_MARKET or TAKE_PROFIT_MARKET
+            label: SL or TP for logging
+
+        Returns:
+            Dict with orderId or None
+        """
         params = {
             'symbol': symbol,
             'side': side,
             'algoType': 'CONDITIONAL',
-            'type': 'TAKE_PROFIT_MARKET',
+            'type': order_type,
             'closePosition': 'true',
-            'triggerPrice': str(take_profit_price),
+            'triggerPrice': str(stop_price),
         }
-
         try:
             result = await self._request('POST', '/fapi/v1/algoOrder', params, signed=True)
             algo_id = result.get('algoId')
-            logger.info(f"✅ Take profit order placed: {side} {symbol} @ {take_profit_price} (closePosition) | AlgoID: {algo_id}")
-            return {'orderId': str(algo_id), 'algoId': algo_id, **result}
+            logger.info(f"[ALGO] {label} placed: {side} {symbol} @ {stop_price} | AlgoID: {algo_id}")
+            return {'orderId': str(algo_id), 'algoId': algo_id, 'method': 'algo', **result}
         except Exception as e:
-            logger.error(f"❌ Failed to place TP order for {symbol}: {e}")
+            logger.error(f"[ALGO] {label} ALSO failed for {symbol}: {e}")
             return None
 
     async def place_trailing_stop_order(
@@ -642,23 +732,36 @@ class BinanceFuturesTrader:
 
             logger.info(f"SL/TP after validation: SL={sl_rounded}, TP={tp_rounded}, Entry={avg_price}")
 
+            warnings = []
+
             sl_result = await self.place_stop_loss_order(
                 symbol, sl_side, quantity, sl_rounded, avg_price, symbol_info
             )
 
             if not sl_result:
-                logger.error(f"⚠️ CRITICAL: No stop loss protection for {symbol}! Position is unprotected!")
+                logger.error(f"CRITICAL: All 3 SL methods failed for {symbol}! Closing position for safety.")
+                warnings.append("SL placement failed - position closed for safety")
+                await self.close_position(symbol, direction, quantity)
+                raise Exception(
+                    f"Stop loss could not be placed on {symbol} after 3 attempts. "
+                    f"Entry was reversed to protect capital."
+                )
 
             tp_result = await self.place_take_profit_order(
                 symbol, tp_side, quantity, tp_rounded, avg_price, symbol_info
             )
 
             if not tp_result:
-                logger.warning(f"Failed to place TP order for {symbol}, but entry was successful")
+                warnings.append(f"TP placement failed - only SL active at {sl_rounded}")
+                logger.warning(f"TP failed for {symbol}, trade has SL only at {sl_rounded}")
+
+            sl_method = sl_result.get('method', 'unknown') if sl_result else 'none'
+            tp_method = tp_result.get('method', 'unknown') if tp_result else 'none'
 
             logger.info(
-                f"✅ Futures trade opened: {direction} {quantity} {symbol} @ {avg_price} "
-                f"(SL: {sl_rounded}, TP: {tp_rounded}, Leverage: {leverage}x)"
+                f"Futures trade opened: {direction} {quantity} {symbol} @ {avg_price} "
+                f"(SL: {sl_rounded} [{sl_method}], TP: {tp_rounded} [{tp_method}], "
+                f"Leverage: {leverage}x)"
             )
 
             return {
@@ -666,7 +769,10 @@ class BinanceFuturesTrader:
                 'entry_price': avg_price,
                 'order_id': str(entry_result.get('orderId', '')),
                 'sl_order_id': str(sl_result.get('orderId', '')) if sl_result else None,
-                'tp_order_id': str(tp_result.get('orderId', '')) if tp_result else None
+                'tp_order_id': str(tp_result.get('orderId', '')) if tp_result else None,
+                'sl_price': str(sl_rounded),
+                'tp_price': str(tp_rounded),
+                'warnings': warnings,
             }
 
         except Exception as e:
@@ -826,10 +932,16 @@ class FuturesTradingService:
         futures_trade.quantity = result['quantity']
         futures_trade.entry_price = result['entry_price']
         futures_trade.binance_order_id = result['order_id']
+        futures_trade.sl_order_id = result.get('sl_order_id')
+        futures_trade.tp_order_id = result.get('tp_order_id')
         futures_trade.entry_time = dj_timezone.now()
         futures_trade.status = 'OPEN'
 
-        # Save any warnings about SL/TP placement
+        if result.get('sl_price'):
+            futures_trade.stop_loss = Decimal(result['sl_price'])
+        if result.get('tp_price'):
+            futures_trade.take_profit = Decimal(result['tp_price'])
+
         if result.get('warnings'):
             futures_trade.error_message = "Trade opened with warnings: " + "; ".join(result['warnings'])
 

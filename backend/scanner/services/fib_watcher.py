@@ -208,6 +208,14 @@ class FibonacciPullbackWatcher:
             else:
                 tp = entry_decimal * Decimal('0.91')
 
+            entry_time = timezone.now()
+            from datetime import timedelta as td
+            npt = entry_time + td(hours=5, minutes=45)
+            dm = npt.hour * 60 + npt.minute
+            wd = npt.weekday()
+            gw1 = (960 <= dm < 1020) or (1260 <= dm < 1380)
+            gw2 = gw1 and (wd in [6, 2, 3])
+
             paper_trade = PaperTrade.objects.create(
                 signal=signal,
                 symbol=signal.symbol.symbol,
@@ -218,7 +226,9 @@ class FibonacciPullbackWatcher:
                 quantity=Decimal('100'),
                 position_size=Decimal('10000'),
                 status='OPEN',
-                entry_time=timezone.now()
+                entry_time=entry_time,
+                is_priority=gw1,
+                is_golden_2=gw2,
             )
 
             logger.info(
