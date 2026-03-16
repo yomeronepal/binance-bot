@@ -115,11 +115,11 @@ class BinanceFuturesTrader:
         headers = {'X-MBX-APIKEY': self.api_key}
 
         if signed:
-            # Sync server time before making signed requests
             await self._sync_server_time()
             params['timestamp'] = self._get_timestamp()
-            params['recvWindow'] = 60000  # 60 seconds tolerance for clock drift
-            query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
+            params['recvWindow'] = 60000
+            from urllib.parse import urlencode
+            query_string = urlencode(params)
             params['signature'] = self._generate_signature(query_string)
 
         try:
@@ -365,19 +365,19 @@ class BinanceFuturesTrader:
 
         logger.info(f"Placing SL: {symbol} {side} STOP_MARKET @ {stop_price}")
 
+        result = await self._place_with_algo(
+            symbol, side, stop_price, 'STOP_MARKET', 'SL'
+        )
+        if result:
+            return result
+
         result = await self._place_with_quantity(
             symbol, side, quantity, stop_price, 'STOP_MARKET', 'SL'
         )
         if result:
             return result
 
-        result = await self._place_with_close_position(
-            symbol, side, stop_price, 'STOP_MARKET', 'SL'
-        )
-        if result:
-            return result
-
-        return await self._place_with_algo(
+        return await self._place_with_close_position(
             symbol, side, stop_price, 'STOP_MARKET', 'SL'
         )
 
@@ -407,19 +407,19 @@ class BinanceFuturesTrader:
 
         logger.info(f"Placing TP: {symbol} {side} TAKE_PROFIT_MARKET @ {take_profit_price}")
 
+        result = await self._place_with_algo(
+            symbol, side, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP'
+        )
+        if result:
+            return result
+
         result = await self._place_with_quantity(
             symbol, side, quantity, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP'
         )
         if result:
             return result
 
-        result = await self._place_with_close_position(
-            symbol, side, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP'
-        )
-        if result:
-            return result
-
-        return await self._place_with_algo(
+        return await self._place_with_close_position(
             symbol, side, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP'
         )
 

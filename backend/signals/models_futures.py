@@ -114,6 +114,23 @@ class FuturesTradingSettings(models.Model):
         help_text=_("Close trade when it recovers to this % from entry (-1% to +1%, negative = small loss, positive = small profit)")
     )
 
+    fear_greed_enabled = models.BooleanField(
+        default=False,
+        help_text=_("Enable Fear & Greed Index filter for trade direction")
+    )
+
+    fear_greed_short_threshold = models.IntegerField(
+        default=30,
+        validators=[MinValueValidator(5), MaxValueValidator(50)],
+        help_text=_("F&G <= this: only SHORT allowed (Extreme Fear). Range: 5-50")
+    )
+
+    fear_greed_long_threshold = models.IntegerField(
+        default=60,
+        validators=[MinValueValidator(50), MaxValueValidator(95)],
+        help_text=_("F&G >= this: only LONG allowed (Greed). Range: 50-95")
+    )
+
     dynamic_trailing_enabled = models.BooleanField(
         default=False,
         help_text=_("Enable dynamic trailing stop that tightens as profit grows")

@@ -78,7 +78,8 @@
       "Bash(/usr/local/bin/docker ps)",
       "Bash(/opt/homebrew/bin/docker ps)",
       "Bash(source:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": []

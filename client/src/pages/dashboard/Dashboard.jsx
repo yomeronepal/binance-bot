@@ -11,6 +11,7 @@ import SignalCard from '../../components/common/SignalCard';
 import FuturesSignalCard from '../../components/signals/FuturesSignalCard';
 import TradingSessionStatus from '../../components/common/TradingSessionStatus';
 import { Activity } from 'lucide-react';
+import FearGreedWidget from '../../components/common/FearGreedWidget';
 
 // Mock signals data for development
 const mockSignals = [
@@ -67,8 +68,9 @@ const Dashboard = () => {
     setWsConnected
   } = useSignalStore();
   const [useMockData, setUseMockData] = useState(true);
-  const [tradingMode, setTradingMode] = useState('paper'); // 'paper' or 'live'
+  const [tradingMode, setTradingMode] = useState('paper');
   const [successRate, setSuccessRate] = useState(null);
+  const [fearGreed, setFearGreed] = useState(null);
 
   // WebSocket URL
   const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/signals/';
@@ -120,8 +122,26 @@ const Dashboard = () => {
     };
 
     fetchSuccessRate();
-    // Refresh success rate every 30 seconds
     const interval = setInterval(fetchSuccessRate, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const fetchFearGreed = async () => {
+      try {
+        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+        const response = await fetch(`${API_BASE}/futures/fear-greed/`);
+        if (response.ok) {
+          const data = await response.json();
+          setFearGreed(data);
+        }
+      } catch (error) {
+        console.debug('F&G fetch skipped:', error.message);
+      }
+    };
+
+    fetchFearGreed();
+    const interval = setInterval(fetchFearGreed, 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -243,8 +263,9 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Trading Session Status */}
       <TradingSessionStatus />
+
+      {fearGreed && fearGreed.available && <FearGreedWidget data={fearGreed} />}
 
       {/* Backtesting Promo Card */}
       <Link

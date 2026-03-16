@@ -5,6 +5,7 @@ import SignalCard from '../components/signals/SignalCard';
 import SignalFilters from '../components/signals/SignalFilters';
 import PullToRefresh from '../components/common/PullToRefresh';
 import { Clock, Activity, Calendar } from 'lucide-react';
+import axios from 'axios';
 
 /**
  * Dashboard page for displaying real-time trading signals.
@@ -27,6 +28,23 @@ const Dashboard = () => {
   } = useSignalStore();
 
   const [selectedSignal, setSelectedSignal] = useState(null);
+  const [fearGreed, setFearGreed] = useState(null);
+
+  const fetchFearGreed = async () => {
+    try {
+      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+      const res = await axios.get(`${baseURL}/futures/fear-greed/`);
+      if (res.data) setFearGreed(res.data);
+    } catch (err) {
+      console.debug('F&G fetch skipped:', err.message);
+    }
+  };
+
+  useEffect(() => {
+    fetchFearGreed();
+    const interval = setInterval(fetchFearGreed, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   // WebSocket URL from environment variable
   const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/signals/';
@@ -307,10 +325,15 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Trading Session Status */}
           <div className="mt-4">
             <TradingSessionStatus />
           </div>
+
+          {fearGreed && fearGreed.available && (
+            <div className="mt-4">
+              <FearGreedWidget data={fearGreed} />
+            </div>
+          )}
         </div>
 
         {/* Filters */}
@@ -372,6 +395,97 @@ const Dashboard = () => {
       </div>
     </div>
     </PullToRefresh>
+  );
+};
+
+const FearGreedWidget = ({ data }) => {
+  const value = data.value;
+  const classification = data.classification;
+  const enabled = data.enabled;
+  const components = data.components || {};
+  const impact = data.trading_impact || {};
+  const source = data.source || 'unknown';
+
+  const getColor = (val) => {
+    if (val <= 24) return { bg: '#ef4444', text: 'text-red-500', bar: 'bg-red-500', light: 'bg-red-50 border-red-200' };
+    if (val <= 44) return { bg: '#f97316', text: 'text-orange-500', bar: 'bg-orange-500', light: 'bg-orange-50 border-orange-200' };
+    if (val <= 55) return { bg: '#eab308', text: 'text-yellow-500', bar: 'bg-yellow-500', light: 'bg-yellow-50 border-yellow-200' };
+    if (val <= 74) return { bg: '#84cc16', text: 'text-lime-500', bar: 'bg-lime-500', light: 'bg-lime-50 border-lime-200' };
+    return { bg: '#22c55e', text: 'text-green-500', bar: 'bg-green-500', light: 'bg-green-50 border-green-200' };
+  };
+
+  const colors = getColor(value);
+
+  return (
+    <div className={`rounded-lg border-2 p-4 ${colors.light}`}>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="flex items-center gap-4 flex-1">
+          <div className="flex-shrink-0 text-center" style={{ minWidth: '70px' }}>
+            <div className={`text-4xl font-black ${colors.text}`}>{value}</div>
+            <div className={`text-xs font-semibold mt-0.5 ${colors.text}`}>{classification}</div>
+          </div>
+
+          <div className="flex-1">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-sm font-semibold text-gray-700">Fear & Greed Index</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-400">via {source}</span>
+                <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                  enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {enabled ? 'Filter Active' : 'Filter Off'}
+                </span>
+              </div>
+            </div>
+
+            <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden shadow-inner">
+              <div
+                className={`h-full rounded-full transition-all duration-1000 ease-out ${colors.bar}`}
+                style={{ width: `${value}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-[10px] text-gray-400 mt-1 px-0.5">
+              <span>0 Extreme Fear</span>
+              <span>50 Neutral</span>
+              <span>100 Extreme Greed</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <div className={`px-4 py-2 rounded-lg border text-center ${
+            impact.long_allowed
+              ? 'bg-green-50 border-green-300 text-green-700'
+              : 'bg-red-50 border-red-300 text-red-700'
+          }`}>
+            <div className="font-bold text-sm">LONG</div>
+            <div className="text-xs">{impact.long_allowed ? 'Allowed' : 'Blocked'}</div>
+          </div>
+          <div className={`px-4 py-2 rounded-lg border text-center ${
+            impact.short_allowed
+              ? 'bg-green-50 border-green-300 text-green-700'
+              : 'bg-red-50 border-red-300 text-red-700'
+          }`}>
+            <div className="font-bold text-sm">SHORT</div>
+            <div className="text-xs">{impact.short_allowed ? 'Allowed' : 'Blocked'}</div>
+          </div>
+        </div>
+      </div>
+
+      {Object.keys(components).length > 0 && (
+        <div className="mt-3 pt-3 border-t border-gray-200 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {Object.entries(components).map(([key, comp]) => (
+            <div key={key} className="bg-white rounded-lg px-3 py-2 shadow-sm">
+              <div className="text-[10px] text-gray-400 uppercase tracking-wide">{key.replace(/_/g, ' ')}</div>
+              <div className="font-mono text-sm font-semibold text-gray-800">
+                {comp.raw}
+              </div>
+              <div className="text-[10px] text-gray-400">score: {comp.score}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 };
 

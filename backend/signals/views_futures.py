@@ -274,3 +274,54 @@ def futures_trade_detail(request, trade_id):
             {'error': 'Trade not found'},
             status=status.HTTP_404_NOT_FOUND
         )
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def fear_greed_status(request):
+    """
+    Get current Fear & Greed Index and its effect on trading.
+
+    GET /api/futures/fear-greed/
+    """
+    from .services.fear_greed import fetch_fear_greed_index, check_direction_allowed
+
+    settings_obj = FuturesTradingSettings.get_settings()
+    fg_data = fetch_fear_greed_index()
+
+    if not fg_data:
+        return Response({
+            'available': False,
+            'enabled': settings_obj.fear_greed_enabled,
+            'message': 'Fear & Greed Index temporarily unavailable',
+        })
+
+    long_allowed, long_reason = check_direction_allowed(
+        'LONG', fg_data['value'],
+        settings_obj.fear_greed_short_threshold,
+        settings_obj.fear_greed_long_threshold,
+    )
+    short_allowed, short_reason = check_direction_allowed(
+        'SHORT', fg_data['value'],
+        settings_obj.fear_greed_short_threshold,
+        settings_obj.fear_greed_long_threshold,
+    )
+
+    return Response({
+        'available': True,
+        'enabled': settings_obj.fear_greed_enabled,
+        'value': fg_data['value'],
+        'classification': fg_data['classification'],
+        'source': fg_data.get('source', 'unknown'),
+        'components': fg_data.get('components', {}),
+        'thresholds': {
+            'short_below': settings_obj.fear_greed_short_threshold,
+            'long_above': settings_obj.fear_greed_long_threshold,
+        },
+        'trading_impact': {
+            'long_allowed': long_allowed,
+            'long_reason': long_reason,
+            'short_allowed': short_allowed,
+            'short_reason': short_reason,
+        },
+    })

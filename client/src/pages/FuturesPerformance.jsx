@@ -6,6 +6,7 @@ import api from '../services/api';
 import { ShieldAlert } from 'lucide-react';
 import TradingSessionStatus from '../components/common/TradingSessionStatus';
 import PullToRefresh from '../components/common/PullToRefresh';
+import FearGreedWidget from '../components/common/FearGreedWidget';
 
 const FuturesPerformance = () => {
     const [loading, setLoading] = useState(true);
@@ -18,6 +19,7 @@ const FuturesPerformance = () => {
     const [showSettings, setShowSettings] = useState(false);
     const [settings, setSettings] = useState(null);
     const [savingSettings, setSavingSettings] = useState(false);
+    const [fearGreed, setFearGreed] = useState(null);
 
     const { user } = useAuthStore();
     const isSuperUser = user?.is_superuser;
@@ -29,20 +31,23 @@ const FuturesPerformance = () => {
         try {
             setLoading(true);
 
-            // Fetch summary with statistics
-            const summaryRes = await api.get('/futures/summary/');
+            const [summaryRes, positionsRes, tradesRes, fgRes] = await Promise.all([
+                api.get('/futures/summary/'),
+                api.get('/futures/positions/'),
+                api.get('/futures/trades/?limit=50'),
+                api.get('/futures/fear-greed/').catch(() => ({ data: null })),
+            ]);
+
             setSummary(summaryRes.data);
             setSettings(summaryRes.data.settings);
 
-            // Fetch open positions
-            const positionsRes = await api.get('/futures/positions/');
             const positionsData = positionsRes.data;
             setOpenPositions(Array.isArray(positionsData) ? positionsData : (positionsData?.results || []));
 
-            // Fetch trade history
-            const tradesRes = await api.get('/futures/trades/?limit=50');
             const tradesData = tradesRes.data;
             setTrades(Array.isArray(tradesData) ? tradesData : (tradesData?.results || []));
+
+            if (fgRes.data) setFearGreed(fgRes.data);
 
             setError(null);
         } catch (err) {
@@ -249,8 +254,9 @@ const FuturesPerformance = () => {
                         </p>
                     </div>
 
-                    {/* Trading Session Status */}
                     <TradingSessionStatus />
+
+                    {fearGreed && fearGreed.available && <FearGreedWidget data={fearGreed} />}
                 </div>
 
                 {/* Stats Grid */}

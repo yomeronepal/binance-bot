@@ -1875,7 +1875,7 @@ class FuturesTradingSettingsAdmin(admin.ModelAdmin):
     list_display = (
         "id", "is_enabled_badge", "trade_amount", "leverage",
         "effective_position_size_display", "max_concurrent_trades",
-        "gw_auto_trader_badge", "dynamic_trailing_badge",
+        "fear_greed_badge", "gw_auto_trader_badge", "dynamic_trailing_badge",
         "cut_loser_badge", "updated_at"
     )
     readonly_fields = ("created_at", "updated_at")
@@ -1911,6 +1911,18 @@ class FuturesTradingSettingsAdmin(admin.ModelAdmin):
                 'gw_auto_trader_enabled',
             ),
             'description': 'Configure when trading is allowed'
+        }),
+        ('Fear & Greed Filter', {
+            'fields': (
+                'fear_greed_enabled',
+                'fear_greed_short_threshold',
+                'fear_greed_long_threshold',
+            ),
+            'description': (
+                'Uses Binance sentiment data (L/S ratio, taker volume, funding rate, OI) '
+                'to filter trade direction. F&G <= SHORT threshold: only SHORT. '
+                'F&G >= LONG threshold: only LONG. Between: both allowed.'
+            )
         }),
         ('Cut Loser Strategy', {
             'fields': (
@@ -1954,6 +1966,39 @@ class FuturesTradingSettingsAdmin(admin.ModelAdmin):
             f"{float(obj.effective_position_size):.2f}"
         )
     effective_position_size_display.short_description = 'Position Size'
+
+    def fear_greed_badge(self, obj):
+        """Display Fear & Greed filter status with live value."""
+        if not obj.fear_greed_enabled:
+            return format_html(
+                '<span style="background-color: #6c757d; color: white; padding: 2px 6px; '
+                'border-radius: 3px; font-size: 11px;">F&G OFF</span>'
+            )
+        try:
+            from signals.services.fear_greed import get_fear_greed_value
+            val = get_fear_greed_value()
+            if val is not None:
+                if val <= obj.fear_greed_short_threshold:
+                    color = '#dc3545'
+                    label = f'F&G {val} SHORT ONLY'
+                elif val >= obj.fear_greed_long_threshold:
+                    color = '#28a745'
+                    label = f'F&G {val} LONG ONLY'
+                else:
+                    color = '#0d6efd'
+                    label = f'F&G {val} BOTH OK'
+                return format_html(
+                    '<span style="background-color: {}; color: white; padding: 2px 6px; '
+                    'border-radius: 3px; font-size: 11px;">{}</span>',
+                    color, label
+                )
+        except Exception:
+            pass
+        return format_html(
+            '<span style="background-color: #f59e0b; color: white; padding: 2px 6px; '
+            'border-radius: 3px; font-size: 11px;">F&G ON</span>'
+        )
+    fear_greed_badge.short_description = 'F&G'
 
     def gw_auto_trader_badge(self, obj):
         """Display golden window auto trader status."""
