@@ -254,7 +254,8 @@ def _merge_day_blocks(day_blocks):
 def update_trading_sessions(gw1_blocks, gw2_blocks, dry_run=False):
     """
     Update TradingSession records based on analysis results.
-    Only touches auto_generated sessions, never manual ones.
+    Uses update_or_create to prevent duplicates.
+    Deactivates all sessions first, then activates only qualifying ones.
 
     Args:
         gw1_blocks: List of (start, end, win_rate, trades) for GW1
@@ -265,20 +266,18 @@ def update_trading_sessions(gw1_blocks, gw2_blocks, dry_run=False):
         Dict with created, updated, deactivated counts and details
     """
     now = timezone.now()
-    changes = {'created': [], 'updated': [], 'deactivated': [], 'unchanged': []}
+    changes = {'created': [], 'updated': [], 'deactivated': []}
 
     if not dry_run:
-        TradingSession.objects.all().update(active=False)
-        logger.info("Deactivated all existing trading sessions")
+        deactivated_count = TradingSession.objects.filter(active=True).update(active=False)
+        logger.info(f"Deactivated {deactivated_count} existing sessions")
 
-    existing_auto = {s.name: s for s in TradingSession.objects.filter(auto_generated=True)}
     used_names = set()
 
-    for i, (start, end, win_rate, total_trades) in enumerate(gw1_blocks, 1):
+    for start, end, win_rate, total_trades in gw1_blocks:
         name = f"Auto-GW1-{start:02d}00-{end:02d}00"
         used_names.add(name)
-
-        session_data = {
+        action = _upsert_session(name, {
             'session_type': 'ACTIVE_TRADING_WINDOW',
             'start_hour': start,
             'start_minute': 0,
@@ -291,28 +290,17 @@ def update_trading_sessions(gw1_blocks, gw2_blocks, dry_run=False):
             'total_trades_analyzed': total_trades,
             'last_optimized_at': now,
             'description': f'Auto-optimized GW1: {win_rate}% win rate from {total_trades} trades',
-        }
+        }, dry_run)
+        changes[action].append(name)
 
-        if name in existing_auto:
-            if not dry_run:
-                for k, v in session_data.items():
-                    setattr(existing_auto[name], k, v)
-                existing_auto[name].save()
-            changes['updated'].append(name)
-        else:
-            if not dry_run:
-                TradingSession.objects.create(name=name, **session_data)
-            changes['created'].append(name)
-
-    for i, block in enumerate(gw2_blocks, 1):
+    for block in gw2_blocks:
         start = block['start_hour']
         end = block['end_hour']
         days = block['active_days']
         day_str = '_'.join(str(d) for d in days)
         name = f"Auto-GW2-{start:02d}00-{end:02d}00-D{day_str}"
         used_names.add(name)
-
-        session_data = {
+        action = _upsert_session(name, {
             'session_type': 'GOLDEN_WINDOW',
             'start_hour': start,
             'start_minute': 0,
@@ -325,27 +313,42 @@ def update_trading_sessions(gw1_blocks, gw2_blocks, dry_run=False):
             'total_trades_analyzed': block['total_trades'],
             'last_optimized_at': now,
             'description': f'Auto-optimized GW2: {block["win_rate"]}% win rate from {block["total_trades"]} trades',
-        }
+        }, dry_run)
+        changes[action].append(name)
 
-        if name in existing_auto:
-            if not dry_run:
-                for k, v in session_data.items():
-                    setattr(existing_auto[name], k, v)
-                existing_auto[name].save()
-            changes['updated'].append(name)
-        else:
-            if not dry_run:
-                TradingSession.objects.create(name=name, **session_data)
-            changes['created'].append(name)
-
-    for name, session in existing_auto.items():
-        if name not in used_names and session.active:
-            if not dry_run:
-                session.active = False
-                session.save(update_fields=['active', 'updated_at'])
-            changes['deactivated'].append(name)
+    if not dry_run:
+        stale = TradingSession.objects.filter(
+            auto_generated=True, active=True
+        ).exclude(name__in=used_names)
+        for s in stale:
+            s.active = False
+            s.save(update_fields=['active', 'updated_at'])
+            changes['deactivated'].append(s.name)
 
     return changes
+
+
+def _upsert_session(name, data, dry_run):
+    """
+    Create or update a TradingSession by name. Prevents duplicates.
+
+    Args:
+        name: Unique session name
+        data: Dict of field values
+        dry_run: Skip DB write if True
+
+    Returns:
+        'created' or 'updated'
+    """
+    if dry_run:
+        exists = TradingSession.objects.filter(name=name).exists()
+        return 'updated' if exists else 'created'
+
+    _, created = TradingSession.objects.update_or_create(
+        name=name,
+        defaults=data
+    )
+    return 'created' if created else 'updated'
 
 
 def run_optimization(min_trades=5, min_win_rate=60.0, min_trades_weekday=3, dry_run=False):
