@@ -69,7 +69,38 @@ const TradingSessions = () => {
   const gw1Sessions = sessions.filter(s => !s.active_days || s.active_days.length === 0);
   const gw2Sessions = sessions.filter(s => s.active_days && s.active_days.length > 0);
 
-  const anyActive = sessions.some(isSessionActive);
+  const activeSessions = sessions.filter(isSessionActive);
+  const anyActive = activeSessions.length > 0;
+
+  const getUpcomingSessions = () => {
+    const todaySessions = sessions.filter(s => {
+      if (s.active_days && s.active_days.length > 0 && !s.active_days.includes(currentWeekday)) return false;
+      const start = s.start_hour * 60 + (s.start_minute || 0);
+      return start > currentMinutes;
+    }).sort((a, b) => (a.start_hour * 60 + (a.start_minute || 0)) - (b.start_hour * 60 + (b.start_minute || 0)));
+
+    if (todaySessions.length > 0) return { sessions: todaySessions.slice(0, 3), label: 'today' };
+
+    const tomorrowWeekday = (currentWeekday + 1) % 7;
+    const tomorrowSessions = sessions.filter(s => {
+      if (s.active_days && s.active_days.length > 0 && !s.active_days.includes(tomorrowWeekday)) return false;
+      return true;
+    }).sort((a, b) => (a.start_hour * 60 + (a.start_minute || 0)) - (b.start_hour * 60 + (b.start_minute || 0)));
+
+    return { sessions: tomorrowSessions.slice(0, 3), label: 'tomorrow' };
+  };
+
+  const upcoming = getUpcomingSessions();
+
+  const getTimeUntil = (session) => {
+    const start = session.start_hour * 60 + (session.start_minute || 0);
+    let diff = start - currentMinutes;
+    if (diff < 0) diff += 1440;
+    const hours = Math.floor(diff / 60);
+    const mins = diff % 60;
+    if (hours > 0) return `${hours}h ${mins}m`;
+    return `${mins}m`;
+  };
 
   const formatTime = (date) => date.toLocaleTimeString('en-US', {
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
@@ -99,26 +130,91 @@ const TradingSessions = () => {
           </button>
         </div>
 
-        <div className={`rounded-xl border-2 p-4 flex items-center justify-between ${
+        <div className={`rounded-xl border-2 p-4 ${
           anyActive
             ? 'bg-green-50 dark:bg-green-900/20 border-green-500'
             : 'bg-gray-100 dark:bg-gray-800/30 border-gray-300 dark:border-gray-700'
         }`}>
-          <div className="flex items-center gap-3">
-            <Activity className={`w-6 h-6 ${anyActive ? 'text-green-500 animate-pulse' : 'text-gray-400'}`} />
-            <div>
-              <div className={`font-bold text-lg ${anyActive ? 'text-green-700 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
-                {anyActive ? 'TRADING WINDOW ACTIVE' : 'NO ACTIVE WINDOW'}
-              </div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">
-                Nepal Time: {formatTime(nepalNow)} | {DAY_NAMES[currentWeekday]}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <Activity className={`w-6 h-6 ${anyActive ? 'text-green-500 animate-pulse' : 'text-gray-400'}`} />
+              <div>
+                <div className={`font-bold text-lg ${anyActive ? 'text-green-700 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                  {anyActive ? 'TRADING WINDOW ACTIVE' : 'NO ACTIVE WINDOW'}
+                </div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  Nepal Time: {formatTime(nepalNow)} | {DAY_NAMES[currentWeekday]}
+                </div>
               </div>
             </div>
+            <div className="text-right text-sm text-gray-500 dark:text-gray-400">
+              <div>{sessions.length} windows configured</div>
+              <div>{gw1Sessions.length} GW1 + {gw2Sessions.length} GW2</div>
+            </div>
           </div>
-          <div className="text-right text-sm text-gray-500 dark:text-gray-400">
-            <div>{sessions.length} windows configured</div>
-            <div>{gw1Sessions.length} GW1 + {gw2Sessions.length} GW2</div>
-          </div>
+
+          {anyActive && (
+            <div className="border-t border-green-200 dark:border-green-500/30 pt-3">
+              <div className="text-xs font-semibold text-green-700 dark:text-green-400 mb-2">ACTIVE NOW</div>
+              <div className="flex flex-wrap gap-2">
+                {activeSessions.map(s => (
+                  <div key={s.id} className="flex items-center gap-2 bg-green-100 dark:bg-green-500/20 border border-green-300 dark:border-green-500/40 rounded-lg px-3 py-1.5">
+                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    <span className="font-mono text-sm font-bold text-green-800 dark:text-green-300">
+                      {String(s.start_hour).padStart(2,'0')}:00 - {String(s.end_hour).padStart(2,'0')}:00
+                    </span>
+                    {s.win_rate && (
+                      <span className="text-[10px] font-bold bg-green-200 dark:bg-green-500/30 text-green-800 dark:text-green-300 px-1.5 py-0.5 rounded">
+                        {parseFloat(s.win_rate).toFixed(0)}% WR
+                      </span>
+                    )}
+                    {s.active_days && s.active_days.length > 0 && (
+                      <span className="text-[10px] text-green-600 dark:text-green-400">
+                        {s.active_days.map(d => DAY_NAMES[d]).join(', ')}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!anyActive && upcoming.sessions.length > 0 && (
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+              <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
+                UPCOMING {upcoming.label.toUpperCase()}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {upcoming.sessions.map(s => (
+                  <div key={s.id} className="flex items-center gap-2 bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5">
+                    <Clock className="w-3 h-3 text-gray-400" />
+                    <span className="font-mono text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {String(s.start_hour).padStart(2,'0')}:00 - {String(s.end_hour).padStart(2,'0')}:00
+                    </span>
+                    {s.win_rate && (
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        parseFloat(s.win_rate) >= 70
+                          ? 'bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400'
+                          : 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400'
+                      }`}>
+                        {parseFloat(s.win_rate).toFixed(0)}% WR
+                      </span>
+                    )}
+                    {upcoming.label === 'today' && (
+                      <span className="text-[10px] text-blue-500 dark:text-blue-400 font-medium">
+                        in {getTimeUntil(s)}
+                      </span>
+                    )}
+                    {s.active_days && s.active_days.length > 0 && (
+                      <span className="text-[10px] text-gray-400">
+                        {s.active_days.map(d => DAY_NAMES[d]).join(', ')}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {fearGreed && fearGreed.available && <FearGreedWidget data={fearGreed} />}
