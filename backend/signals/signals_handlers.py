@@ -387,21 +387,13 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
         )
 
 
+_futures_signal_lock = set()
+
 @receiver(post_save, sender=Signal)
 def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
     """
     Execute a real futures trade on Binance when a new signal is created.
-
-    This handler checks the FuturesTradingSettings and executes real trades
-    on Binance Futures when enabled.
-
-    Settings controlled via database:
-    - is_enabled: Master switch for futures trading
-    - trade_amount: Base USDT amount (default $5)
-    - leverage: Leverage multiplier (default 10x)
-    - max_concurrent_trades: Maximum open trades (default 1)
-    - use_trading_window: Respect trading hours (default True)
-    - Skips blacklisted symbols for safety
+    Uses in-memory lock to prevent duplicate execution from multiple handlers.
 
     Args:
         sender: Signal model class
@@ -413,16 +405,20 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
         return
 
     if instance.status != 'ACTIVE':
-        logger.debug(f"Signal {instance.id} not ACTIVE, skipping futures trade")
         return
 
-    # Check if symbol is blacklisted (CRITICAL for real money trades)
-    from .models_blacklist import BlacklistedSymbol
-    if BlacklistedSymbol.is_blacklisted(instance.symbol.symbol):
-        logger.warning(f"🚫 Signal {instance.id} ({instance.symbol.symbol}) is blacklisted, BLOCKING real futures trade for safety!")
+    lock_key = f"futures_{instance.id}"
+    if lock_key in _futures_signal_lock:
+        logger.debug(f"Signal {instance.id} already being processed for futures, skipping duplicate")
         return
+    _futures_signal_lock.add(lock_key)
 
     try:
+        from .models_blacklist import BlacklistedSymbol
+        if BlacklistedSymbol.is_blacklisted(instance.symbol.symbol):
+            logger.warning(f"Signal {instance.id} ({instance.symbol.symbol}) blacklisted, blocking futures trade")
+            return
+
         from .services.futures_trader import futures_trading_service
 
         trade = futures_trading_service.execute_signal(instance)
@@ -430,18 +426,15 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
         if trade:
             current_time = get_nepal_time_str()
             logger.info(
-                f"💰 REAL Futures trade executed at {current_time}: "
+                f"REAL Futures trade executed at {current_time}: "
                 f"{trade.direction} {trade.quantity} {trade.symbol} @ {trade.entry_price} "
                 f"(Leverage: {trade.leverage}x, Trade ID: {trade.id}, Signal ID: {instance.id})"
-            )
-        else:
-            logger.debug(
-                f"ℹ️  No futures trade for signal {instance.id}: "
-                f"settings disabled or criteria not met"
             )
 
     except Exception as e:
         logger.error(
-            f"❌ Failed to execute futures trade for signal {instance.id}: {e}",
+            f"Failed to execute futures trade for signal {instance.id}: {e}",
             exc_info=True
         )
+    finally:
+        _futures_signal_lock.discard(lock_key)

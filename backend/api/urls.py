@@ -57,7 +57,8 @@ from signals.views_futures import (
     futures_open_positions,
     close_futures_trade,
     futures_summary,
-    futures_trade_detail
+    futures_trade_detail,
+    fear_greed_status
 )
 from signals.views_market import get_order_book
 from signals.views_chart import chart_annotations, delete_annotation, fibonacci_setup
@@ -139,6 +140,7 @@ urlpatterns = [
     path('futures/trades/<int:trade_id>/close/', close_futures_trade, name='futures-close-trade'),
     path('futures/positions/', futures_open_positions, name='futures-positions'),
     path('futures/summary/', futures_summary, name='futures-summary'),
+    path('futures/fear-greed/', fear_greed_status, name='fear-greed-status'),
 
     # Market Data endpoints
     path('market/orderbook/<str:symbol>/', get_order_book, name='orderbook'),

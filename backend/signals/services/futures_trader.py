@@ -14,7 +14,6 @@ from datetime import datetime, timezone, timedelta
 import aiohttp
 from django.conf import settings
 from django.utils import timezone as dj_timezone
-from django.db import transaction
 
 from ..models_futures import FuturesTradingSettings, FuturesTrade
 from ..models import Signal
@@ -652,6 +651,130 @@ class BinanceFuturesTrader:
             logger.error(f"❌ Failed to get market data for signal {signal_id}: {e}")
             return None
 
+    def _validate_sl_tp(self, direction, sl, tp, price, symbol_info):
+        """
+        Validate and auto-correct SL/TP relative to entry price.
+
+        Args:
+            direction: LONG or SHORT
+            sl: Stop loss price
+            tp: Take profit price
+            price: Entry/current price
+            symbol_info: Symbol info for rounding
+
+        Returns:
+            Tuple of (sl_rounded, tp_rounded)
+        """
+        if direction == 'LONG':
+            if sl >= price:
+                sl = price * Decimal('0.97')
+                logger.warning(f"SL auto-corrected to 3% below entry: {sl}")
+            if tp <= price:
+                tp = price * Decimal('1.05')
+                logger.warning(f"TP auto-corrected to 5% above entry: {tp}")
+        else:
+            if sl <= price:
+                sl = price * Decimal('1.03')
+                logger.warning(f"SL auto-corrected to 3% above entry: {sl}")
+            if tp >= price:
+                tp = price * Decimal('0.95')
+                logger.warning(f"TP auto-corrected to 5% below entry: {tp}")
+
+        return self._round_price(sl, symbol_info), self._round_price(tp, symbol_info)
+
+    async def place_batch_orders(
+        self,
+        symbol: str,
+        direction: str,
+        quantity: Decimal,
+        sl_price: Decimal,
+        tp_price: Decimal
+    ) -> Optional[Dict]:
+        """
+        Place entry + SL + TP in a single batch API call.
+        This is what Binance UI does when you check the TP/SL box.
+
+        Args:
+            symbol: Trading pair
+            direction: LONG or SHORT
+            quantity: Position quantity
+            sl_price: Stop loss trigger price
+            tp_price: Take profit trigger price
+
+        Returns:
+            Dict with entry/sl/tp order results or None
+        """
+        entry_side = 'BUY' if direction == 'LONG' else 'SELL'
+        close_side = 'SELL' if direction == 'LONG' else 'BUY'
+
+        import json
+        orders = [
+            {
+                'symbol': symbol,
+                'side': entry_side,
+                'type': 'MARKET',
+                'quantity': str(quantity),
+            },
+            {
+                'symbol': symbol,
+                'side': close_side,
+                'type': 'STOP_MARKET',
+                'stopPrice': str(sl_price),
+                'quantity': str(quantity),
+                'reduceOnly': 'true',
+                'workingType': 'MARK_PRICE',
+                'priceProtect': 'true',
+            },
+            {
+                'symbol': symbol,
+                'side': close_side,
+                'type': 'TAKE_PROFIT_MARKET',
+                'stopPrice': str(tp_price),
+                'quantity': str(quantity),
+                'reduceOnly': 'true',
+                'workingType': 'MARK_PRICE',
+                'priceProtect': 'true',
+            },
+        ]
+
+        params = {
+            'batchOrders': json.dumps(orders),
+        }
+
+        try:
+            results = await self._request('POST', '/fapi/v1/batchOrders', params, signed=True)
+
+            entry_res = results[0] if len(results) > 0 else None
+            sl_res = results[1] if len(results) > 1 else None
+            tp_res = results[2] if len(results) > 2 else None
+
+            entry_ok = entry_res and 'orderId' in entry_res and 'code' not in entry_res
+            sl_ok = sl_res and 'orderId' in sl_res and 'code' not in sl_res
+            tp_ok = tp_res and 'orderId' in tp_res and 'code' not in tp_res
+
+            if entry_ok:
+                logger.info(
+                    f"[BATCH] Entry filled: {direction} {quantity} {symbol} "
+                    f"@ {entry_res.get('avgPrice', 'market')} | "
+                    f"SL: {'OK' if sl_ok else 'FAILED'} | TP: {'OK' if tp_ok else 'FAILED'}"
+                )
+
+            if not entry_ok:
+                error_msg = entry_res.get('msg', str(entry_res)) if entry_res else 'No response'
+                logger.error(f"[BATCH] Entry failed: {error_msg}")
+                return None
+
+            return {
+                'entry': entry_res,
+                'sl': sl_res if sl_ok else None,
+                'tp': tp_res if tp_ok else None,
+                'method': 'batch',
+            }
+
+        except Exception as e:
+            logger.warning(f"[BATCH] Batch order failed: {e}")
+            return None
+
     async def place_trade_orders(
         self,
         symbol: str,
@@ -664,121 +787,168 @@ class BinanceFuturesTrader:
         current_price: Decimal
     ) -> Optional[Dict]:
         """
-        Place market order with fixed SL/TP orders on Binance.
-        Dynamic trailing stop will upgrade the SL later when profit tiers are reached.
+        Place entry + SL + TP on Binance.
+
+        Strategy:
+            1. Try BATCH ORDER (entry + SL + TP in single call) — fastest, atomic
+            2. If batch fails, fall back to separate orders with 3-level SL/TP fallback
         """
         logger.info(
-            f"📊 TRADE EXECUTION START: {symbol} {direction} | "
+            f"TRADE START: {symbol} {direction} | "
             f"Margin: ${position_size} | Leverage: {leverage}x | "
-            f"Notional: ${position_size * leverage} | Price: ${current_price} | "
-            f"SL: ${sl} | TP: ${tp}"
+            f"Price: ${current_price} | SL: ${sl} | TP: ${tp}"
         )
-        errors = []
 
         try:
-            margin_ok = await self.set_margin_type(symbol, 'ISOLATED')
-            if not margin_ok:
-                errors.append("Failed to set margin type")
+            await self.set_margin_type(symbol, 'ISOLATED')
+            await self.set_leverage(symbol, leverage)
 
-            leverage_ok = await self.set_leverage(symbol, leverage)
-            if not leverage_ok:
-                errors.append(f"Failed to set leverage to {leverage}x")
+            quantity = self._calculate_quantity(symbol_info, current_price, position_size, leverage)
+            logger.info(f"Quantity: {quantity} {symbol} (Notional: ${float(quantity) * float(current_price):.2f})")
 
-            quantity = self._calculate_quantity(
-                symbol_info,
-                current_price,
-                position_size,
-                leverage
-            )
+            sl_rounded, tp_rounded = self._validate_sl_tp(direction, sl, tp, current_price, symbol_info)
+            logger.info(f"Validated SL={sl_rounded}, TP={tp_rounded}")
 
-            logger.info(
-                f"📊 Quantity calculated: {quantity} {symbol} | "
-                f"Expected Notional: ${float(quantity) * float(current_price):.2f}"
-            )
+            batch_result = await self.place_batch_orders(symbol, direction, quantity, sl_rounded, tp_rounded)
 
-            side = 'BUY' if direction == 'LONG' else 'SELL'
-            entry_result = await self.place_market_order(symbol, side, quantity)
+            if batch_result and batch_result.get('entry'):
+                return self._parse_batch_result(batch_result, quantity, current_price, sl_rounded, tp_rounded, symbol, direction, symbol_info)
 
-            if not entry_result:
-                raise Exception("Failed to place entry order - insufficient balance or invalid parameters")
-
-            avg_price = Decimal(entry_result.get('avgPrice', str(current_price)))
-
-            logger.info(f"✅ Entry order filled: {direction} {quantity} {symbol} @ {avg_price}")
-
-            sl_side = 'SELL' if direction == 'LONG' else 'BUY'
-            tp_side = 'SELL' if direction == 'LONG' else 'BUY'
-
-            sl_valid = sl
-            tp_valid = tp
-
-            if direction == 'LONG':
-                if sl >= avg_price:
-                    sl_valid = avg_price * Decimal('0.97')
-                    logger.warning(f"SL {sl} >= entry {avg_price}, adjusted to {sl_valid}")
-                if tp <= avg_price:
-                    tp_valid = avg_price * Decimal('1.05')
-                    logger.warning(f"TP {tp} <= entry {avg_price}, adjusted to {tp_valid}")
-            else:
-                if sl <= avg_price:
-                    sl_valid = avg_price * Decimal('1.03')
-                    logger.warning(f"SL {sl} <= entry {avg_price}, adjusted to {sl_valid}")
-                if tp >= avg_price:
-                    tp_valid = avg_price * Decimal('0.95')
-                    logger.warning(f"TP {tp} >= entry {avg_price}, adjusted to {tp_valid}")
-
-            sl_rounded = self._round_price(sl_valid, symbol_info)
-            tp_rounded = self._round_price(tp_valid, symbol_info)
-
-            logger.info(f"SL/TP after validation: SL={sl_rounded}, TP={tp_rounded}, Entry={avg_price}")
-
-            warnings = []
-
-            sl_result = await self.place_stop_loss_order(
-                symbol, sl_side, quantity, sl_rounded, avg_price, symbol_info
-            )
-
-            if not sl_result:
-                logger.error(f"CRITICAL: All 3 SL methods failed for {symbol}! Closing position for safety.")
-                warnings.append("SL placement failed - position closed for safety")
-                await self.close_position(symbol, direction, quantity)
-                raise Exception(
-                    f"Stop loss could not be placed on {symbol} after 3 attempts. "
-                    f"Entry was reversed to protect capital."
-                )
-
-            tp_result = await self.place_take_profit_order(
-                symbol, tp_side, quantity, tp_rounded, avg_price, symbol_info
-            )
-
-            if not tp_result:
-                warnings.append(f"TP placement failed - only SL active at {sl_rounded}")
-                logger.warning(f"TP failed for {symbol}, trade has SL only at {sl_rounded}")
-
-            sl_method = sl_result.get('method', 'unknown') if sl_result else 'none'
-            tp_method = tp_result.get('method', 'unknown') if tp_result else 'none'
-
-            logger.info(
-                f"Futures trade opened: {direction} {quantity} {symbol} @ {avg_price} "
-                f"(SL: {sl_rounded} [{sl_method}], TP: {tp_rounded} [{tp_method}], "
-                f"Leverage: {leverage}x)"
-            )
-
-            return {
-                'quantity': quantity,
-                'entry_price': avg_price,
-                'order_id': str(entry_result.get('orderId', '')),
-                'sl_order_id': str(sl_result.get('orderId', '')) if sl_result else None,
-                'tp_order_id': str(tp_result.get('orderId', '')) if tp_result else None,
-                'sl_price': str(sl_rounded),
-                'tp_price': str(tp_rounded),
-                'warnings': warnings,
-            }
+            logger.warning(f"Batch failed for {symbol}, falling back to separate orders...")
+            return await self._place_separate_orders(symbol, direction, quantity, sl_rounded, tp_rounded, current_price, symbol_info)
 
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"❌ Failed to place orders for {symbol}: {error_msg}")
-            raise Exception(f"{error_msg}. Previous errors: {'; '.join(errors)}" if errors else error_msg)
+            logger.error(f"Failed to place orders for {symbol}: {e}")
+            raise
+
+    def _parse_batch_result(self, batch_result, quantity, current_price, sl_rounded, tp_rounded, symbol, direction, symbol_info):
+        """
+        Parse batch order result into the standard return format.
+
+        Args:
+            batch_result: Result from place_batch_orders
+            quantity: Order quantity
+            current_price: Current market price
+            sl_rounded: Validated SL price
+            tp_rounded: Validated TP price
+            symbol: Trading pair
+            direction: LONG or SHORT
+            symbol_info: Symbol info
+
+        Returns:
+            Dict with trade result
+        """
+        entry = batch_result['entry']
+        avg_price = Decimal(entry.get('avgPrice', str(current_price)))
+
+        warnings = []
+        sl_order_id = None
+        tp_order_id = None
+
+        if batch_result.get('sl'):
+            sl_order_id = str(batch_result['sl'].get('orderId', ''))
+        else:
+            warnings.append("SL failed in batch - needs separate placement")
+
+        if batch_result.get('tp'):
+            tp_order_id = str(batch_result['tp'].get('orderId', ''))
+        else:
+            warnings.append("TP failed in batch - needs separate placement")
+
+        if not batch_result.get('sl') or not batch_result.get('tp'):
+            import asyncio
+            close_side = 'SELL' if direction == 'LONG' else 'BUY'
+
+            loop = asyncio.get_event_loop()
+
+            if not batch_result.get('sl'):
+                sl_result = loop.run_until_complete(
+                    self.place_stop_loss_order(symbol, close_side, quantity, sl_rounded, avg_price, symbol_info)
+                )
+                if sl_result:
+                    sl_order_id = str(sl_result.get('orderId', ''))
+                    warnings.pop(0)
+
+            if not batch_result.get('tp'):
+                tp_result = loop.run_until_complete(
+                    self.place_take_profit_order(symbol, close_side, quantity, tp_rounded, avg_price, symbol_info)
+                )
+                if tp_result:
+                    tp_order_id = str(tp_result.get('orderId', ''))
+                    if warnings:
+                        warnings.pop()
+
+        logger.info(
+            f"Trade opened [BATCH]: {direction} {quantity} {symbol} @ {avg_price} "
+            f"(SL: {sl_rounded}, TP: {tp_rounded}, Lev: batch)"
+        )
+
+        return {
+            'quantity': quantity,
+            'entry_price': avg_price,
+            'order_id': str(entry.get('orderId', '')),
+            'sl_order_id': sl_order_id,
+            'tp_order_id': tp_order_id,
+            'sl_price': str(sl_rounded),
+            'tp_price': str(tp_rounded),
+            'warnings': warnings,
+        }
+
+    async def _place_separate_orders(self, symbol, direction, quantity, sl_rounded, tp_rounded, current_price, symbol_info):
+        """
+        Fallback: Place entry first, then SL/TP separately with 3-level fallback.
+
+        Args:
+            symbol: Trading pair
+            direction: LONG or SHORT
+            quantity: Order quantity
+            sl_rounded: Validated SL price
+            tp_rounded: Validated TP price
+            current_price: Current market price
+            symbol_info: Symbol info
+
+        Returns:
+            Dict with trade result
+        """
+        side = 'BUY' if direction == 'LONG' else 'SELL'
+        close_side = 'SELL' if direction == 'LONG' else 'BUY'
+
+        entry_result = await self.place_market_order(symbol, side, quantity)
+        if not entry_result:
+            raise Exception("Entry order failed - insufficient balance or invalid parameters")
+
+        avg_price = Decimal(entry_result.get('avgPrice', str(current_price)))
+        logger.info(f"Entry filled [SEPARATE]: {direction} {quantity} {symbol} @ {avg_price}")
+
+        sl_rounded, tp_rounded = self._validate_sl_tp(direction, sl_rounded, tp_rounded, avg_price, symbol_info)
+
+        warnings = []
+
+        sl_result = await self.place_stop_loss_order(symbol, close_side, quantity, sl_rounded, avg_price, symbol_info)
+        if not sl_result:
+            logger.error(f"CRITICAL: SL failed for {symbol}! Closing position.")
+            await self.close_position(symbol, direction, quantity)
+            raise Exception(f"SL could not be placed on {symbol}. Entry reversed.")
+
+        tp_result = await self.place_take_profit_order(symbol, close_side, quantity, tp_rounded, avg_price, symbol_info)
+        if not tp_result:
+            warnings.append(f"TP failed - only SL active at {sl_rounded}")
+
+        logger.info(
+            f"Trade opened [SEPARATE]: {direction} {quantity} {symbol} @ {avg_price} "
+            f"(SL: {sl_rounded}, TP: {tp_rounded})"
+        )
+
+        return {
+            'quantity': quantity,
+            'entry_price': avg_price,
+            'order_id': str(entry_result.get('orderId', '')),
+            'sl_order_id': str(sl_result.get('orderId', '')) if sl_result else None,
+            'tp_order_id': str(tp_result.get('orderId', '')) if tp_result else None,
+            'sl_price': str(sl_rounded),
+            'tp_price': str(tp_rounded),
+            'warnings': warnings,
+        }
 
     async def close(self):
         """Close the session."""
@@ -843,41 +1013,38 @@ class FuturesTradingService:
             logger.info(f"Cannot trade signal {signal.id}: {reason}")
             return None
 
-        with transaction.atomic():
-            signal_already_traded = FuturesTrade.objects.select_for_update().filter(
-                signal=signal
-            ).exclude(status='FAILED').exists()
+        if trade_settings.fear_greed_enabled:
+            from .fear_greed import get_fear_greed_value, check_direction_allowed
 
-            if signal_already_traded:
-                logger.info(f"Signal {signal.id} already has a futures trade, skipping")
-                return None
+            fg_value = get_fear_greed_value()
+            if fg_value is not None:
+                fg_allowed, fg_reason = check_direction_allowed(
+                    direction, fg_value,
+                    trade_settings.fear_greed_short_threshold,
+                    trade_settings.fear_greed_long_threshold
+                )
+                if not fg_allowed:
+                    logger.info(f"Signal {signal.id} blocked by F&G filter: {fg_reason}")
+                    return None
+                logger.info(f"Signal {signal.id} F&G passed: {fg_reason}")
+            else:
+                logger.warning(f"Signal {signal.id}: F&G unavailable, proceeding without filter")
 
-            existing_trade = FuturesTrade.objects.select_for_update().filter(
-                symbol=symbol_name,
-                direction=direction,
-                status__in=['OPEN', 'PENDING']
-            ).exists()
+        already_exists = FuturesTrade.objects.filter(signal=signal).exists()
+        if already_exists:
+            logger.info(f"Signal {signal.id} already has a FuturesTrade record, skipping")
+            return None
 
-            if existing_trade:
-                logger.info(f"Already have open/pending {direction} position on {symbol_name}")
-                return None
-
-            futures_trade = FuturesTrade.objects.create(
-                signal=signal,
-                symbol=symbol_name,
-                direction=direction,
-                leverage=trade_settings.leverage,
-                quantity=Decimal('0'),
-                stop_loss=signal.sl,
-                take_profit=signal.tp,
-                position_size_usdt=trade_settings.trade_amount,
-                status='PENDING'
-            )
+        has_open_position = FuturesTrade.objects.filter(
+            symbol=symbol_name, direction=direction, status='OPEN'
+        ).exists()
+        if has_open_position:
+            logger.info(f"Already have open {direction} position on {symbol_name}")
+            return None
 
         import threading
-
         api_result = [None]
-        api_exception = [None]
+        api_error = [None]
 
         def run_api_calls():
             try:
@@ -894,7 +1061,7 @@ class FuturesTradingService:
                             if not market_data:
                                 return None
 
-                            result = await trader.place_trade_orders(
+                            return await trader.place_trade_orders(
                                 symbol_name, direction,
                                 trade_settings.leverage,
                                 trade_settings.trade_amount,
@@ -902,54 +1069,54 @@ class FuturesTradingService:
                                 market_data['symbol_info'],
                                 market_data['current_price']
                             )
-                            return result
                         finally:
                             await trader.close()
                     api_result[0] = loop.run_until_complete(_execute())
                 finally:
                     loop.close()
             except Exception as e:
-                api_exception[0] = e
+                api_error[0] = e
 
         thread = threading.Thread(target=run_api_calls)
         thread.start()
         thread.join(timeout=60)
 
-        if api_exception[0]:
-            futures_trade.status = 'FAILED'
-            futures_trade.error_message = str(api_exception[0])
-            futures_trade.save()
-            logger.error(f"❌ Futures trade failed for signal {signal.id}: {api_exception[0]}")
+        if api_error[0]:
+            logger.error(f"Futures API failed for signal {signal.id}: {api_error[0]}")
             return None
 
         if not api_result[0]:
-            futures_trade.status = 'FAILED'
-            futures_trade.error_message = "API call returned no result"
-            futures_trade.save()
+            logger.error(f"Futures API returned no result for signal {signal.id}")
             return None
 
         result = api_result[0]
-        futures_trade.quantity = result['quantity']
-        futures_trade.entry_price = result['entry_price']
-        futures_trade.binance_order_id = result['order_id']
-        futures_trade.sl_order_id = result.get('sl_order_id')
-        futures_trade.tp_order_id = result.get('tp_order_id')
-        futures_trade.entry_time = dj_timezone.now()
-        futures_trade.status = 'OPEN'
 
-        if result.get('sl_price'):
-            futures_trade.stop_loss = Decimal(result['sl_price'])
-        if result.get('tp_price'):
-            futures_trade.take_profit = Decimal(result['tp_price'])
-
+        warnings_text = ""
         if result.get('warnings'):
-            futures_trade.error_message = "Trade opened with warnings: " + "; ".join(result['warnings'])
+            warnings_text = "; ".join(result['warnings'])
 
-        futures_trade.save()
+        futures_trade = FuturesTrade.objects.create(
+            signal=signal,
+            symbol=symbol_name,
+            direction=direction,
+            leverage=trade_settings.leverage,
+            quantity=result['quantity'],
+            entry_price=result['entry_price'],
+            stop_loss=Decimal(result['sl_price']) if result.get('sl_price') else signal.sl,
+            take_profit=Decimal(result['tp_price']) if result.get('tp_price') else signal.tp,
+            position_size_usdt=trade_settings.trade_amount,
+            binance_order_id=result.get('order_id', ''),
+            sl_order_id=result.get('sl_order_id'),
+            tp_order_id=result.get('tp_order_id'),
+            entry_time=dj_timezone.now(),
+            status='OPEN',
+            error_message=f"Warnings: {warnings_text}" if warnings_text else '',
+        )
 
         logger.info(
-            f"💰 Futures trade opened: {direction} {result['quantity']} {symbol_name} "
-            f"@ {result['entry_price']} (Trade ID: {futures_trade.id})"
+            f"Futures trade created: {direction} {result['quantity']} {symbol_name} "
+            f"@ {result['entry_price']} | SL: {futures_trade.stop_loss} | TP: {futures_trade.take_profit} "
+            f"(Trade ID: {futures_trade.id}, Signal ID: {signal.id})"
         )
 
         if result.get('warnings'):
