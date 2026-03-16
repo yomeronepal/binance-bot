@@ -145,9 +145,9 @@ app.conf.beat_schedule = {
         'schedule': crontab(minute=0, hour='*/6'),
     },
 
-    'optimize-golden-windows': {
+    'optimize-golden-windows-monthly': {
         'task': 'signals.optimize_golden_windows',
-        'schedule': crontab(minute=0, hour=3),
+        'schedule': crontab(minute=0, hour=3, day_of_month=1),
         'options': {'expires': 3600.0},
     },
 
