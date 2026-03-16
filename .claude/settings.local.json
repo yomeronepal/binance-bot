@@ -76,7 +76,9 @@
       "Bash(npm run build:*)",
       "Bash(npm install:*)",
       "Bash(/usr/local/bin/docker ps)",
-      "Bash(/opt/homebrew/bin/docker ps)"
+      "Bash(/opt/homebrew/bin/docker ps)",
+      "Bash(source:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

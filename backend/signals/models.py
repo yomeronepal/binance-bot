@@ -1012,6 +1012,12 @@ class PaperAccount(models.Model):
         verbose_name = _("Paper Account")
         verbose_name_plural = _("Paper Accounts")
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['auto_trading_enabled'], name='paper_acct_auto_trade_idx'),
+            models.Index(fields=['-total_pnl'], name='paper_acct_pnl_idx'),
+            models.Index(fields=['-updated_at'], name='paper_acct_updated_idx'),
+            models.Index(fields=['-win_rate'], name='paper_acct_winrate_idx'),
+        ]
 
     def __str__(self):
         return f"Paper Account - {self.user.username} (Balance: ${self.balance})"

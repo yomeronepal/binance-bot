@@ -482,6 +482,31 @@ class PaperTradeSerializer(BaseModelSerializer):
         return f"{sign}${pnl:,.2f}"
 
 
+class PaperTradeListSerializer(serializers.ModelSerializer):
+    """
+    Lightweight paper trade serializer for list/summary views.
+    Avoids signal relation access to prevent N+1 queries.
+    """
+    profit_loss_formatted = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PaperTrade
+        fields = [
+            'id', 'symbol', 'direction', 'market_type', 'timeframe',
+            'confidence', 'entry_price', 'entry_time',
+            'position_size', 'stop_loss', 'take_profit',
+            'exit_price', 'exit_time',
+            'profit_loss', 'profit_loss_formatted', 'profit_loss_percentage',
+            'leverage', 'status', 'created_at',
+        ]
+
+    def get_profit_loss_formatted(self, obj):
+        """Format P/L for display."""
+        pnl = float(obj.profit_loss)
+        sign = "+" if pnl >= 0 else ""
+        return f"{sign}${pnl:,.2f}"
+
+
 class PaperAccountSerializer(BaseModelSerializer):
     """
     Paper account serializer for auto-trading accounts.

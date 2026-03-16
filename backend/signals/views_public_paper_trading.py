@@ -1,143 +1,138 @@
 """
-Public Paper Trading View - Mirror of User Dashboard
-No authentication required - shows ALL paper trading activity.
+Public Paper Trading Views - Optimized for production performance.
+No authentication required - shows ALL system paper trading activity.
 """
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from decimal import Decimal
-from django.db.models import Sum, Avg
+from django.db.models import Sum, Avg, Count, Q, Max, Min, F, ExpressionWrapper, DurationField
+from django.core.cache import cache
+from django.utils import timezone
+from datetime import timedelta
 import asyncio
+import hashlib
 import logging
 
 from signals.models import PaperTrade
 from signals.serializers import PaperTradeSerializer
-from signals.services.paper_trader import paper_trading_service
 from signals.models_blacklist import BlacklistedSymbol
 
 logger = logging.getLogger(__name__)
 
+CACHE_TTL_PERFORMANCE = 10
+CACHE_TTL_SUMMARY = 10
+CACHE_TTL_OPEN_POSITIONS = 5
 
-def handle_failing_symbol(symbol, error_msg, trade=None):
+
+def _build_cache_key(prefix, params):
     """
-    Handle symbols that fail price fetching.
-    1. Blacklist the symbol
-    2. Close the trade if provided
+    Build a deterministic cache key from request params.
 
     Args:
-        symbol: The failing symbol (e.g., 'BSVUSDT')
-        error_msg: Error message from API
-        trade: PaperTrade object to close (optional)
+        prefix: Cache key prefix
+        params: Dict of query parameters
+
+    Returns:
+        Hashed cache key string
     """
-    try:
-        # Check if already blacklisted
-        if BlacklistedSymbol.is_blacklisted(symbol):
-            logger.info(f"⏭️  {symbol} already blacklisted, skipping")
-            return
-
-        # Add to blacklist
-        blacklist_entry = BlacklistedSymbol.objects.create(
-            symbol=symbol,
-            reason='DELISTED',
-            notes=f'Auto-blacklisted: {error_msg}. Coin likely delisted or unavailable on Binance.',
-            active=True
-        )
-        logger.warning(f"🚫 Auto-blacklisted {symbol} due to API error: {error_msg}")
-
-        # Close the trade if provided
-        if trade and trade.status == 'OPEN':
-            trade.status = 'CLOSED_MANUAL'
-            trade.exit_price = trade.entry_price  # Close at entry (no profit/loss)
-            trade.profit_loss = Decimal('0')
-            trade.profit_loss_percentage = Decimal('0')
-            from django.utils import timezone
-            trade.exit_time = timezone.now()
-            trade.save()
-            logger.info(f"✅ Closed failing trade {trade.id} for {symbol} at entry price")
-
-    except Exception as e:
-        logger.error(f"❌ Error handling failing symbol {symbol}: {e}")
+    raw = ":".join(f"{k}={v}" for k, v in sorted(params.items()) if v)
+    suffix = hashlib.md5(raw.encode()).hexdigest()[:12]
+    return f"{prefix}:{suffix}"
 
 
-from rest_framework.pagination import PageNumberPagination
-
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def public_paper_trades_list(request):
+def _apply_common_filters(queryset, params):
     """
-    PUBLIC - List all SYSTEM paper trades (automatically created from signals).
-    Shows bot's performance on paper trading all generated signals.
+    Apply shared filter logic to a PaperTrade queryset.
 
-    GET /api/public/paper-trading/
+    Args:
+        queryset: Base PaperTrade queryset
+        params: Dict of filter parameters
+
+    Returns:
+        Filtered queryset
     """
-    # Get ONLY system paper trades (user=null) - these are auto-created from signals
-    queryset = PaperTrade.objects.filter(user__isnull=True)
-
-    # Apply filters from query params
-    status_filter = request.query_params.get('status')
+    status_filter = params.get('status')
     if status_filter:
         queryset = queryset.filter(status=status_filter)
 
-    market_type = request.query_params.get('market_type')
+    market_type = params.get('market_type')
     if market_type:
         queryset = queryset.filter(market_type=market_type)
 
-    symbol = request.query_params.get('symbol')
+    symbol = params.get('symbol')
     if symbol:
         queryset = queryset.filter(symbol__icontains=symbol)
 
-    direction = request.query_params.get('direction')
-    if direction:
-        queryset = queryset.filter(direction=direction)
+    direction = params.get('direction')
+    if direction and direction != 'ALL':
+        queryset = queryset.filter(direction=direction.upper())
 
-    golden_window = request.query_params.get('golden_window')
-    if golden_window and golden_window.lower() == 'true':
+    queryset = _apply_golden_window_filter(queryset, params)
+    queryset = _apply_time_filters(queryset, params)
+
+    return queryset
+
+
+def _apply_golden_window_filter(queryset, params):
+    """
+    Apply golden window filters.
+
+    Args:
+        queryset: Base queryset
+        params: Dict of filter parameters
+
+    Returns:
+        Filtered queryset
+    """
+    if params.get('golden_window', '').lower() == 'true':
         queryset = queryset.filter(is_priority=True)
 
-    golden_window_2 = request.query_params.get('golden_window_2')
-    if golden_window_2 and golden_window_2.lower() == 'true':
+    if params.get('golden_window_2', '').lower() == 'true':
         queryset = queryset.filter(is_golden_2=True)
 
-    outside_golden_window = request.query_params.get('outside_golden_window')
-    if outside_golden_window and outside_golden_window.lower() == 'true':
+    if params.get('outside_golden_window', '').lower() == 'true':
         queryset = queryset.filter(is_priority=False, is_golden_2=False)
 
-    # Filter by weekday (1=Monday, 7=Sunday)
-    weekday = request.query_params.get('weekday')
+    return queryset
+
+
+def _apply_time_filters(queryset, params):
+    """
+    Apply weekday, hour, month, year filters.
+
+    Args:
+        queryset: Base queryset
+        params: Dict of filter parameters
+
+    Returns:
+        Filtered queryset
+    """
+    weekday = params.get('weekday')
     if weekday and weekday != 'ALL':
         try:
             weekday_int = int(weekday)
-            # Django uses 1=Sunday, 2=Monday, ..., 7=Saturday
-            # Convert from ISO (1=Monday) to Django (2=Monday)
             django_weekday = (weekday_int % 7) + 1
             queryset = queryset.filter(entry_time__week_day=django_weekday)
         except (ValueError, TypeError):
             pass
 
-    # Filter by hour (0-23 in NPT, converted to UTC)
-    # NPT is UTC+5:45, so we need to subtract 5h45m to get UTC time
-    hour = request.query_params.get('hour')
+    hour = params.get('hour')
     if hour and hour != 'ALL':
         try:
             hour_int = int(hour)
             if 0 <= hour_int <= 23:
-                from datetime import datetime, timedelta
-                from django.db.models import Q
-
                 utc_hour_start = (hour_int - 6) % 24
                 utc_hour_end = (hour_int - 5) % 24
-
-                if utc_hour_end == (utc_hour_start + 1) % 24:
-                    queryset = queryset.filter(
-                        Q(entry_time__hour=utc_hour_start) | Q(entry_time__hour=utc_hour_end)
-                    )
-                else:
-                    queryset = queryset.filter(entry_time__hour__in=[utc_hour_start, utc_hour_end])
+                queryset = queryset.filter(
+                    Q(entry_time__hour=utc_hour_start) | Q(entry_time__hour=utc_hour_end)
+                )
         except (ValueError, TypeError):
             pass
 
-    month = request.query_params.get('month')
+    month = params.get('month')
     if month and month != 'ALL':
         try:
             month_int = int(month)
@@ -146,22 +141,225 @@ def public_paper_trades_list(request):
         except (ValueError, TypeError):
             pass
 
-    year = request.query_params.get('year')
+    year = params.get('year')
     if year and year != 'ALL':
         try:
-            year_int = int(year)
-            queryset = queryset.filter(entry_time__year=year_int)
+            queryset = queryset.filter(entry_time__year=int(year))
         except (ValueError, TypeError):
             pass
 
+    return queryset
+
+
+def _get_filter_params(request):
+    """
+    Extract all filter params from request into a dict.
+
+    Args:
+        request: DRF request object
+
+    Returns:
+        Dict of filter parameters
+    """
+    keys = [
+        'status', 'market_type', 'symbol', 'direction',
+        'golden_window', 'golden_window_2', 'outside_golden_window',
+        'weekday', 'hour', 'month', 'year', 'days'
+    ]
+    return {k: request.query_params.get(k, '') for k in keys}
+
+
+def _fetch_prices_batch(symbols):
+    """
+    Fetch prices for multiple symbols concurrently using asyncio.gather.
+
+    Args:
+        symbols: List/set of symbol strings
+
+    Returns:
+        Tuple of (prices dict, failed_symbols dict)
+    """
+    from scanner.services.binance_client import BinanceClient
+
+    async def fetch_all():
+        prices = {}
+        failed = {}
+        async with BinanceClient() as client:
+            semaphore = asyncio.Semaphore(10)
+
+            async def fetch_one(sym):
+                async with semaphore:
+                    try:
+                        price_data = await client.get_price(sym)
+                        if price_data and 'price' in price_data:
+                            return sym, Decimal(str(price_data['price'])), None
+                    except Exception as e:
+                        error_msg = str(e)
+                        if '400' in error_msg or 'Bad Request' in error_msg:
+                            return sym, None, error_msg
+                    return sym, None, None
+
+            results = await asyncio.gather(*[fetch_one(s) for s in symbols])
+
+            for sym, price, error in results:
+                if price:
+                    prices[sym] = price
+                elif error:
+                    failed[sym] = error
+
+        return prices, failed
+
+    try:
+        return asyncio.run(fetch_all())
+    except Exception as e:
+        logger.error(f"Batch price fetch failed: {e}")
+        return {}, {}
+
+
+def _handle_failing_symbol(symbol, error_msg, trade=None):
+    """
+    Blacklist a failing symbol and optionally close the trade.
+
+    Args:
+        symbol: The failing symbol string
+        error_msg: Error message from API
+        trade: PaperTrade to close (optional)
+    """
+    try:
+        if BlacklistedSymbol.is_blacklisted(symbol):
+            return
+
+        BlacklistedSymbol.objects.create(
+            symbol=symbol,
+            reason='DELISTED',
+            notes=f'Auto-blacklisted: {error_msg}. Coin likely delisted or unavailable on Binance.',
+            active=True
+        )
+        logger.warning(f"Auto-blacklisted {symbol}: {error_msg}")
+
+        if trade and trade.status == 'OPEN':
+            trade.status = 'CLOSED_MANUAL'
+            trade.exit_price = trade.entry_price
+            trade.profit_loss = Decimal('0')
+            trade.profit_loss_percentage = Decimal('0')
+            trade.exit_time = timezone.now()
+            trade.save(update_fields=[
+                'status', 'exit_price', 'profit_loss',
+                'profit_loss_percentage', 'exit_time'
+            ])
+
+    except Exception as e:
+        logger.error(f"Error handling failing symbol {symbol}: {e}")
+
+
+def _compute_max_drawdown(closed_trades_qs):
+    """
+    Compute max drawdown from closed trades using a single values_list query.
+
+    Args:
+        closed_trades_qs: Queryset of closed PaperTrade objects
+
+    Returns:
+        Decimal max drawdown value
+    """
+    pnl_list = closed_trades_qs.order_by('exit_time').values_list('profit_loss', flat=True)
+
+    current_pnl = Decimal('0')
+    peak_pnl = Decimal('0')
+    max_dd = Decimal('0')
+
+    for pnl in pnl_list:
+        if pnl is None:
+            continue
+        current_pnl += pnl
+        if current_pnl > peak_pnl:
+            peak_pnl = current_pnl
+        drawdown = peak_pnl - current_pnl
+        if drawdown > max_dd:
+            max_dd = drawdown
+
+    return max_dd
+
+
+def _compute_performance_metrics(base_queryset):
+    """
+    Compute all performance metrics in a single aggregation query.
+
+    Args:
+        base_queryset: Filtered PaperTrade queryset (all statuses)
+
+    Returns:
+        Dict of performance metrics
+    """
+    closed_qs = base_queryset.filter(status__startswith='CLOSED')
+
+    stats = closed_qs.aggregate(
+        total_closed=Count('id'),
+        winners=Count('id', filter=Q(profit_loss__gt=0)),
+        losers=Count('id', filter=Q(profit_loss__lt=0)),
+        total_pnl=Sum('profit_loss'),
+        avg_pnl=Avg('profit_loss'),
+        best=Max('profit_loss'),
+        worst=Min('profit_loss'),
+    )
+
+    total_closed = stats['total_closed'] or 0
+    winners = stats['winners'] or 0
+    losers = stats['losers'] or 0
+
+    avg_duration_seconds = 0
+    if total_closed > 0:
+        duration_agg = closed_qs.filter(
+            entry_time__isnull=False,
+            exit_time__isnull=False
+        ).annotate(
+            duration=ExpressionWrapper(
+                F('exit_time') - F('entry_time'),
+                output_field=DurationField()
+            )
+        ).aggregate(avg_duration=Avg('duration'))
+
+        avg_td = duration_agg['avg_duration']
+        if avg_td:
+            avg_duration_seconds = avg_td.total_seconds()
+
+    total_all = base_queryset.count()
+    open_count = base_queryset.filter(status='OPEN').count()
+    max_dd = _compute_max_drawdown(closed_qs)
+
+    return {
+        'total_trades': total_all,
+        'open_trades': open_count,
+        'win_rate': (winners / total_closed * 100) if total_closed > 0 else 0,
+        'total_profit_loss': float(stats['total_pnl'] or 0),
+        'avg_profit_loss': float(stats['avg_pnl'] or 0),
+        'best_trade': float(stats['best'] or 0),
+        'worst_trade': float(stats['worst'] or 0),
+        'avg_duration_hours': round(avg_duration_seconds / 3600, 2),
+        'max_drawdown': float(max_dd),
+        'profitable_trades': winners,
+        'losing_trades': losers,
+    }
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def public_paper_trades_list(request):
+    """
+    PUBLIC paginated list of SYSTEM paper trades.
+
+    GET /api/public/paper-trading/?page=1&page_size=20&status=OPEN&symbol=BTC
+    """
+    params = _get_filter_params(request)
+    queryset = PaperTrade.objects.filter(user__isnull=True)
+    queryset = _apply_common_filters(queryset, params)
     queryset = queryset.select_related('signal').order_by('-created_at')
 
-    # Pagination
     paginator = PageNumberPagination()
     paginator.page_size = 20
     paginator.page_size_query_param = 'page_size'
     paginator.max_page_size = 100
-    
+
     result_page = paginator.paginate_queryset(queryset, request)
     serializer = PaperTradeSerializer(result_page, many=True)
     return paginator.get_paginated_response(serializer.data)
@@ -171,143 +369,68 @@ def public_paper_trades_list(request):
 @permission_classes([AllowAny])
 def public_performance(request):
     """
-    PUBLIC - Performance metrics for SYSTEM paper trades only.
-    Shows bot's performance on automatically generated signals.
+    PUBLIC cached performance metrics for SYSTEM paper trades.
 
-    GET /api/public/paper-trading/performance/?days=7&direction=ALL|LONG|SHORT
-
-    Query Parameters:
-        - days: Limit to last N days
-        - direction: Filter by trade direction (ALL, LONG, SHORT). Default: ALL
-        - golden_window: Filter Golden Window 1 trades
-        - golden_window_2: Filter Golden Window 2 trades
-        - outside_golden_window: Filter trades outside Golden Windows
+    GET /api/public/paper-trading/performance/?days=7&direction=ALL
     """
-    days = request.query_params.get('days')
-    days = int(days) if days else None
+    params = _get_filter_params(request)
+    cache_key = _build_cache_key('perf:metrics', params)
 
-    # Calculate metrics for SYSTEM trades only (user=null)
-    from django.utils import timezone
-    from datetime import timedelta
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response(cached)
 
     queryset = PaperTrade.objects.filter(user__isnull=True)
 
+    days = params.get('days')
     if days:
-        cutoff_date = timezone.now() - timedelta(days=days)
-        queryset = queryset.filter(created_at__gte=cutoff_date)
+        try:
+            cutoff = timezone.now() - timedelta(days=int(days))
+            queryset = queryset.filter(created_at__gte=cutoff)
+        except (ValueError, TypeError):
+            pass
 
-    golden_window = request.query_params.get('golden_window')
-    if golden_window and golden_window.lower() == 'true':
-        queryset = queryset.filter(is_priority=True)
+    queryset = _apply_golden_window_filter(queryset, params)
 
-    golden_window_2 = request.query_params.get('golden_window_2')
-    if golden_window_2 and golden_window_2.lower() == 'true':
-        queryset = queryset.filter(is_golden_2=True)
-
-    outside_golden_window = request.query_params.get('outside_golden_window')
-    if outside_golden_window and outside_golden_window.lower() == 'true':
-        queryset = queryset.filter(is_priority=False, is_golden_2=False)
-
-    # Filter by direction (ALL, LONG, SHORT)
-    direction = request.query_params.get('direction', 'ALL').upper()
+    direction = params.get('direction', 'ALL').upper()
     if direction == 'LONG':
         queryset = queryset.filter(direction='LONG')
     elif direction == 'SHORT':
         queryset = queryset.filter(direction='SHORT')
-    # If 'ALL', no filter applied
 
-    closed_trades = queryset.filter(status__startswith='CLOSED')
+    metrics = _compute_performance_metrics(queryset)
 
-    # Calculate basic metrics
-    total_trades = closed_trades.count()
-    winning_trades = closed_trades.filter(profit_loss__gt=0).count()
-    losing_trades = closed_trades.filter(profit_loss__lt=0).count()
+    open_trades_qs = PaperTrade.objects.filter(
+        status='OPEN', user__isnull=True
+    ).only('id', 'symbol', 'direction', 'entry_price', 'quantity',
+           'position_size', 'market_type', 'leverage')
 
-    # Calculate Max Drawdown
-    # Order by exit time to simulate equity curve
-    equity_curve = closed_trades.order_by('exit_time').values_list('profit_loss', flat=True)
-    current_pnl = Decimal('0')
-    peak_pnl = Decimal('0')
-    max_drawdown = Decimal('0')
+    if open_trades_qs.exists():
+        try:
+            symbols = set(open_trades_qs.values_list('symbol', flat=True))
+            current_prices, failed_symbols = _fetch_prices_batch(symbols)
 
-    for trade_pnl in equity_curve:
-        if trade_pnl is not None:
-            current_pnl += trade_pnl
-            if current_pnl > peak_pnl:
-                peak_pnl = current_pnl
-            
-            # Drawdown is peak - current
-            drawdown = peak_pnl - current_pnl
-            if drawdown > max_drawdown:
-                max_drawdown = drawdown
+            for sym, error_msg in failed_symbols.items():
+                for trade in open_trades_qs.filter(symbol=sym):
+                    _handle_failing_symbol(sym, error_msg, trade)
 
-    metrics = {
-        'total_trades': queryset.count(),
-        'open_trades': queryset.filter(status='OPEN').count(),
-        'win_rate': (winning_trades / total_trades * 100) if total_trades > 0 else 0,
-        'total_profit_loss': float(closed_trades.aggregate(total=Sum('profit_loss'))['total'] or 0),
-        'avg_profit_loss': float(closed_trades.aggregate(avg=Avg('profit_loss'))['avg'] or 0),
-        'best_trade': float(closed_trades.aggregate(best=Sum('profit_loss'))['best'] or 0),
-        'worst_trade': float(closed_trades.aggregate(worst=Sum('profit_loss'))['worst'] or 0),
-        'avg_duration_hours': 0,  # Calculate if needed
-        'max_drawdown': float(max_drawdown),
-        'profitable_trades': winning_trades,
-        'losing_trades': losing_trades,
-    }
+            total_unrealized = Decimal('0')
+            for trade in open_trades_qs.filter(status='OPEN'):
+                price = current_prices.get(trade.symbol)
+                if price:
+                    pnl, _ = trade.calculate_profit_loss(price)
+                    total_unrealized += Decimal(str(pnl))
 
-    # Fetch current prices and calculate unrealized P/L for open trades
-    try:
-        from scanner.services.binance_client import BinanceClient
-
-        # Get SYSTEM open trades only (user=null)
-        open_trades_queryset = PaperTrade.objects.filter(status='OPEN', user__isnull=True)
-
-        if open_trades_queryset.exists():
-            # Get unique symbols
-            symbols = set(trade.symbol for trade in open_trades_queryset)
-
-            async def fetch_prices():
-                prices = {}
-                failed_symbols = {}
-                async with BinanceClient() as client:
-                    for symbol in symbols:
-                        try:
-                            price_data = await client.get_price(symbol)
-                            if price_data and 'price' in price_data:
-                                prices[symbol] = Decimal(str(price_data['price']))
-                        except Exception as e:
-                            error_msg = str(e)
-                            if '400' in error_msg or 'Bad Request' in error_msg:
-                                failed_symbols[symbol] = error_msg
-                                logger.error(f"❌ Request failed: {error_msg}")
-                return prices, failed_symbols
-
-            current_prices, failed_symbols = asyncio.run(fetch_prices())
-
-            for symbol, error_msg in failed_symbols.items():
-                failing_trades = open_trades_queryset.filter(symbol=symbol)
-                for trade in failing_trades:
-                    handle_failing_symbol(symbol, error_msg, trade)
-
-            # Calculate unrealized P/L (skip failed symbols)
-            total_unrealized_pnl = Decimal('0')
-            for trade in open_trades_queryset.filter(status='OPEN'):
-                current_price = current_prices.get(trade.symbol)
-                if current_price:
-                    unrealized_pnl, _ = trade.calculate_profit_loss(current_price)
-                    total_unrealized_pnl += Decimal(str(unrealized_pnl))
-
-            metrics['unrealized_pnl'] = float(total_unrealized_pnl)
-            metrics['total_pnl'] = float(Decimal(str(metrics['total_profit_loss'])) + total_unrealized_pnl)
-        else:
+            metrics['unrealized_pnl'] = float(total_unrealized)
+            metrics['total_pnl'] = float(Decimal(str(metrics['total_profit_loss'])) + total_unrealized)
+        except Exception:
             metrics['unrealized_pnl'] = 0.0
             metrics['total_pnl'] = metrics['total_profit_loss']
-
-    except Exception:
-        # If price fetching fails, just return base metrics
+    else:
         metrics['unrealized_pnl'] = 0.0
         metrics['total_pnl'] = metrics['total_profit_loss']
 
+    cache.set(cache_key, metrics, CACHE_TTL_PERFORMANCE)
     return Response(metrics)
 
 
@@ -315,80 +438,24 @@ def public_performance(request):
 @permission_classes([AllowAny])
 def public_open_positions(request):
     """
-    PUBLIC - SYSTEM open positions with REAL-TIME prices.
-    Shows bot's current paper trading positions from auto-generated signals.
+    PUBLIC SYSTEM open positions with real-time prices.
 
     GET /api/public/paper-trading/open-positions/
     """
-    # Get SYSTEM open trades only (user=null)
+    params = _get_filter_params(request)
     queryset = PaperTrade.objects.filter(status='OPEN', user__isnull=True)
+    queryset = _apply_golden_window_filter(queryset, params)
+    queryset = _apply_time_filters(queryset, params)
 
-    golden_window = request.query_params.get('golden_window')
-    if golden_window and golden_window.lower() == 'true':
-        queryset = queryset.filter(is_priority=True)
-
-    golden_window_2 = request.query_params.get('golden_window_2')
-    if golden_window_2 and golden_window_2.lower() == 'true':
-        queryset = queryset.filter(is_golden_2=True)
-
-    outside_golden_window = request.query_params.get('outside_golden_window')
-    if outside_golden_window and outside_golden_window.lower() == 'true':
-        queryset = queryset.filter(is_priority=False, is_golden_2=False)
-
-    # Filter by weekday (1=Monday, 7=Sunday)
-    weekday = request.query_params.get('weekday')
-    if weekday and weekday != 'ALL':
-        try:
-            weekday_int = int(weekday)
-            # Django uses 1=Sunday, 2=Monday, ..., 7=Saturday
-            # Convert from ISO (1=Monday) to Django (2=Monday)
-            django_weekday = (weekday_int % 7) + 1
-            queryset = queryset.filter(entry_time__week_day=django_weekday)
-        except (ValueError, TypeError):
-            pass
-
-    # Filter by hour (0-23 in NPT, converted to UTC)
-    hour = request.query_params.get('hour')
-    if hour and hour != 'ALL':
-        try:
-            hour_int = int(hour)
-            if 0 <= hour_int <= 23:
-                from django.db.models import Q
-
-                utc_hour_start = (hour_int - 6) % 24
-                utc_hour_end = (hour_int - 5) % 24
-
-                if utc_hour_end == (utc_hour_start + 1) % 24:
-                    queryset = queryset.filter(
-                        Q(entry_time__hour=utc_hour_start) | Q(entry_time__hour=utc_hour_end)
-                    )
-                else:
-                    queryset = queryset.filter(entry_time__hour__in=[utc_hour_start, utc_hour_end])
-        except (ValueError, TypeError):
-            pass
-
-    month = request.query_params.get('month')
-    if month and month != 'ALL':
-        try:
-            month_int = int(month)
-            if 1 <= month_int <= 12:
-                queryset = queryset.filter(entry_time__month=month_int)
-        except (ValueError, TypeError):
-            pass
-
-    year = request.query_params.get('year')
-    if year and year != 'ALL':
-        try:
-            year_int = int(year)
-            queryset = queryset.filter(entry_time__year=year_int)
-        except (ValueError, TypeError):
-            pass
-
-    direction = request.query_params.get('direction')
+    direction = params.get('direction')
     if direction and direction != 'ALL':
-        queryset = queryset.filter(direction=direction)
+        queryset = queryset.filter(direction=direction.upper())
 
-    open_trades = list(queryset)
+    open_trades = list(queryset.only(
+        'id', 'symbol', 'direction', 'market_type', 'entry_price',
+        'entry_time', 'position_size', 'stop_loss', 'take_profit',
+        'leverage', 'quantity', 'status', 'user_id'
+    ))
 
     if not open_trades:
         return Response({
@@ -400,54 +467,26 @@ def public_open_positions(request):
             'positions': []
         })
 
-    try:
-        from scanner.services.binance_client import BinanceClient
+    symbols = set(t.symbol for t in open_trades)
+    current_prices, failed_symbols = _fetch_prices_batch(symbols)
 
-        symbols = set(trade.symbol for trade in open_trades)
+    for sym, error_msg in failed_symbols.items():
+        failing = [t for t in open_trades if t.symbol == sym]
+        for trade in failing:
+            _handle_failing_symbol(sym, error_msg, trade)
+            open_trades.remove(trade)
 
-        async def fetch_prices():
-            prices = {}
-            failed_symbols = {}
-            async with BinanceClient() as client:
-                for symbol in symbols:
-                    try:
-                        price_data = await client.get_price(symbol)
-                        if price_data and 'price' in price_data:
-                            prices[symbol] = Decimal(str(price_data['price']))
-                    except Exception as e:
-                        error_msg = str(e)
-                        if '400' in error_msg or 'Bad Request' in error_msg:
-                            failed_symbols[symbol] = error_msg
-                            logger.error(f"❌ Request failed: {error_msg}")
-            return prices, failed_symbols
-
-        current_prices, failed_symbols = asyncio.run(fetch_prices())
-
-        for symbol, error_msg in failed_symbols.items():
-            failing_trades = [t for t in open_trades if t.symbol == symbol]
-            for trade in failing_trades:
-                handle_failing_symbol(symbol, error_msg, trade)
-                open_trades.remove(trade)
-
-    except Exception as e:
-        logger.error(f"❌ Error fetching prices: {e}")
-        current_prices = {}
-
-    # Calculate positions with real-time P/L
-    positions_data = {
-        'total_investment': Decimal('0'),
-        'total_current_value': Decimal('0'),
-        'total_unrealized_pnl': Decimal('0'),
-        'total_open_trades': len(open_trades),
-        'positions': []
-    }
+    total_investment = Decimal('0')
+    total_current_value = Decimal('0')
+    total_unrealized_pnl = Decimal('0')
+    positions = []
 
     for trade in open_trades:
         current_price = current_prices.get(trade.symbol)
 
-        position_data = {
+        position = {
             'trade_id': trade.id,
-            'user': trade.user.username if trade.user else 'System',
+            'user': 'System',
             'symbol': trade.symbol,
             'direction': trade.direction,
             'market_type': trade.market_type,
@@ -460,18 +499,13 @@ def public_open_positions(request):
             'risk_reward_ratio': trade.risk_reward_ratio,
         }
 
-        # Add real-time price data if available
         if current_price:
             unrealized_pnl, unrealized_pnl_pct = trade.calculate_profit_loss(current_price)
-
-            # Calculate current value
             current_value = float(trade.position_size) * (1 + float(unrealized_pnl_pct) / 100)
-
-            # Price change calculations
             price_change = float(current_price - trade.entry_price)
             price_change_pct = (price_change / float(trade.entry_price)) * 100
 
-            position_data.update({
+            position.update({
                 'current_price': float(current_price),
                 'current_value': round(current_value, 2),
                 'unrealized_pnl': float(unrealized_pnl),
@@ -480,12 +514,10 @@ def public_open_positions(request):
                 'price_change_pct': round(price_change_pct, 2),
                 'has_real_time_price': True
             })
-
-            # Update totals
-            positions_data['total_current_value'] += Decimal(str(current_value))
-            positions_data['total_unrealized_pnl'] += Decimal(str(unrealized_pnl))
+            total_current_value += Decimal(str(current_value))
+            total_unrealized_pnl += Decimal(str(unrealized_pnl))
         else:
-            position_data.update({
+            position.update({
                 'current_price': None,
                 'current_value': float(trade.position_size),
                 'unrealized_pnl': 0.0,
@@ -495,31 +527,28 @@ def public_open_positions(request):
                 'has_real_time_price': False
             })
 
-        positions_data['total_investment'] += Decimal(str(trade.position_size))
-        positions_data['positions'].append(position_data)
+        total_investment += Decimal(str(trade.position_size))
+        positions.append(position)
 
-    # Calculate total unrealized P/L percentage
-    if positions_data['total_investment'] > 0:
-        positions_data['total_unrealized_pnl_pct'] = float(
-            (positions_data['total_unrealized_pnl'] / positions_data['total_investment']) * 100
-        )
-    else:
-        positions_data['total_unrealized_pnl_pct'] = 0.0
+    total_unrealized_pnl_pct = 0.0
+    if total_investment > 0:
+        total_unrealized_pnl_pct = float((total_unrealized_pnl / total_investment) * 100)
 
-    # Convert Decimals to floats for JSON serialization
-    positions_data['total_investment'] = float(positions_data['total_investment'])
-    positions_data['total_current_value'] = float(positions_data['total_current_value'])
-    positions_data['total_unrealized_pnl'] = float(positions_data['total_unrealized_pnl'])
-
-    return Response(positions_data)
+    return Response({
+        'total_investment': float(total_investment),
+        'total_current_value': float(total_current_value),
+        'total_unrealized_pnl': float(total_unrealized_pnl),
+        'total_unrealized_pnl_pct': total_unrealized_pnl_pct,
+        'total_open_trades': len(positions),
+        'positions': positions
+    })
 
 
-from rest_framework.permissions import IsAdminUser
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def public_close_trade(request, trade_id):
     """
-    PUBLIC - Manually close a SYSTEM paper trade at current market price.
+    Manually close a SYSTEM paper trade at current market price.
 
     POST /api/public/paper-trading/<trade_id>/close/
     """
@@ -532,31 +561,17 @@ def public_close_trade(request, trade_id):
         )
 
     try:
-        from scanner.services.binance_client import BinanceClient
-
-        async def fetch_price():
-            async with BinanceClient() as client:
-                try:
-                    price_data = await client.get_price(trade.symbol)
-                    if price_data and 'price' in price_data:
-                        return Decimal(str(price_data['price'])), None
-                except Exception as e:
-                    error_msg = str(e)
-                    if '400' in error_msg or 'Bad Request' in error_msg:
-                        logger.error(f"❌ Request failed: {error_msg}")
-                        return None, error_msg
-            return None, None
-
-        current_price, error_msg = asyncio.run(fetch_price())
+        prices, failed = _fetch_prices_batch([trade.symbol])
+        current_price = prices.get(trade.symbol)
 
         if not current_price:
-            # If 400 error, blacklist and close at entry price
+            error_msg = failed.get(trade.symbol)
             if error_msg and ('400' in error_msg or 'Bad Request' in error_msg):
-                handle_failing_symbol(trade.symbol, error_msg, trade)
+                _handle_failing_symbol(trade.symbol, error_msg, trade)
                 return Response({
                     'message': f'Symbol {trade.symbol} blacklisted and trade closed due to API error',
                     'error': error_msg
-                }, status=status.HTTP_200_OK)
+                })
 
             return Response(
                 {'error': 'Could not fetch current price'},
@@ -564,13 +579,10 @@ def public_close_trade(request, trade_id):
             )
 
         pnl, _ = trade.calculate_profit_loss(current_price)
-
-        if pnl >= 0:
-            close_status = 'CLOSED_TP'
-        else:
-            close_status = 'CLOSED_SL'
-
+        close_status = 'CLOSED_TP' if pnl >= 0 else 'CLOSED_SL'
         trade.close_trade(current_price, status=close_status)
+
+        _invalidate_performance_cache()
 
         serializer = PaperTradeSerializer(trade)
         return Response({
@@ -592,275 +604,40 @@ def public_close_trade(request, trade_id):
 @permission_classes([AllowAny])
 def public_summary(request):
     """
-    PUBLIC - Comprehensive summary of SYSTEM paper trades.
-    Shows bot's performance on automatically generated signals.
+    PUBLIC cached comprehensive summary of SYSTEM paper trades.
 
-    GET /api/public/paper-trading/summary/?direction=ALL|LONG|SHORT
-
-    Query Parameters:
-        - direction: Filter by trade direction (ALL, LONG, SHORT). Default: ALL
-        - golden_window: Filter Golden Window 1 trades
-        - golden_window_2: Filter Golden Window 2 trades
-        - outside_golden_window: Filter trades outside Golden Windows
-        - weekday: Filter by weekday (1=Monday, 7=Sunday)
-        - hour: Filter by hour (0-23)
+    GET /api/public/paper-trading/summary/?direction=ALL&page=1&page_size=10
     """
-    # Get SYSTEM trades only (user=null)
+    params = _get_filter_params(request)
+    cache_key = _build_cache_key('perf:summary', params)
+
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response(cached)
+
     queryset = PaperTrade.objects.filter(user__isnull=True)
+    queryset = _apply_common_filters(queryset, params)
 
-    golden_window = request.query_params.get('golden_window')
-    if golden_window and golden_window.lower() == 'true':
-        queryset = queryset.filter(is_priority=True)
-
-    golden_window_2 = request.query_params.get('golden_window_2')
-    if golden_window_2 and golden_window_2.lower() == 'true':
-        queryset = queryset.filter(is_golden_2=True)
-
-    outside_golden_window = request.query_params.get('outside_golden_window')
-    if outside_golden_window and outside_golden_window.lower() == 'true':
-        queryset = queryset.filter(is_priority=False, is_golden_2=False)
-
-    # Filter by direction (ALL, LONG, SHORT)
-    direction = request.query_params.get('direction', 'ALL').upper()
-    if direction == 'LONG':
-        queryset = queryset.filter(direction='LONG')
-    elif direction == 'SHORT':
-        queryset = queryset.filter(direction='SHORT')
-    # If 'ALL', no filter applied
-
-    # Filter by weekday (1=Monday, 7=Sunday)
-    weekday = request.query_params.get('weekday')
-    if weekday and weekday != 'ALL':
-        try:
-            weekday_int = int(weekday)
-            # Django uses 1=Sunday, 2=Monday, ..., 7=Saturday
-            # Convert from ISO (1=Monday) to Django (2=Monday)
-            django_weekday = (weekday_int % 7) + 1
-            queryset = queryset.filter(entry_time__week_day=django_weekday)
-        except (ValueError, TypeError):
-            pass
-
-    # Filter by hour (0-23 in NPT, converted to UTC)
-    # NPT is UTC+5:45, so we need to subtract 5h45m to get UTC time
-    hour = request.query_params.get('hour')
-    if hour and hour != 'ALL':
-        try:
-            hour_int = int(hour)
-            if 0 <= hour_int <= 23:
-                from django.db.models import Q
-
-                utc_hour_start = (hour_int - 6) % 24
-                utc_hour_end = (hour_int - 5) % 24
-
-                if utc_hour_end == (utc_hour_start + 1) % 24:
-                    queryset = queryset.filter(
-                        Q(entry_time__hour=utc_hour_start) | Q(entry_time__hour=utc_hour_end)
-                    )
-                else:
-                    queryset = queryset.filter(entry_time__hour__in=[utc_hour_start, utc_hour_end])
-        except (ValueError, TypeError):
-            pass
-
-    month = request.query_params.get('month')
-    if month and month != 'ALL':
-        try:
-            month_int = int(month)
-            if 1 <= month_int <= 12:
-                queryset = queryset.filter(entry_time__month=month_int)
-        except (ValueError, TypeError):
-            pass
-
-    year = request.query_params.get('year')
-    if year and year != 'ALL':
-        try:
-            year_int = int(year)
-            queryset = queryset.filter(entry_time__year=year_int)
-        except (ValueError, TypeError):
-            pass
-
-    closed_trades = queryset.filter(status__startswith='CLOSED')
-
-    total_trades = closed_trades.count()
-    winning_trades = closed_trades.filter(profit_loss__gt=0).count()
-    losing_trades = closed_trades.filter(profit_loss__lt=0).count()
-
-    # Calculate Max Drawdown
-    equity_curve = closed_trades.order_by('exit_time').values_list('profit_loss', flat=True)
-    current_pnl = Decimal('0')
-    peak_pnl = Decimal('0')
-    max_drawdown = Decimal('0')
-
-    for trade_pnl in equity_curve:
-        if trade_pnl is not None:
-            current_pnl += trade_pnl
-            if current_pnl > peak_pnl:
-                peak_pnl = current_pnl
-            
-            drawdown = peak_pnl - current_pnl
-            if drawdown > max_drawdown:
-                max_drawdown = drawdown
-
-    # Calculate duration stats
-    from django.db.models import F, ExpressionWrapper, DurationField
-    
-    avg_duration_seconds = 0
-    if total_trades > 0:
-        duration_agg = closed_trades.filter(
-            entry_time__isnull=False, 
-            exit_time__isnull=False
-        ).annotate(
-            duration=ExpressionWrapper(F('exit_time') - F('entry_time'), output_field=DurationField())
-        ).aggregate(
-            avg_duration=Avg('duration')
-        )
-        
-        avg_td = duration_agg['avg_duration']
-        if avg_td:
-            avg_duration_seconds = avg_td.total_seconds()
-
-    metrics = {
-        'total_trades': queryset.count(),
-        'open_trades': queryset.filter(status='OPEN').count(),
-        'win_rate': (winning_trades / total_trades * 100) if total_trades > 0 else 0,
-        'total_profit_loss': float(closed_trades.aggregate(total=Sum('profit_loss'))['total'] or 0),
-        'avg_profit_loss': float(closed_trades.aggregate(avg=Avg('profit_loss'))['avg'] or 0),
-        'best_trade': float(closed_trades.aggregate(best=Sum('profit_loss'))['best'] or 0),
-        'worst_trade': float(closed_trades.aggregate(worst=Sum('profit_loss'))['worst'] or 0),
-        'avg_duration_hours': round(avg_duration_seconds / 3600, 2),
-        'max_drawdown': float(max_drawdown),
-        'profitable_trades': winning_trades,
-        'losing_trades': losing_trades,
-    }
-
-    # Get SYSTEM open trades only
-    open_trades_queryset = PaperTrade.objects.filter(status='OPEN', user__isnull=True)
-    
-    if golden_window and golden_window.lower() == 'true':
-        open_trades_queryset = open_trades_queryset.filter(is_priority=True)
-
-    golden_window_2 = request.query_params.get('golden_window_2')
-    if golden_window_2 and golden_window_2.lower() == 'true':
-        open_trades_queryset = open_trades_queryset.filter(is_golden_2=True)
-
-    if request.query_params.get('outside_golden_window') and request.query_params.get('outside_golden_window').lower() == 'true':
-        open_trades_queryset = open_trades_queryset.filter(is_priority=False, is_golden_2=False)
-
-    # Apply weekday/hour filters to open trades
-    if weekday and weekday != 'ALL':
-        try:
-            weekday_int = int(weekday)
-            django_weekday = (weekday_int % 7) + 1
-            open_trades_queryset = open_trades_queryset.filter(entry_time__week_day=django_weekday)
-        except (ValueError, TypeError):
-            pass
-
-    if hour and hour != 'ALL':
-        try:
-            hour_int = int(hour)
-            if 0 <= hour_int <= 23:
-                from django.db.models import Q
-
-                utc_hour_start = (hour_int - 6) % 24
-                utc_hour_end = (hour_int - 5) % 24
-
-                if utc_hour_end == (utc_hour_start + 1) % 24:
-                    open_trades_queryset = open_trades_queryset.filter(
-                        Q(entry_time__hour=utc_hour_start) | Q(entry_time__hour=utc_hour_end)
-                    )
-                else:
-                    open_trades_queryset = open_trades_queryset.filter(entry_time__hour__in=[utc_hour_start, utc_hour_end])
-        except (ValueError, TypeError):
-            pass
-
-    if month and month != 'ALL':
-        try:
-            month_int = int(month)
-            if 1 <= month_int <= 12:
-                open_trades_queryset = open_trades_queryset.filter(entry_time__month=month_int)
-        except (ValueError, TypeError):
-            pass
-
-    if year and year != 'ALL':
-        try:
-            year_int = int(year)
-            open_trades_queryset = open_trades_queryset.filter(entry_time__year=year_int)
-        except (ValueError, TypeError):
-            pass
-
-    # Get recent SYSTEM closed trades
-    recent_closed_queryset = PaperTrade.objects.filter(
-        status__startswith='CLOSED',
-        user__isnull=True
-    )
-
-    if golden_window and golden_window.lower() == 'true':
-        recent_closed_queryset = recent_closed_queryset.filter(is_priority=True)
-    
-    golden_window_2 = request.query_params.get('golden_window_2')
-    if golden_window_2 and golden_window_2.lower() == 'true':
-        recent_closed_queryset = recent_closed_queryset.filter(is_golden_2=True)
-
-    if request.query_params.get('outside_golden_window') and request.query_params.get('outside_golden_window').lower() == 'true':
-        recent_closed_queryset = recent_closed_queryset.filter(is_priority=False, is_golden_2=False)
-
-    # Apply weekday/hour filters to recent closed trades
-    if weekday and weekday != 'ALL':
-        try:
-            weekday_int = int(weekday)
-            django_weekday = (weekday_int % 7) + 1
-            recent_closed_queryset = recent_closed_queryset.filter(entry_time__week_day=django_weekday)
-        except (ValueError, TypeError):
-            pass
-
-    if hour and hour != 'ALL':
-        try:
-            hour_int = int(hour)
-            if 0 <= hour_int <= 23:
-                from django.db.models import Q
-
-                utc_hour_start = (hour_int - 6) % 24
-                utc_hour_end = (hour_int - 5) % 24
-
-                if utc_hour_end == (utc_hour_start + 1) % 24:
-                    recent_closed_queryset = recent_closed_queryset.filter(
-                        Q(entry_time__hour=utc_hour_start) | Q(entry_time__hour=utc_hour_end)
-                    )
-                else:
-                    recent_closed_queryset = recent_closed_queryset.filter(entry_time__hour__in=[utc_hour_start, utc_hour_end])
-        except (ValueError, TypeError):
-            pass
-
-    if month and month != 'ALL':
-        try:
-            month_int = int(month)
-            if 1 <= month_int <= 12:
-                recent_closed_queryset = recent_closed_queryset.filter(entry_time__month=month_int)
-        except (ValueError, TypeError):
-            pass
-
-    if year and year != 'ALL':
-        try:
-            year_int = int(year)
-            recent_closed_queryset = recent_closed_queryset.filter(entry_time__year=year_int)
-        except (ValueError, TypeError):
-            pass
-
-    recent_closed = recent_closed_queryset.order_by('-exit_time')[:10]
-
-    # Note: We rely on the frontend to fetch 'public_open_positions' which gets real-time prices
-    # and calculates the exact live unrealized PNL. The summary endpoint should just return
-    # the base database state to be fast.
-    
-    # Return 0 for live PnL here, frontend will patch it with data from open-positions endpoint
+    metrics = _compute_performance_metrics(queryset)
     metrics['unrealized_pnl'] = 0.0
     metrics['total_pnl'] = metrics['total_profit_loss']
 
+    open_count = PaperTrade.objects.filter(
+        status='OPEN', user__isnull=True
+    ).count()
+
+    page_size = min(int(request.query_params.get('recent_limit', 10)), 50)
+
+    recent_closed_qs = queryset.filter(
+        status__startswith='CLOSED'
+    ).select_related('signal').order_by('-exit_time')[:page_size]
+
+    recent_closed_data = PaperTradeSerializer(recent_closed_qs, many=True).data
+
     summary = {
         'performance': metrics,
-        'open_trades_count': open_trades_queryset.count(),
-        'recent_closed_trades': PaperTradeSerializer(recent_closed, many=True).data,
-
-        # Add bot-wide metrics at top level for easier access
+        'open_trades_count': open_count,
+        'recent_closed_trades': recent_closed_data,
         'bot_total_pnl': metrics['total_pnl'],
         'bot_win_rate': metrics['win_rate'],
         'bot_total_trades': metrics['total_trades'],
@@ -868,4 +645,13 @@ def public_summary(request):
         'bot_unrealized_pnl': metrics['unrealized_pnl'],
     }
 
+    cache.set(cache_key, summary, CACHE_TTL_SUMMARY)
     return Response(summary)
+
+
+def _invalidate_performance_cache():
+    """Clear all performance-related caches after trade changes."""
+    try:
+        cache.delete_pattern('perf:*')
+    except Exception:
+        pass
