@@ -172,8 +172,7 @@ def _apply_time_filters(queryset, params):
     if weekday and weekday != 'ALL':
         try:
             weekday_int = int(weekday)
-            django_weekday = (weekday_int % 7) + 1
-            queryset = queryset.filter(entry_time__week_day=django_weekday)
+            queryset = _filter_by_npt_weekday(queryset, weekday_int)
         except (ValueError, TypeError):
             pass
 
@@ -182,11 +181,7 @@ def _apply_time_filters(queryset, params):
         try:
             hour_int = int(hour)
             if 0 <= hour_int <= 23:
-                utc_hour_start = (hour_int - 6) % 24
-                utc_hour_end = (hour_int - 5) % 24
-                queryset = queryset.filter(
-                    Q(entry_time__hour=utc_hour_start) | Q(entry_time__hour=utc_hour_end)
-                )
+                queryset = _filter_by_npt_hour(queryset, hour_int)
         except (ValueError, TypeError):
             pass
 
@@ -207,6 +202,67 @@ def _apply_time_filters(queryset, params):
             pass
 
     return queryset
+
+
+def _filter_by_npt_weekday(queryset, iso_weekday):
+    """
+    Filter trades by exact Nepal Time weekday.
+    Frontend sends ISO weekday: 1=Monday, 7=Sunday.
+    Python weekday: 0=Monday, 6=Sunday.
+
+    Args:
+        queryset: PaperTrade queryset
+        iso_weekday: ISO weekday (1=Mon, 7=Sun)
+
+    Returns:
+        Filtered queryset
+    """
+    from datetime import timedelta
+
+    python_weekday = iso_weekday - 1
+    nepal_offset = timedelta(hours=5, minutes=45)
+    matching_ids = []
+
+    for trade_id, entry_time in queryset.filter(
+        entry_time__isnull=False
+    ).values_list('id', 'entry_time'):
+        npt = entry_time + nepal_offset
+        if npt.weekday() == python_weekday:
+            matching_ids.append(trade_id)
+
+    if not matching_ids:
+        return queryset.none()
+
+    return queryset.filter(id__in=matching_ids)
+
+
+def _filter_by_npt_hour(queryset, npt_hour):
+    """
+    Filter trades by exact Nepal Time hour using entry_time + 5:45 offset.
+
+    Args:
+        queryset: PaperTrade queryset
+        npt_hour: NPT hour (0-23)
+
+    Returns:
+        Filtered queryset
+    """
+    from datetime import timedelta
+
+    nepal_offset = timedelta(hours=5, minutes=45)
+    matching_ids = []
+
+    for trade_id, entry_time in queryset.filter(
+        entry_time__isnull=False
+    ).values_list('id', 'entry_time'):
+        npt = entry_time + nepal_offset
+        if npt.hour == npt_hour:
+            matching_ids.append(trade_id)
+
+    if not matching_ids:
+        return queryset.none()
+
+    return queryset.filter(id__in=matching_ids)
 
 
 def _get_filter_params(request):
@@ -382,12 +438,11 @@ def _compute_performance_metrics(base_queryset):
         if avg_td:
             avg_duration_seconds = avg_td.total_seconds()
 
-    total_all = base_queryset.count()
     open_count = base_queryset.filter(status='OPEN').count()
     max_dd = _compute_max_drawdown(closed_qs)
 
     return {
-        'total_trades': total_all,
+        'total_trades': total_closed,
         'open_trades': open_count,
         'win_rate': (winners / total_closed * 100) if total_closed > 0 else 0,
         'total_profit_loss': float(stats['total_pnl'] or 0),
