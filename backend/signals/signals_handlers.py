@@ -7,45 +7,32 @@ import logging
 from datetime import datetime, timezone, timedelta
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
-from .models import Signal
+from .models import Signal, TradingSession
 from .services.realtime import realtime_signal_service
 
 logger = logging.getLogger(__name__)
 
 NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
 
-TRADING_WINDOWS = [
-    (21, 0, 23, 0),
-]
+
+def _get_nepal_now():
+    """Get current Nepal Time datetime."""
+    return datetime.now(timezone.utc) + NEPAL_TZ_OFFSET
 
 
 def is_within_trading_window():
     """
-    Check if current time is within allowed trading windows.
-    Trading windows are in Nepal Time (UTC+5:45):
-    - 21:00-23:00 NPT
+    Check if current Nepal Time is within any active TradingSession.
+    Reads from database (auto-updated by optimizer).
     """
-    utc_now = datetime.now(timezone.utc)
-    nepal_now = utc_now + NEPAL_TZ_OFFSET
-    current_hour = nepal_now.hour
-    current_minute = nepal_now.minute
-    current_time_minutes = current_hour * 60 + current_minute
-
-    for start_hour, start_min, end_hour, end_min in TRADING_WINDOWS:
-        window_start = start_hour * 60 + start_min
-        window_end = end_hour * 60 + end_min
-
-        if window_start <= current_time_minutes < window_end:
-            return True
-
-    return False
+    nepal_now = _get_nepal_now()
+    session = TradingSession.get_matching_session(nepal_now)
+    return session is not None
 
 
 def get_nepal_time_str():
     """Get current Nepal time as formatted string."""
-    utc_now = datetime.now(timezone.utc)
-    nepal_now = utc_now + NEPAL_TZ_OFFSET
-    return nepal_now.strftime("%H:%M NPT")
+    return _get_nepal_now().strftime("%H:%M NPT")
 
 
 # ============================================================================
@@ -414,6 +401,14 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
     _futures_signal_lock.add(lock_key)
 
     try:
+        if not is_within_trading_window():
+            current_time = get_nepal_time_str()
+            logger.info(
+                f"Signal {instance.id} ({instance.symbol.symbol}) outside trading window "
+                f"at {current_time}, skipping futures trade"
+            )
+            return
+
         from .models_blacklist import BlacklistedSymbol
         if BlacklistedSymbol.is_blacklisted(instance.symbol.symbol):
             logger.warning(f"Signal {instance.id} ({instance.symbol.symbol}) blacklisted, blocking futures trade")

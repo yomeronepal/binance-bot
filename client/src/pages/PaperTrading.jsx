@@ -4,7 +4,6 @@ import usePaperTradeStore from '../store/usePaperTradeStore';
 import PerformanceMetrics from '../components/paper-trading/PerformanceMetrics';
 import PaperTradeCard from '../components/paper-trading/PaperTradeCard';
 import TradeHistory from '../components/paper-trading/TradeHistory';
-import TradingSessionStatus from '../components/common/TradingSessionStatus';
 import PullToRefresh from '../components/common/PullToRefresh';
 
 const PaperTrading = () => {
@@ -181,10 +180,6 @@ const PaperTrading = () => {
             </div>
           </div>
 
-          {/* Trading Session Status */}
-          <div className="mt-6">
-            <TradingSessionStatus />
-          </div>
         </div>
 
         {/* Error Display */}

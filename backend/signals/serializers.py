@@ -98,6 +98,10 @@ class TradingSessionSerializer(BaseModelSerializer):
             'active_days',
             'active_day_names',
             'active',
+            'auto_generated',
+            'win_rate',
+            'total_trades_analyzed',
+            'last_optimized_at',
             'created_at',
             'updated_at'
         ]

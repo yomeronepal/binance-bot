@@ -21,6 +21,7 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 app.autodiscover_tasks()
 app.autodiscover_tasks(related_name='tasks_strategy_performance')
 app.autodiscover_tasks(related_name='tasks_optimization')
+app.autodiscover_tasks(related_name='tasks_golden_window')
 
 # Celery Beat Schedule (Periodic Tasks)
 app.conf.beat_schedule = {
@@ -141,7 +142,13 @@ app.conf.beat_schedule = {
     # Performance monitoring - OPTIMIZED
     'monitor-config-performance': {
         'task': 'signals.monitor_config_performance',
-        'schedule': crontab(minute=0, hour='*/6'),  # Every 6 hours
+        'schedule': crontab(minute=0, hour='*/6'),
+    },
+
+    'optimize-golden-windows': {
+        'task': 'signals.optimize_golden_windows',
+        'schedule': crontab(minute=0, hour=3),
+        'options': {'expires': 3600.0},
     },
 
 }

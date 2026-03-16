@@ -9,7 +9,6 @@ import { useAuthStore } from '../../store/useAuthStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import SignalCard from '../../components/common/SignalCard';
 import FuturesSignalCard from '../../components/signals/FuturesSignalCard';
-import TradingSessionStatus from '../../components/common/TradingSessionStatus';
 import { Activity } from 'lucide-react';
 import FearGreedWidget from '../../components/common/FearGreedWidget';
 
@@ -262,8 +261,6 @@ const Dashboard = () => {
           </p>
         </div>
       </div>
-
-      <TradingSessionStatus />
 
       {fearGreed && fearGreed.available && <FearGreedWidget data={fearGreed} />}
 

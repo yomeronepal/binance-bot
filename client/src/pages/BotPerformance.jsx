@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar } from 'lucide-react';
+import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
-import TradingSessionStatus from '../components/common/TradingSessionStatus';
 import PullToRefresh from '../components/common/PullToRefresh';
 
 const BotPerformance = () => {
@@ -98,6 +97,8 @@ const BotPerformance = () => {
       if (activeWindow === 'gw1') params.append('golden_window', 'true');
       if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
       if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
+      if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
+      if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
       if (direction !== 'ALL') params.append('direction', direction);
       if (weekday !== 'ALL') params.append('weekday', weekday);
       if (hour !== 'ALL') params.append('hour', hour);
@@ -151,6 +152,8 @@ const BotPerformance = () => {
       if (activeWindow === 'gw1') params.append('golden_window', 'true');
       if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
       if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
+      if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
+      if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
       if (direction !== 'ALL') params.append('direction', direction);
       if (weekday !== 'ALL') params.append('weekday', weekday);
       if (hour !== 'ALL') params.append('hour', hour);
@@ -346,10 +349,6 @@ const BotPerformance = () => {
             </div>
           </div>
 
-          {/* Trading Session Status */}
-          <div className="mt-6">
-            <TradingSessionStatus />
-          </div>
 
           {/* New Trading Sessions & Filter Bar */}
           <div className="mt-6 mb-6 space-y-4">
@@ -400,6 +399,32 @@ const BotPerformance = () => {
                 >
                   <Clock className="w-4 h-4" />
                   Outside GW
+                </button>
+
+                <span className="text-gray-300 dark:text-gray-600">|</span>
+
+                <button
+                  onClick={() => setActiveWindow('gw1_ai')}
+                  title="Auto-optimized GW1 windows (all days, >= 60% win rate)"
+                  className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${activeWindow === 'gw1_ai'
+                    ? 'bg-cyan-600 text-white shadow-md shadow-cyan-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                >
+                  <Zap className="w-4 h-4" />
+                  GW1 AI
+                </button>
+
+                <button
+                  onClick={() => setActiveWindow('gw2_ai')}
+                  title="Auto-optimized GW2 windows (specific days, >= 60% win rate)"
+                  className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${activeWindow === 'gw2_ai'
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                >
+                  <Zap className="w-4 h-4" />
+                  GW2 AI
                 </button>
               </div>
 

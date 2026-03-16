@@ -78,7 +78,7 @@ def _apply_common_filters(queryset, params):
 
 def _apply_golden_window_filter(queryset, params):
     """
-    Apply golden window filters.
+    Apply golden window filters including AI-optimized windows.
 
     Args:
         queryset: Base queryset
@@ -96,7 +96,65 @@ def _apply_golden_window_filter(queryset, params):
     if params.get('outside_golden_window', '').lower() == 'true':
         queryset = queryset.filter(is_priority=False, is_golden_2=False)
 
+    if params.get('gw1_ai', '').lower() == 'true':
+        queryset = _filter_by_ai_sessions('ACTIVE_TRADING_WINDOW', queryset)
+
+    if params.get('gw2_ai', '').lower() == 'true':
+        queryset = _filter_by_ai_sessions('GOLDEN_WINDOW', queryset)
+
     return queryset
+
+
+def _filter_by_ai_sessions(session_type, queryset):
+    """
+    Filter trades to only those whose entry_time falls within
+    auto-generated TradingSession windows. Uses exact NPT minute-level matching.
+
+    Args:
+        session_type: ACTIVE_TRADING_WINDOW or GOLDEN_WINDOW
+        queryset: Base trade queryset
+
+    Returns:
+        Filtered queryset
+    """
+    from signals.models import TradingSession
+    from datetime import timedelta
+
+    sessions = list(TradingSession.objects.filter(
+        auto_generated=True, active=True, session_type=session_type
+    ))
+
+    if not sessions:
+        return queryset.none()
+
+    nepal_offset = timedelta(hours=5, minutes=45)
+    matching_ids = []
+
+    for trade_id, entry_time in queryset.filter(
+        entry_time__isnull=False
+    ).values_list('id', 'entry_time'):
+        npt = entry_time + nepal_offset
+        npt_minutes = npt.hour * 60 + npt.minute
+        npt_weekday = npt.weekday()
+
+        for s in sessions:
+            start = s.start_hour * 60 + s.start_minute
+            end = s.end_hour * 60 + s.end_minute
+
+            if npt_minutes < start or npt_minutes >= end:
+                continue
+
+            if s.active_days and len(s.active_days) > 0:
+                if npt_weekday not in s.active_days:
+                    continue
+
+            matching_ids.append(trade_id)
+            break
+
+    if not matching_ids:
+        return queryset.none()
+
+    return queryset.filter(id__in=matching_ids)
 
 
 def _apply_time_filters(queryset, params):
@@ -164,6 +222,7 @@ def _get_filter_params(request):
     keys = [
         'status', 'market_type', 'symbol', 'direction',
         'golden_window', 'golden_window_2', 'outside_golden_window',
+        'gw1_ai', 'gw2_ai',
         'weekday', 'hour', 'month', 'year', 'days'
     ]
     return {k: request.query_params.get(k, '') for k in keys}

@@ -30,6 +30,7 @@ const Layout = () => {
     { to: '/paper-trading', label: 'Paper Trading' },
     { to: '/bot-performance', label: 'Bot Performance' },
     // Only show Futures Trade links to superusers
+    { to: '/trading-sessions', label: 'Trading Sessions' },
     ...(user?.is_superuser ? [
       { to: '/futures-performance', label: 'Futures Trade' }
     ] : [])

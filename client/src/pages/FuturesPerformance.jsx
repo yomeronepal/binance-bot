@@ -4,7 +4,6 @@ import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Ac
 import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
 import { ShieldAlert } from 'lucide-react';
-import TradingSessionStatus from '../components/common/TradingSessionStatus';
 import PullToRefresh from '../components/common/PullToRefresh';
 import FearGreedWidget from '../components/common/FearGreedWidget';
 
@@ -253,8 +252,6 @@ const FuturesPerformance = () => {
                                 : '⚠️ Auto-trading is disabled. Enable it to execute trades automatically from signals.'}
                         </p>
                     </div>
-
-                    <TradingSessionStatus />
 
                     {fearGreed && fearGreed.available && <FearGreedWidget data={fearGreed} />}
                 </div>

@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import { Clock, Activity, Calendar } from 'lucide-react';
 
-const API_BASE_URL = '/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 const TradingSessionStatus = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -24,7 +24,7 @@ const TradingSessionStatus = () => {
       const data = await response.json();
       // Handle paginated response (DRF returns {count, results, ...}) or direct array
       const sessionsArray = Array.isArray(data) ? data : (data.results || []);
-      setSessions(sessionsArray);
+      setSessions(sessionsArray.filter(s => s.active !== false));
       setLoading(false);
       setError(null); // Clear any previous errors
     } catch (err) {
@@ -355,11 +355,27 @@ const TradingSessionStatus = () => {
                 : 'bg-white dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
                 }`}>
                 <div className="flex items-center justify-between mb-1">
-                  <div className={`font-semibold ${isSessionActive
-                    ? 'text-amber-600 dark:text-amber-400'
-                    : 'text-blue-600 dark:text-blue-400'
-                    }`}>
-                    {session.name}
+                  <div className="flex items-center gap-1.5">
+                    <span className={`font-semibold ${isSessionActive
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-blue-600 dark:text-blue-400'
+                      }`}>
+                      {session.name}
+                    </span>
+                    {session.auto_generated && (
+                      <span className="text-[9px] px-1 py-0.5 bg-cyan-100 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-400 rounded font-medium">
+                        AI
+                      </span>
+                    )}
+                    {session.win_rate && (
+                      <span className={`text-[9px] px-1 py-0.5 rounded font-bold ${
+                        parseFloat(session.win_rate) >= 60
+                          ? 'bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400'
+                          : 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400'
+                      }`}>
+                        {parseFloat(session.win_rate).toFixed(0)}% WR
+                      </span>
+                    )}
                   </div>
                   {isSessionActive && (
                     <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 px-1.5 py-0.5 bg-amber-500/20 rounded">
@@ -395,6 +411,18 @@ const TradingSessionStatus = () => {
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold text-purple-600 dark:text-purple-400">{session.name}</span>
+                    {session.auto_generated && (
+                      <span className="text-[9px] px-1 py-0.5 bg-cyan-100 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-400 rounded font-medium">AI</span>
+                    )}
+                    {session.win_rate && (
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                        parseFloat(session.win_rate) >= 60
+                          ? 'bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400'
+                          : 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400'
+                      }`}>
+                        {parseFloat(session.win_rate).toFixed(0)}% WR
+                      </span>
+                    )}
                     {isSessionActive && (
                       <span className="flex items-center gap-1 px-2 py-0.5 bg-purple-500/20 border border-purple-500/50 rounded text-xs text-purple-600 dark:text-purple-400">
                         <span className="w-1.5 h-1.5 bg-purple-500 dark:bg-purple-400 rounded-full animate-pulse"></span>

@@ -23,6 +23,7 @@ import BotPerformance from '../pages/BotPerformance';
 import FuturesPerformance from '../pages/FuturesPerformance';
 import Backtesting from '../pages/Backtesting';
 import StrategyDashboard from '../pages/StrategyDashboard';
+import TradingSessions from '../pages/TradingSessions';
 
 const RootRedirect = () => {
   const { isAuthenticated } = useAuthStore();
@@ -86,6 +87,11 @@ const AppRouter = () => {
           <Route path="strategy-dashboard" element={
             <ErrorBoundary>
               <StrategyDashboard />
+            </ErrorBoundary>
+          } />
+          <Route path="trading-sessions" element={
+            <ErrorBoundary>
+              <TradingSessions />
             </ErrorBoundary>
           } />
         </Route>

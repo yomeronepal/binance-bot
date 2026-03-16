@@ -21,23 +21,16 @@ from ..models import Signal
 logger = logging.getLogger(__name__)
 
 NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
-TRADING_WINDOWS = [
-    (21, 0, 23, 0),
-]
 
 
 def is_within_trading_window():
-    """Check if current Nepal time is within trading windows."""
-    utc_now = datetime.now(timezone.utc)
-    nepal_now = utc_now + NEPAL_TZ_OFFSET
-    current_time_minutes = nepal_now.hour * 60 + nepal_now.minute
-
-    for start_hour, start_min, end_hour, end_min in TRADING_WINDOWS:
-        window_start = start_hour * 60 + start_min
-        window_end = end_hour * 60 + end_min
-        if window_start <= current_time_minutes < window_end:
-            return True
-    return False
+    """
+    Check if current Nepal Time is within any active TradingSession.
+    Reads from database (auto-updated by optimizer).
+    """
+    from ..models import TradingSession
+    nepal_now = datetime.now(timezone.utc) + NEPAL_TZ_OFFSET
+    return TradingSession.get_matching_session(nepal_now) is not None
 
 
 class BinanceFuturesTrader:
