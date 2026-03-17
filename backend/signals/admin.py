@@ -94,11 +94,15 @@ class TradingSessionAdmin(BaseModelAdmin):
         'session_type_badge',
         'time_window_display',
         'active_days_display',
+        'win_rate_display',
+        'total_trades_analyzed',
+        'auto_generated_badge',
         'active_badge',
-        'created_at'
+        'last_optimized_at',
     )
-    list_filter = ('active', 'session_type', 'created_at')
+    list_filter = ('active', 'session_type', 'auto_generated', 'created_at')
     search_fields = ('name', 'description')
+    readonly_fields = ('created_at', 'updated_at', 'last_optimized_at')
     ordering = ('start_hour', 'start_minute')
     list_per_page = 50
 
@@ -112,6 +116,10 @@ class TradingSessionAdmin(BaseModelAdmin):
         ('Active Days', {
             'fields': ('active_days',),
             'description': 'For GOLDEN_WINDOW sessions, specify active days as a list (0=Monday, 6=Sunday). Leave empty for all days.'
+        }),
+        ('Optimizer Data', {
+            'fields': ('auto_generated', 'win_rate', 'total_trades_analyzed', 'last_optimized_at'),
+            'description': 'Auto-populated by the golden window optimizer'
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
@@ -152,6 +160,33 @@ class TradingSessionAdmin(BaseModelAdmin):
         active_day_names = [day_names[day] for day in obj.active_days if 0 <= day <= 6]
         return ', '.join(active_day_names) if active_day_names else '-'
     active_days_display.short_description = 'Active Days'
+
+    def win_rate_display(self, obj):
+        """Display win rate with color."""
+        if obj.win_rate is None:
+            return '-'
+        wr = float(obj.win_rate)
+        color = '#28a745' if wr >= 60 else '#f59e0b' if wr >= 50 else '#dc3545'
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{:.1f}%</span>',
+            color, wr
+        )
+    win_rate_display.short_description = 'Win Rate'
+    win_rate_display.admin_order_field = 'win_rate'
+
+    def auto_generated_badge(self, obj):
+        """Display auto-generated status."""
+        if obj.auto_generated:
+            return format_html(
+                '<span style="background-color: #0891b2; color: white; padding: 2px 6px; '
+                'border-radius: 3px; font-size: 11px;">AI</span>'
+            )
+        return format_html(
+            '<span style="background-color: #6c757d; color: white; padding: 2px 6px; '
+            'border-radius: 3px; font-size: 11px;">Manual</span>'
+        )
+    auto_generated_badge.short_description = 'Source'
+    auto_generated_badge.admin_order_field = 'auto_generated'
 
     def active_badge(self, obj):
         """Display active status with badge."""
