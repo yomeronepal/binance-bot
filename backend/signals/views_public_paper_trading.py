@@ -467,7 +467,7 @@ def public_paper_trades_list(request):
     params = _get_filter_params(request)
     queryset = PaperTrade.objects.filter(user__isnull=True)
     queryset = _apply_common_filters(queryset, params)
-    queryset = queryset.select_related('signal').order_by('-created_at')
+    queryset = queryset.select_related('signal').order_by('-entry_time')
 
     paginator = PageNumberPagination()
     paginator.page_size = 20
@@ -569,7 +569,7 @@ def public_open_positions(request):
         'id', 'symbol', 'direction', 'market_type', 'entry_price',
         'entry_time', 'position_size', 'stop_loss', 'take_profit',
         'leverage', 'quantity', 'status', 'user_id'
-    ))
+    ).order_by('-entry_time'))
 
     if not open_trades:
         return Response({

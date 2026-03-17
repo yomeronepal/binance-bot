@@ -509,7 +509,7 @@ const TradeCard = ({ trade, onClose, isClosing }) => {
                 <div className="flex items-center gap-2 text-gray-500">
                     <div className="flex items-center">
                         <Clock className="w-3 h-3 mr-1" />
-                        {trade.entry_time ? new Date(trade.entry_time).toLocaleDateString() : new Date(trade.created_at).toLocaleDateString()}
+                        {trade.entry_time ? `${new Date(trade.entry_time).toLocaleDateString()} ${new Date(trade.entry_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : new Date(trade.created_at).toLocaleDateString()}
                     </div>
                     {isOpen && lastSync && (
                         <div className="flex items-center text-gray-400" title={`Last synced: ${lastSync.toLocaleString()}`}>
@@ -621,7 +621,7 @@ const TradeTable = ({ trades }) => (
                                 </span>
                             </td>
                             <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-sm">
-                                <div>{trade.entry_time ? new Date(trade.entry_time).toLocaleDateString() : '-'}</div>
+                                <div>{trade.entry_time ? `${new Date(trade.entry_time).toLocaleDateString()} ${new Date(trade.entry_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '-'}</div>
                                 {isOpen && trade.last_sync_time && (
                                     <div className="text-xs text-gray-400 flex items-center gap-1">
                                         <RefreshCw className="w-3 h-3" />

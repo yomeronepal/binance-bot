@@ -115,7 +115,7 @@ def futures_trades_list(request):
         trades = trades.filter(symbol=symbol)
 
     limit = int(request.query_params.get('limit', 50))
-    trades = trades[:limit]
+    trades = trades.order_by('-created_at')[:limit]
 
     serializer = FuturesTradeListSerializer(trades, many=True)
     return Response(serializer.data)
@@ -125,7 +125,7 @@ def futures_trades_list(request):
 @permission_classes([IsAdminUser])
 def futures_open_positions(request):
     """Get all open futures positions."""
-    open_trades = FuturesTrade.objects.filter(status='OPEN')
+    open_trades = FuturesTrade.objects.filter(status='OPEN').order_by('-entry_time')
     serializer = FuturesTradeSerializer(open_trades, many=True)
     return Response(serializer.data)
 

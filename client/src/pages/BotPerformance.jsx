@@ -872,7 +872,7 @@ const PositionCard = ({ position, isSuperUser, onClose }) => {
       <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs">
         <div className="flex items-center text-gray-500">
           <Clock className="w-3 h-3 mr-1" />
-          {new Date(position.entry_time).toLocaleDateString()}
+          {new Date(position.entry_time).toLocaleDateString()} {new Date(position.entry_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </div>
         {hasLivePrice && (
           <span className="text-green-500 dark:text-green-400 flex items-center gap-1">
