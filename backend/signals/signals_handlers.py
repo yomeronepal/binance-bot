@@ -401,13 +401,20 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
     _futures_signal_lock.add(lock_key)
 
     try:
-        if not is_within_trading_window():
+        if not instance.is_priority and not is_within_trading_window():
             current_time = get_nepal_time_str()
             logger.info(
                 f"Signal {instance.id} ({instance.symbol.symbol}) outside trading window "
-                f"at {current_time}, skipping futures trade"
+                f"at {current_time} and not priority, skipping futures trade"
             )
             return
+
+        if instance.is_priority:
+            current_time = get_nepal_time_str()
+            logger.info(
+                f"Signal {instance.id} ({instance.symbol.symbol}) is PRIORITY at {current_time}, "
+                f"executing futures trade regardless of trading window"
+            )
 
         from .models_blacklist import BlacklistedSymbol
         if BlacklistedSymbol.is_blacklisted(instance.symbol.symbol):
@@ -416,7 +423,9 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
 
         from .services.futures_trader import futures_trading_service
 
-        trade = futures_trading_service.execute_signal(instance)
+        trade = futures_trading_service.execute_signal(
+            instance, force_execute=instance.is_priority
+        )
 
         if trade:
             current_time = get_nepal_time_str()
