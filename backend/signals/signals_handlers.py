@@ -394,6 +394,10 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
     if instance.status != 'ACTIVE':
         return
 
+    if instance.market_type != 'FUTURES':
+        logger.debug(f"Signal {instance.id} is {instance.market_type}, skipping futures trade (FUTURES only)")
+        return
+
     lock_key = f"futures_{instance.id}"
     if lock_key in _futures_signal_lock:
         logger.debug(f"Signal {instance.id} already being processed for futures, skipping duplicate")
@@ -401,20 +405,20 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
     _futures_signal_lock.add(lock_key)
 
     try:
-        if not instance.is_priority and not is_within_trading_window():
-            current_time = get_nepal_time_str()
+        in_window = is_within_trading_window()
+        current_time = get_nepal_time_str()
+
+        logger.info(
+            f"Signal {instance.id} ({instance.symbol.symbol}): "
+            f"is_priority={instance.is_priority}, in_window={in_window}, time={current_time}"
+        )
+
+        if not instance.is_priority and not in_window:
             logger.info(
                 f"Signal {instance.id} ({instance.symbol.symbol}) outside trading window "
                 f"at {current_time} and not priority, skipping futures trade"
             )
             return
-
-        if instance.is_priority:
-            current_time = get_nepal_time_str()
-            logger.info(
-                f"Signal {instance.id} ({instance.symbol.symbol}) is PRIORITY at {current_time}, "
-                f"executing futures trade regardless of trading window"
-            )
 
         from .models_blacklist import BlacklistedSymbol
         if BlacklistedSymbol.is_blacklisted(instance.symbol.symbol):
@@ -423,16 +427,25 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
 
         from .services.futures_trader import futures_trading_service
 
+        logger.info(
+            f"Calling futures_trading_service.execute_signal for signal {instance.id} "
+            f"({instance.symbol.symbol} {instance.direction}), force_execute={instance.is_priority}"
+        )
+
         trade = futures_trading_service.execute_signal(
             instance, force_execute=instance.is_priority
         )
 
         if trade:
-            current_time = get_nepal_time_str()
             logger.info(
                 f"REAL Futures trade executed at {current_time}: "
                 f"{trade.direction} {trade.quantity} {trade.symbol} @ {trade.entry_price} "
                 f"(Leverage: {trade.leverage}x, Trade ID: {trade.id}, Signal ID: {instance.id})"
+            )
+        else:
+            logger.warning(
+                f"Futures trade NOT created for signal {instance.id} ({instance.symbol.symbol}). "
+                f"execute_signal returned None. Check service logs for reason."
             )
 
     except Exception as e:

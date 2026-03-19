@@ -973,7 +973,7 @@ class FuturesTradingService:
         trade_settings = FuturesTradingSettings.get_settings()
 
         if not trade_settings.is_enabled:
-            logger.debug(f"Futures trading disabled, skipping signal {signal.id}")
+            logger.warning(f"Futures trading is DISABLED in settings, skipping signal {signal.id}")
             return None
 
         if force_execute:
@@ -998,9 +998,12 @@ class FuturesTradingService:
         direction = signal.direction
         confidence = signal.confidence
 
+        logger.info(
+            f"Signal {signal.id}: Checking can_trade for {symbol_name} {direction} conf={confidence}"
+        )
         can_trade, reason = trade_settings.can_trade(symbol_name, direction, confidence)
         if not can_trade:
-            logger.info(f"Cannot trade signal {signal.id}: {reason}")
+            logger.warning(f"Cannot trade signal {signal.id}: {reason}")
             return None
 
         if trade_settings.fear_greed_enabled:
@@ -1031,6 +1034,11 @@ class FuturesTradingService:
         if has_open_position:
             logger.info(f"Already have open {direction} position on {symbol_name}")
             return None
+
+        logger.info(
+            f"Signal {signal.id}: All checks passed. Executing Binance API call for "
+            f"{direction} {symbol_name} (leverage={trade_settings.leverage}x, amount=${trade_settings.trade_amount})"
+        )
 
         import threading
         api_result = [None]
