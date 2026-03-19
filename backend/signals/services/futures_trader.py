@@ -958,6 +958,26 @@ class FuturesTradingService:
     def __init__(self, use_testnet: bool = False):
         self.use_testnet = use_testnet
 
+    def _log(self, action, level, message, signal=None, trade=None,
+             symbol='', direction='', is_priority=False, force_execute=False, details=None):
+        """Write a FuturesTradeLog entry."""
+        try:
+            from ..models_futures import FuturesTradeLog
+            FuturesTradeLog.objects.create(
+                signal=signal,
+                trade=trade,
+                action=action,
+                level=level,
+                symbol=symbol,
+                direction=direction,
+                is_priority=is_priority,
+                force_execute=force_execute,
+                message=message,
+                details=details or {},
+            )
+        except Exception as e:
+            logger.error(f"Failed to write trade log: {e}")
+
     def execute_signal(self, signal: Signal, force_execute: bool = False) -> Optional[FuturesTrade]:
         """
         Execute a futures trade from a signal.
@@ -970,14 +990,30 @@ class FuturesTradingService:
         Returns:
             FuturesTrade if successful, None otherwise
         """
+        symbol_name = signal.symbol.symbol
+        direction = signal.direction
+        confidence = signal.confidence
+        is_priority = getattr(signal, 'is_priority', False)
+
+        log_ctx = dict(signal=signal, symbol=symbol_name, direction=direction,
+                       is_priority=is_priority, force_execute=force_execute)
+
+        self._log('SIGNAL_RECEIVED', 'INFO',
+                  f"Futures trade request: {direction} {symbol_name} conf={confidence}",
+                  details={'confidence': str(confidence), 'sl': str(signal.sl), 'tp': str(signal.tp)},
+                  **log_ctx)
+
         trade_settings = FuturesTradingSettings.get_settings()
 
         if not trade_settings.is_enabled:
-            logger.warning(f"Futures trading is DISABLED in settings, skipping signal {signal.id}")
+            msg = "Futures trading is DISABLED in settings"
+            logger.warning(f"{msg}, skipping signal {signal.id}")
+            self._log('CHECK_FAILED', 'WARNING', msg, **log_ctx)
             return None
 
         if force_execute:
             logger.info(f"Signal {signal.id} force_execute=True, bypassing trading window check")
+            self._log('CHECK_PASSED', 'INFO', "force_execute=True, bypassing trading window", **log_ctx)
         elif trade_settings.use_trading_window:
             utc_now = datetime.now(timezone.utc)
             nepal_now = utc_now + NEPAL_TZ_OFFSET
@@ -988,22 +1024,18 @@ class FuturesTradingService:
             gw2_override = (trade_settings.trade_on_golden_window_2 and is_gw2)
 
             if not in_window and not gw2_override:
-                logger.info(f"Signal {signal.id} outside trading window, skipping futures trade")
+                msg = f"Outside trading window (in_window={in_window}, gw2={is_gw2})"
+                logger.info(f"Signal {signal.id} {msg}")
+                self._log('CHECK_FAILED', 'WARNING', msg, **log_ctx)
                 return None
 
             if gw2_override and not in_window:
-                logger.info(f"Signal {signal.id} is GW2 (Override), executing despite general window settings.")
+                logger.info(f"Signal {signal.id} is GW2 (Override)")
 
-        symbol_name = signal.symbol.symbol
-        direction = signal.direction
-        confidence = signal.confidence
-
-        logger.info(
-            f"Signal {signal.id}: Checking can_trade for {symbol_name} {direction} conf={confidence}"
-        )
         can_trade, reason = trade_settings.can_trade(symbol_name, direction, confidence)
         if not can_trade:
             logger.warning(f"Cannot trade signal {signal.id}: {reason}")
+            self._log('CHECK_FAILED', 'WARNING', f"can_trade failed: {reason}", **log_ctx)
             return None
 
         if trade_settings.fear_greed_enabled:
@@ -1018,22 +1050,36 @@ class FuturesTradingService:
                 )
                 if not fg_allowed:
                     logger.info(f"Signal {signal.id} blocked by F&G filter: {fg_reason}")
+                    self._log('CHECK_FAILED', 'WARNING', f"F&G blocked: {fg_reason}",
+                              details={'fg_value': fg_value}, **log_ctx)
                     return None
-                logger.info(f"Signal {signal.id} F&G passed: {fg_reason}")
+                self._log('CHECK_PASSED', 'INFO', f"F&G passed: {fg_reason}",
+                          details={'fg_value': fg_value}, **log_ctx)
             else:
                 logger.warning(f"Signal {signal.id}: F&G unavailable, proceeding without filter")
 
         already_exists = FuturesTrade.objects.filter(signal=signal).exists()
         if already_exists:
-            logger.info(f"Signal {signal.id} already has a FuturesTrade record, skipping")
+            msg = "Duplicate: FuturesTrade already exists for this signal"
+            logger.info(f"Signal {signal.id} {msg}")
+            self._log('CHECK_FAILED', 'WARNING', msg, **log_ctx)
             return None
 
         has_open_position = FuturesTrade.objects.filter(
             symbol=symbol_name, direction=direction, status='OPEN'
         ).exists()
         if has_open_position:
-            logger.info(f"Already have open {direction} position on {symbol_name}")
+            msg = f"Already have open {direction} position on {symbol_name}"
+            logger.info(msg)
+            self._log('CHECK_FAILED', 'WARNING', msg, **log_ctx)
             return None
+
+        self._log('TRADE_SUBMITTED', 'INFO',
+                  f"All checks passed. Submitting to Binance API",
+                  details={
+                      'leverage': trade_settings.leverage,
+                      'trade_amount': str(trade_settings.trade_amount),
+                  }, **log_ctx)
 
         logger.info(
             f"Signal {signal.id}: All checks passed. Executing Binance API call for "
@@ -1080,11 +1126,16 @@ class FuturesTradingService:
         thread.join(timeout=60)
 
         if api_error[0]:
+            msg = f"Binance API error: {api_error[0]}"
             logger.error(f"Futures API failed for signal {signal.id}: {api_error[0]}")
+            self._log('TRADE_FAILED', 'ERROR', msg,
+                      details={'error': str(api_error[0])}, **log_ctx)
             return None
 
         if not api_result[0]:
+            msg = "Binance API returned no result (market data or order failed)"
             logger.error(f"Futures API returned no result for signal {signal.id}")
+            self._log('TRADE_FAILED', 'ERROR', msg, **log_ctx)
             return None
 
         result = api_result[0]
@@ -1117,8 +1168,21 @@ class FuturesTradingService:
             f"(Trade ID: {futures_trade.id}, Signal ID: {signal.id})"
         )
 
-        if result.get('warnings'):
-            logger.warning(f"⚠️ Trade {futures_trade.id} warnings: {result['warnings']}")
+        self._log('TRADE_EXECUTED', 'SUCCESS',
+                  f"Trade opened: {direction} {result['quantity']} {symbol_name} @ {result['entry_price']}",
+                  signal=signal, trade=futures_trade, symbol=symbol_name, direction=direction,
+                  is_priority=is_priority, force_execute=force_execute,
+                  details={
+                      'entry_price': str(result['entry_price']),
+                      'quantity': str(result['quantity']),
+                      'sl': str(futures_trade.stop_loss),
+                      'tp': str(futures_trade.take_profit),
+                      'leverage': trade_settings.leverage,
+                      'order_id': result.get('order_id', ''),
+                      'sl_order_id': result.get('sl_order_id', ''),
+                      'tp_order_id': result.get('tp_order_id', ''),
+                      'warnings': result.get('warnings', []),
+                  })
 
         return futures_trade
 

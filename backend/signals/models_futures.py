@@ -542,3 +542,88 @@ class FuturesTrade(models.Model):
         self.profit_loss_percentage = pnl_pct
 
         self.save()
+
+
+class FuturesTradeLog(models.Model):
+    """
+    Audit log for every futures trade request.
+    Tracks the full decision pipeline: signal -> checks -> execution -> result.
+    """
+    LOG_LEVEL_CHOICES = [
+        ('INFO', _('Info')),
+        ('WARNING', _('Warning')),
+        ('ERROR', _('Error')),
+        ('SUCCESS', _('Success')),
+    ]
+
+    ACTION_CHOICES = [
+        ('SIGNAL_RECEIVED', _('Signal Received')),
+        ('CHECK_PASSED', _('Check Passed')),
+        ('CHECK_FAILED', _('Check Failed')),
+        ('TRADE_SUBMITTED', _('Trade Submitted')),
+        ('TRADE_EXECUTED', _('Trade Executed')),
+        ('TRADE_FAILED', _('Trade Failed')),
+        ('TRADE_CLOSED', _('Trade Closed')),
+        ('ORDER_PLACED', _('Order Placed')),
+        ('ORDER_FAILED', _('Order Failed')),
+    ]
+
+    signal = models.ForeignKey(
+        'Signal',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='futures_logs',
+    )
+
+    trade = models.ForeignKey(
+        FuturesTrade,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='logs',
+    )
+
+    action = models.CharField(
+        max_length=30,
+        choices=ACTION_CHOICES,
+    )
+
+    level = models.CharField(
+        max_length=10,
+        choices=LOG_LEVEL_CHOICES,
+        default='INFO',
+    )
+
+    symbol = models.CharField(max_length=20, blank=True)
+    direction = models.CharField(max_length=10, blank=True)
+    is_priority = models.BooleanField(default=False)
+    force_execute = models.BooleanField(default=False)
+
+    message = models.TextField(
+        help_text=_("Human-readable log message"),
+    )
+
+    details = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=_("Extra details (settings, prices, errors, order IDs)"),
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'futures_trade_logs'
+        ordering = ['-created_at']
+        verbose_name = _('Futures Trade Log')
+        verbose_name_plural = _('Futures Trade Logs')
+        indexes = [
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['signal', '-created_at']),
+            models.Index(fields=['action', '-created_at']),
+            models.Index(fields=['level', '-created_at']),
+            models.Index(fields=['symbol', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"[{self.level}] {self.action} {self.symbol} - {self.message[:60]}"

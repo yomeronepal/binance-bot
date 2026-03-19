@@ -41,6 +41,7 @@ class FuturesTradeSerializer(serializers.ModelSerializer):
     is_open = serializers.BooleanField(read_only=True)
     is_closed = serializers.BooleanField(read_only=True)
     is_profitable = serializers.BooleanField(read_only=True)
+    is_priority = serializers.SerializerMethodField()
 
     class Meta:
         model = FuturesTrade
@@ -58,14 +59,12 @@ class FuturesTradeSerializer(serializers.ModelSerializer):
             'position_size_usdt',
             'profit_loss',
             'profit_loss_percentage',
-            # Live data fields
             'mark_price',
             'unrealized_pnl',
             'unrealized_pnl_percentage',
             'liquidation_price',
             'margin_type',
             'last_sync_time',
-            # Status and metadata
             'status',
             'binance_order_id',
             'binance_exit_order_id',
@@ -75,14 +74,23 @@ class FuturesTradeSerializer(serializers.ModelSerializer):
             'is_open',
             'is_closed',
             'is_profitable',
+            'is_priority',
             'created_at',
             'updated_at',
         ]
         read_only_fields = fields
 
+    def get_is_priority(self, obj):
+        """Get priority flag from the associated signal."""
+        if obj.signal_id:
+            return getattr(obj.signal, 'is_priority', False)
+        return False
+
 
 class FuturesTradeListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for trade lists with live data."""
+
+    is_priority = serializers.SerializerMethodField()
 
     class Meta:
         model = FuturesTrade
@@ -95,15 +103,20 @@ class FuturesTradeListSerializer(serializers.ModelSerializer):
             'exit_price',
             'profit_loss',
             'profit_loss_percentage',
-            # Live data for open trades
             'mark_price',
             'unrealized_pnl',
             'unrealized_pnl_percentage',
             'liquidation_price',
             'last_sync_time',
-            # Status and times
             'status',
             'entry_time',
             'exit_time',
+            'is_priority',
             'created_at',
         ]
+
+    def get_is_priority(self, obj):
+        """Get priority flag from the associated signal."""
+        if obj.signal_id:
+            return getattr(obj.signal, 'is_priority', False)
+        return False

@@ -568,7 +568,7 @@ def public_open_positions(request):
     open_trades = list(queryset.only(
         'id', 'symbol', 'direction', 'market_type', 'entry_price',
         'entry_time', 'position_size', 'stop_loss', 'take_profit',
-        'leverage', 'quantity', 'status', 'user_id'
+        'leverage', 'quantity', 'status', 'user_id', 'is_priority'
     ).order_by('-entry_time'))
 
     if not open_trades:
@@ -611,6 +611,7 @@ def public_open_positions(request):
             'take_profit': float(trade.take_profit),
             'leverage': trade.leverage,
             'risk_reward_ratio': trade.risk_reward_ratio,
+            'is_priority': trade.is_priority,
         }
 
         if current_price:
