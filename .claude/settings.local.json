@@ -79,7 +79,8 @@
       "Bash(/opt/homebrew/bin/docker ps)",
       "Bash(source:*)",
       "Bash(grep:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(make docker-restart:*)"
     ],
     "deny": [],
     "ask": []
