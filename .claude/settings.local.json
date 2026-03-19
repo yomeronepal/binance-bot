@@ -80,7 +80,8 @@
       "Bash(source:*)",
       "Bash(grep:*)",
       "Bash(node:*)",
-      "Bash(make docker-restart:*)"
+      "Bash(make docker-restart:*)",
+      "WebFetch(domain:revxsys.com)"
     ],
     "deny": [],
     "ask": []

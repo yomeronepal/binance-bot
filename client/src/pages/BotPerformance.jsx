@@ -803,6 +803,12 @@ const PositionCard = ({ position, isSuperUser, onClose }) => {
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             <h3 className="text-gray-900 dark:text-white font-semibold text-lg">{position.symbol}</h3>
+            {position.is_priority && (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-500/50 rounded text-xs font-medium text-amber-600 dark:text-amber-400">
+                <Zap className="w-3 h-3" />
+                PRIORITY
+              </span>
+            )}
             {hasLivePrice && (
               <span className="flex items-center gap-1 px-1.5 py-0.5 bg-green-100 dark:bg-green-500/20 border border-green-300 dark:border-green-500/50 rounded text-xs text-green-600 dark:text-green-400">
                 <span className="w-1 h-1 bg-green-500 dark:bg-green-400 rounded-full animate-pulse"></span>
@@ -908,7 +914,17 @@ const TradeHistoryTable = ({ trades }) => {
 
             return (
               <tr key={trade.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30">
-                <td className="px-4 py-3 text-gray-900 dark:text-white font-medium">{trade.symbol}</td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-900 dark:text-white font-medium">{trade.symbol}</span>
+                    {trade.is_priority && (
+                      <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-500/50 rounded text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                        <Zap className="w-2.5 h-2.5" />
+                        PRIORITY
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td className="px-4 py-3">
                   <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${trade.direction === 'LONG' ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400' : 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400'
                     }`}>

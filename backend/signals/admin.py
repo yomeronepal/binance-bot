@@ -36,7 +36,8 @@ from .models_mltuning import (
 )
 from .models_futures import (
     FuturesTradingSettings,
-    FuturesTrade
+    FuturesTrade,
+    FuturesTradeLog
 )
 from .models_blacklist import BlacklistedSymbol
 
@@ -2249,6 +2250,122 @@ class FuturesTradeAdmin(BaseModelAdmin):
     def get_queryset(self, request):
         """Optimize queryset."""
         return super().get_queryset(request).select_related('signal')
+
+
+@admin.register(FuturesTradeLog)
+class FuturesTradeLogAdmin(admin.ModelAdmin):
+    """Admin interface for Futures Trade Logs - audit trail for all trade requests."""
+    list_display = (
+        'id', 'created_at', 'level_badge', 'action_badge',
+        'symbol', 'direction_badge', 'priority_badge',
+        'message_short', 'signal_link', 'trade_link',
+    )
+    list_filter = ('level', 'action', 'is_priority', 'force_execute', 'symbol', 'direction', 'created_at')
+    search_fields = ('symbol', 'message', 'details')
+    ordering = ('-created_at',)
+    readonly_fields = (
+        'signal', 'trade', 'action', 'level', 'symbol', 'direction',
+        'is_priority', 'force_execute', 'message', 'details', 'created_at',
+    )
+    list_per_page = 50
+    date_hierarchy = 'created_at'
+
+    fieldsets = (
+        ('Log Entry', {
+            'fields': ('level', 'action', 'message', 'created_at')
+        }),
+        ('Trade Context', {
+            'fields': ('signal', 'trade', 'symbol', 'direction', 'is_priority', 'force_execute')
+        }),
+        ('Details (JSON)', {
+            'fields': ('details',),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    @admin.display(description='Level')
+    def level_badge(self, obj):
+        colors = {
+            'INFO': '#17a2b8',
+            'WARNING': '#ffc107',
+            'ERROR': '#dc3545',
+            'SUCCESS': '#28a745',
+        }
+        text_color = '#000' if obj.level == 'WARNING' else '#fff'
+        return format_html(
+            '<span style="background-color: {}; color: {}; padding: 2px 8px; '
+            'border-radius: 3px; font-size: 11px; font-weight: bold;">{}</span>',
+            colors.get(obj.level, '#6c757d'), text_color, obj.level
+        )
+
+    @admin.display(description='Action')
+    def action_badge(self, obj):
+        colors = {
+            'SIGNAL_RECEIVED': '#6f42c1',
+            'CHECK_PASSED': '#20c997',
+            'CHECK_FAILED': '#fd7e14',
+            'TRADE_SUBMITTED': '#007bff',
+            'TRADE_EXECUTED': '#28a745',
+            'TRADE_FAILED': '#dc3545',
+            'TRADE_CLOSED': '#6c757d',
+            'ORDER_PLACED': '#17a2b8',
+            'ORDER_FAILED': '#dc3545',
+        }
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 2px 6px; '
+            'border-radius: 3px; font-size: 10px;">{}</span>',
+            colors.get(obj.action, '#6c757d'), obj.action.replace('_', ' ')
+        )
+
+    @admin.display(description='Dir')
+    def direction_badge(self, obj):
+        if not obj.direction:
+            return '-'
+        color = "#28a745" if obj.direction == "LONG" else "#dc3545"
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color, obj.direction
+        )
+
+    @admin.display(description='Priority')
+    def priority_badge(self, obj):
+        if obj.is_priority:
+            return format_html(
+                '<span style="background-color: #f59e0b; color: white; padding: 2px 6px; '
+                'border-radius: 3px; font-size: 10px;">PRIORITY</span>'
+            )
+        return '-'
+
+    @admin.display(description='Message')
+    def message_short(self, obj):
+        msg = obj.message[:80]
+        if len(obj.message) > 80:
+            msg += '...'
+        return msg
+
+    @admin.display(description='Signal')
+    def signal_link(self, obj):
+        if obj.signal_id:
+            return format_html('<a href="/admin/signals/signal/{}/change/">#{}</a>', obj.signal_id, obj.signal_id)
+        return '-'
+
+    @admin.display(description='Trade')
+    def trade_link(self, obj):
+        if obj.trade_id:
+            return format_html('<a href="/admin/signals/futurestrade/{}/change/">#{}</a>', obj.trade_id, obj.trade_id)
+        return '-'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('signal', 'trade')
 
 
 @admin.register(BlacklistedSymbol)

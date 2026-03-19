@@ -99,7 +99,7 @@ def futures_trades_list(request):
     - symbol: Filter by symbol (e.g., BTCUSDT)
     - limit: Number of records (default 50)
     """
-    trades = FuturesTrade.objects.all()
+    trades = FuturesTrade.objects.select_related('signal').all()
 
     status_filter = request.query_params.get('status')
     if status_filter:
@@ -114,6 +114,12 @@ def futures_trades_list(request):
     if symbol:
         trades = trades.filter(symbol=symbol)
 
+    priority_filter = request.query_params.get('priority')
+    if priority_filter == 'true':
+        trades = trades.filter(signal__is_priority=True)
+    elif priority_filter == 'false':
+        trades = trades.filter(Q(signal__is_priority=False) | Q(signal__isnull=True))
+
     limit = int(request.query_params.get('limit', 50))
     trades = trades.order_by('-created_at')[:limit]
 
@@ -125,7 +131,7 @@ def futures_trades_list(request):
 @permission_classes([IsAdminUser])
 def futures_open_positions(request):
     """Get all open futures positions."""
-    open_trades = FuturesTrade.objects.filter(status='OPEN').order_by('-entry_time')
+    open_trades = FuturesTrade.objects.select_related('signal').filter(status='OPEN').order_by('-entry_time')
     serializer = FuturesTradeSerializer(open_trades, many=True)
     return Response(serializer.data)
 
@@ -194,7 +200,7 @@ def futures_summary(request):
     """
     settings_obj = FuturesTradingSettings.get_settings()
 
-    all_trades = FuturesTrade.objects.all()
+    all_trades = FuturesTrade.objects.select_related('signal').all()
     closed_trades = all_trades.filter(status__startswith='CLOSED')
     open_trades = all_trades.filter(status='OPEN')
 
@@ -216,8 +222,14 @@ def futures_summary(request):
     )['total'] or Decimal('0')
 
     # Get open positions with their live data
+    priority_closed = closed_trades.filter(signal__is_priority=True)
+    priority_total = priority_closed.count()
+    priority_wins = priority_closed.filter(profit_loss__gt=0).count()
+    priority_pnl = priority_closed.aggregate(total=Sum('profit_loss'))['total'] or Decimal('0')
+
     open_positions_data = []
     for trade in open_trades:
+        is_priority = getattr(trade.signal, 'is_priority', False) if trade.signal_id else False
         open_positions_data.append({
             'id': trade.id,
             'symbol': trade.symbol,
@@ -232,6 +244,7 @@ def futures_summary(request):
             'liquidation_price': str(trade.liquidation_price) if trade.liquidation_price else None,
             'stop_loss': str(trade.stop_loss),
             'take_profit': str(trade.take_profit),
+            'is_priority': is_priority,
             'last_sync_time': trade.last_sync_time.isoformat() if trade.last_sync_time else None,
         })
 
@@ -256,6 +269,10 @@ def futures_summary(request):
             'unrealized_pnl': str(unrealized_pnl),
             'total_pnl': str(total_pnl + unrealized_pnl),
             'open_positions_count': open_trades.count(),
+            'priority_trades': priority_total,
+            'priority_wins': priority_wins,
+            'priority_win_rate': round((priority_wins / priority_total) * 100, 2) if priority_total > 0 else 0,
+            'priority_pnl': str(priority_pnl),
         },
         'open_positions': open_positions_data,
     })
@@ -266,7 +283,7 @@ def futures_summary(request):
 def futures_trade_detail(request, trade_id):
     """Get details of a specific futures trade."""
     try:
-        trade = FuturesTrade.objects.get(id=trade_id)
+        trade = FuturesTrade.objects.select_related('signal').get(id=trade_id)
         serializer = FuturesTradeSerializer(trade)
         return Response(serializer.data)
     except FuturesTrade.DoesNotExist:
