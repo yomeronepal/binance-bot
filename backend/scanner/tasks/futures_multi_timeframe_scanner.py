@@ -321,11 +321,12 @@ async def scan_futures_timeframe(
     logger.info(f"🔍 Scanning {len(top_pairs)} futures pairs on {timeframe} timeframe...")
 
     try:
-        # Get configuration for this timeframe
-        config = FUTURES_TIMEFRAME_CONFIGS.get(timeframe)
-        if not config:
-            logger.error(f"No config for futures timeframe: {timeframe}")
+        from signals.models_strategy_config import StrategyConfig
+        db_config = StrategyConfig.get_config(timeframe)
+        if not db_config.is_active:
+            logger.info(f"Timeframe {timeframe} is disabled in StrategyConfig, skipping")
             return counts
+        config = db_config.to_signal_config()
 
         # Fetch klines for all pairs with rate limiting
         klines_data = await client.batch_get_klines(
@@ -337,7 +338,8 @@ async def scan_futures_timeframe(
 
         engine = SignalDetectionEngine(
             config=config,
-            use_volatility_aware=False
+            use_volatility_aware=False,
+            db_config=db_config
         )
 
         # Process each symbol

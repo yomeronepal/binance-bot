@@ -45,6 +45,9 @@ class SignalConfig:
     sl_atr_multiplier: float = 2.5
     tp_atr_multiplier: float = 7.5
 
+    sl_percentage: float = 2.5
+    tp_percentage: float = 6.0
+
     risk_reward_ratio: float = 3.0
 
     min_confidence: float = 0.65
@@ -123,15 +126,17 @@ class SignalDetectionEngine:
     Supports volatility-aware configuration adjustment.
     """
 
-    def __init__(self, config: Optional[SignalConfig] = None, use_volatility_aware: bool = False):
+    def __init__(self, config: Optional[SignalConfig] = None, use_volatility_aware: bool = False, db_config=None):
         """
         Initialize signal detection engine.
 
         Args:
             config: Signal configuration (uses defaults if None)
             use_volatility_aware: Enable volatility-aware configuration adjustment
+            db_config: Optional StrategyConfig DB model for indicator periods
         """
         self.config = config or SignalConfig()
+        self.db_config = db_config
         self.use_volatility_aware = use_volatility_aware and VOLATILITY_CLASSIFIER_AVAILABLE
 
         # In-memory cache: symbol -> deque of candles
@@ -369,7 +374,7 @@ class SignalDetectionEngine:
         try:
             # Convert to DataFrame and calculate indicators
             df = klines_to_dataframe(candles)
-            df = calculate_all_indicators(df)
+            df = calculate_all_indicators(df, config=self.db_config)
 
             # Get symbol-specific config (with volatility adjustment if enabled)
             symbol_config = self.get_config_for_symbol(symbol, df)
@@ -482,8 +487,8 @@ class SignalDetectionEngine:
             signal.conditions_met = conditions
 
             entry = float(signal.entry)
-            risk_percentage = 0.025
-            profit_percentage = 0.06
+            risk_percentage = config.sl_percentage / 100
+            profit_percentage = config.tp_percentage / 100
 
             if signal.direction == 'LONG':
                 sl = entry * (1 - risk_percentage)
@@ -946,8 +951,8 @@ class SignalDetectionEngine:
         """
         entry = float(current['close'])
 
-        risk_percentage = 0.025
-        profit_percentage = 0.06
+        risk_percentage = config.sl_percentage / 100
+        profit_percentage = config.tp_percentage / 100
 
         if direction == 'LONG':
             sl = entry * (1 - risk_percentage)

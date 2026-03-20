@@ -11,6 +11,7 @@ from django.utils.safestring import mark_safe
 from django.http import HttpResponse
 from django.utils import timezone
 from .models import Symbol, Signal, UserSubscription, PaperTrade, PaperAccount, TradingSession
+from .models_strategy_config import StrategyConfig
 from .models_futures import (
     FuturesTradingSettings,
     FuturesTrade,
@@ -1256,6 +1257,122 @@ class PaperAccountAdmin(BaseModelAdmin):
         queryset = super().get_queryset(request)
         return queryset.select_related('user')
 
+
+@admin.register(StrategyConfig)
+class StrategyConfigAdmin(admin.ModelAdmin):
+    """Admin interface for per-timeframe strategy configuration."""
+    list_display = (
+        'timeframe', 'is_active_badge',
+        'min_confidence', 'rsi_range_display', 'adx_display',
+        'sl_tp_display', 'sl_tp_pct_display',
+        'updated_at',
+    )
+    list_filter = ('is_active', 'timeframe')
+    list_editable = ('min_confidence',)
+    ordering = ('timeframe',)
+
+    fieldsets = (
+        ('Timeframe & Status', {
+            'fields': ('timeframe', 'is_active'),
+        }),
+        ('Signal Confidence', {
+            'fields': ('min_confidence',),
+        }),
+        ('RSI Ranges', {
+            'fields': (
+                'long_rsi_min', 'long_rsi_max',
+                'short_rsi_min', 'short_rsi_max',
+            ),
+            'description': 'RSI thresholds for LONG (oversold) and SHORT (overbought) entries',
+        }),
+        ('ADX & Volume', {
+            'fields': (
+                'long_adx_min', 'short_adx_min',
+                'long_volume_multiplier', 'short_volume_multiplier',
+            ),
+        }),
+        ('SL/TP - Percentage (Live Signals)', {
+            'fields': ('sl_percentage', 'tp_percentage'),
+            'description': 'Fixed percentage SL/TP used for live signal generation',
+        }),
+        ('SL/TP - ATR Multiplier (Backtesting)', {
+            'fields': ('sl_atr_multiplier', 'tp_atr_multiplier', 'risk_reward_ratio'),
+            'description': 'ATR-based SL/TP used in the backtest engine',
+        }),
+        ('Indicator Weights', {
+            'fields': (
+                'macd_weight', 'rsi_weight', 'price_ema_weight',
+                'adx_weight', 'ha_weight', 'volume_weight',
+                'ema_alignment_weight', 'di_weight', 'bb_weight',
+                'volatility_weight', 'supertrend_weight',
+                'mfi_weight', 'psar_weight', 'fibonacci_weight',
+            ),
+            'classes': ('collapse',),
+            'description': 'Weights for the 14-indicator confidence scoring system',
+        }),
+        ('Fibonacci Settings', {
+            'fields': (
+                'fib_enable_pullback', 'fib_lookback_candles',
+                'fib_entry_zone_min', 'fib_entry_zone_max',
+            ),
+            'classes': ('collapse',),
+        }),
+        ('Indicator Periods', {
+            'fields': (
+                'rsi_period', 'atr_period', 'adx_period',
+                'macd_fast', 'macd_slow', 'macd_signal',
+                'ema_fast', 'ema_medium', 'ema_slow', 'ema_trend',
+                'bb_period', 'bb_std_dev', 'volume_ma_period',
+                'supertrend_period', 'supertrend_multiplier',
+                'mfi_period', 'psar_acceleration', 'psar_maximum',
+            ),
+            'classes': ('collapse',),
+            'description': 'Calculation periods for each indicator (EMA, BB, PSAR, SuperTrend, etc.)',
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )
+    readonly_fields = ('created_at', 'updated_at')
+
+    @admin.display(description='Active')
+    def is_active_badge(self, obj):
+        if obj.is_active:
+            return format_html(
+                '<span style="background-color: #28a745; color: white; padding: 2px 8px; '
+                'border-radius: 3px; font-size: 11px;">ON</span>'
+            )
+        return format_html(
+            '<span style="background-color: #dc3545; color: white; padding: 2px 8px; '
+            'border-radius: 3px; font-size: 11px;">OFF</span>'
+        )
+
+    @admin.display(description='RSI Range')
+    def rsi_range_display(self, obj):
+        return format_html(
+            'L: <b>{}-{}</b> | S: <b>{}-{}</b>',
+            obj.long_rsi_min, obj.long_rsi_max,
+            obj.short_rsi_min, obj.short_rsi_max,
+        )
+
+    @admin.display(description='ADX Min')
+    def adx_display(self, obj):
+        return format_html('L: <b>{}</b> | S: <b>{}</b>', obj.long_adx_min, obj.short_adx_min)
+
+    @admin.display(description='SL/TP (ATR)')
+    def sl_tp_display(self, obj):
+        return format_html(
+            'SL: <b>{}x</b> | TP: <b>{}x</b>',
+            obj.sl_atr_multiplier, obj.tp_atr_multiplier,
+        )
+
+    @admin.display(description='SL/TP (%)')
+    def sl_tp_pct_display(self, obj):
+        return format_html(
+            'SL: <b>{}%</b> | TP: <b>{}%</b>',
+            obj.sl_percentage, obj.tp_percentage,
+        )
 
 
 @admin.register(FuturesTradingSettings)
