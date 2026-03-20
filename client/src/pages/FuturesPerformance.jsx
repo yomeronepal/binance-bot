@@ -131,7 +131,7 @@ const FuturesPerformance = () => {
 
     if (error) {
         return (
-            <div className="min-h-screen bg-gray-50 dark:bg-gradient-to-br dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-6">
+            <div className="min-h-screen bg-gray-50 dark:bg-gradient-to-br dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 px-4 py-4 sm:p-6">
                 <div className="max-w-7xl mx-auto">
                     <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-lg p-8 text-center">
                         <p className="text-red-600 dark:text-red-400">Failed to load futures performance: {error}</p>
@@ -259,7 +259,7 @@ const FuturesPerformance = () => {
                 </div>
 
                 {/* Stats Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-8">
                     {statCards.map((stat, index) => (
                         <div key={index} className="relative overflow-hidden bg-white dark:bg-gray-800/30 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-lg p-6 hover:border-gray-300 dark:hover:border-gray-600 transition-all group shadow-sm">
                             <div className={`absolute inset-0 bg-gradient-to-br ${stat.bgGradient} opacity-0 group-hover:opacity-100 transition-opacity`} />
@@ -277,12 +277,12 @@ const FuturesPerformance = () => {
 
                 {/* Tabs */}
                 <div className="mb-6">
-                    <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex overflow-x-auto no-scrollbar border-b border-gray-200 dark:border-gray-700">
                         {['overview', 'open', 'history', 'report', 'graphs'].map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
-                                className={`px-6 py-3 font-medium transition-all capitalize flex items-center gap-2 ${activeTab === tab
+                                className={`flex-shrink-0 px-4 sm:px-6 py-3 text-sm font-medium transition-all capitalize whitespace-nowrap flex items-center gap-1.5 ${activeTab === tab
                                     ? 'text-purple-600 dark:text-purple-400 border-b-2 border-purple-600 dark:border-purple-400'
                                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white'
                                     }`}
