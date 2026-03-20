@@ -70,3 +70,9 @@ node_modules/
 # Root level npm files (should only be in client/)
 /package.json
 /package-lock.json
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
