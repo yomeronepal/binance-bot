@@ -122,7 +122,7 @@ const TradingSessions = () => {
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Trading Sessions</h1>
             <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-              Auto-optimized windows based on historical win rates (>= 60%)
+              {"Auto-optimized windows based on historical win rates (>= 60%)"}
             </p>
           </div>
           <button onClick={fetchData} className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600">
