@@ -131,6 +131,27 @@ class FuturesTradingSettings(models.Model):
         help_text=_("F&G >= this: only LONG allowed (Greed). Range: 50-95")
     )
 
+    neutral_reversal_enabled = models.BooleanField(
+        default=False,
+        help_text=_("In neutral F&G zone, reverse signal direction and use tight SL/TP")
+    )
+
+    neutral_reversal_sl_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('1.5'),
+        validators=[MinValueValidator(Decimal('0.5')), MaxValueValidator(Decimal('5.0'))],
+        help_text=_("Stop loss % for neutral market reversed trades (default 1.5%)")
+    )
+
+    neutral_reversal_tp_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('2.5'),
+        validators=[MinValueValidator(Decimal('0.5')), MaxValueValidator(Decimal('10.0'))],
+        help_text=_("Take profit % for neutral market reversed trades (default 2.5%)")
+    )
+
     dynamic_trailing_enabled = models.BooleanField(
         default=False,
         help_text=_("Enable dynamic trailing stop that tightens as profit grows")

@@ -226,24 +226,35 @@ async def _save_signal_async(signal_data: Dict) -> Optional[Signal]:
                             status='ACTIVE'
                         )
 
+                        from scanner.services.neutral_reversal import apply_neutral_reversal
+                        f_entry = signal_data.get('entry_price', signal_data.get('entry'))
+                        f_sl = signal_data.get('stop_loss', signal_data.get('sl'))
+                        f_tp = signal_data.get('take_profit', signal_data.get('tp'))
+                        f_dir, f_sl, f_tp, f_meta = apply_neutral_reversal(
+                            direction, f_entry, f_sl, f_tp, market_type='FUTURES'
+                        )
+
                         futures_signal = Signal.objects.create(
                             symbol=symbol_obj,
-                            direction=direction,
-                            entry=signal_data.get('entry_price', signal_data.get('entry')),
-                            sl=signal_data.get('stop_loss', signal_data.get('sl')),
-                            tp=signal_data.get('take_profit', signal_data.get('tp')),
+                            direction=f_dir,
+                            entry=f_entry,
+                            sl=f_sl,
+                            tp=f_tp,
                             confidence=signal_data['confidence'],
                             timeframe=new_timeframe,
                             market_type='FUTURES',
-                            leverage=10,  # Default 10x leverage for futures
+                            leverage=10,
                             status='ACTIVE'
                         )
+                        if f_meta:
+                            futures_signal.meta = {**(futures_signal.meta or {}), **f_meta}
+                            futures_signal.save(update_fields=['meta'])
 
                         logger.info(
                             f"✅ Upgraded to {new_timeframe} signals for {symbol_str} "
                             f"@ ${spot_signal.entry} (SPOT + FUTURES, Conf: {spot_signal.confidence:.0%})"
                         )
-                        return spot_signal  # Return SPOT signal as primary
+                        return spot_signal
 
                 # No existing signal - create new ones (SPOT + FUTURES)
                 # Use get_or_create to handle race conditions atomically
@@ -261,20 +272,32 @@ async def _save_signal_async(signal_data: Dict) -> Optional[Signal]:
                     }
                 )
 
+                from scanner.services.neutral_reversal import apply_neutral_reversal
+                f_entry = signal_data.get('entry_price', signal_data.get('entry'))
+                f_sl = signal_data.get('stop_loss', signal_data.get('sl'))
+                f_tp = signal_data.get('take_profit', signal_data.get('tp'))
+                f_dir, f_sl, f_tp, f_meta = apply_neutral_reversal(
+                    direction, f_entry, f_sl, f_tp, market_type='FUTURES'
+                )
+
                 futures_signal, futures_created = Signal.objects.get_or_create(
                     symbol=symbol_obj,
-                    direction=direction,
+                    direction=f_dir,
                     timeframe=new_timeframe,
                     market_type='FUTURES',
                     status='ACTIVE',
                     defaults={
-                        'entry': signal_data.get('entry_price', signal_data.get('entry')),
-                        'sl': signal_data.get('stop_loss', signal_data.get('sl')),
-                        'tp': signal_data.get('take_profit', signal_data.get('tp')),
+                        'entry': f_entry,
+                        'sl': f_sl,
+                        'tp': f_tp,
                         'confidence': signal_data['confidence'],
-                        'leverage': 10,  # Default 10x leverage for futures
+                        'leverage': 10,
                     }
                 )
+
+                if futures_created and f_meta:
+                    futures_signal.meta = {**(futures_signal.meta or {}), **f_meta}
+                    futures_signal.save(update_fields=['meta'])
 
                 if spot_created and futures_created:
                     logger.info(

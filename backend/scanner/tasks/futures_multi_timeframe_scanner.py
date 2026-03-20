@@ -172,10 +172,10 @@ async def _save_futures_signal_with_dedup(signal_data: Dict, timeframe: str) -> 
                     }
                 )
 
-                # Check for existing ACTIVE futures signals for this symbol+direction
+                reversed_direction = 'SHORT' if direction == 'LONG' else 'LONG'
                 existing_signal = Signal.objects.select_for_update().filter(
                     symbol=symbol_obj,
-                    direction=direction,
+                    direction__in=[direction, reversed_direction],
                     status='ACTIVE',
                     market_type='FUTURES'
                 ).first()
@@ -238,18 +238,25 @@ async def _save_futures_signal_with_dedup(signal_data: Dict, timeframe: str) -> 
                             market_type='FUTURES'
                         ).delete()
 
-                # Determine trading type and duration
                 trading_type, estimated_duration, target_rr = _determine_trading_type(
                     timeframe,
                     signal_data['confidence']
                 )
 
+                from scanner.services.neutral_reversal import apply_neutral_reversal
+                original_sl = Decimal(str(signal_data.get('sl', signal_data.get('stop_loss'))))
+                original_tp = Decimal(str(signal_data.get('tp', signal_data.get('take_profit'))))
+
+                final_direction, final_sl, final_tp, reversal_meta = apply_neutral_reversal(
+                    direction, entry_price, original_sl, original_tp, market_type='FUTURES'
+                )
+
                 signal = Signal.objects.create(
                     symbol=symbol_obj,
-                    direction=direction,
+                    direction=final_direction,
                     entry=entry_price,
-                    sl=Decimal(str(signal_data.get('sl', signal_data.get('stop_loss')))),
-                    tp=Decimal(str(signal_data.get('tp', signal_data.get('take_profit')))),
+                    sl=final_sl,
+                    tp=final_tp,
                     confidence=signal_data['confidence'],
                     timeframe=timeframe,
                     market_type='FUTURES',
@@ -259,9 +266,14 @@ async def _save_futures_signal_with_dedup(signal_data: Dict, timeframe: str) -> 
                     estimated_duration=estimated_duration
                 )
 
+                if reversal_meta:
+                    signal.meta = {**(signal.meta or {}), **reversal_meta}
+                    signal.save(update_fields=['meta'])
+
                 logger.info(
-                    f"✅ New FUTURES {direction} signal: {symbol_str} @ ${signal.entry} "
+                    f"✅ New FUTURES {final_direction} signal: {symbol_str} @ ${signal.entry} "
                     f"({timeframe}, {signal.leverage}x, Conf: {signal.confidence:.0%})"
+                    f"{' [NEUTRAL REVERSED]' if reversal_meta else ''}"
                 )
 
                 return signal
