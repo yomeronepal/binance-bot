@@ -1038,23 +1038,35 @@ class FuturesTradingService:
             self._log('CHECK_FAILED', 'WARNING', f"can_trade failed: {reason}", **log_ctx)
             return None
 
+        trade_sl = signal.sl
+        trade_tp = signal.tp
+        is_neutral_reversal = bool(
+            isinstance(getattr(signal, 'meta', None), dict) and
+            signal.meta.get('neutral_reversal')
+        )
+
         if trade_settings.fear_greed_enabled:
             from .fear_greed import get_fear_greed_value, check_direction_allowed
 
             fg_value = get_fear_greed_value()
             if fg_value is not None:
-                fg_allowed, fg_reason = check_direction_allowed(
-                    direction, fg_value,
-                    trade_settings.fear_greed_short_threshold,
-                    trade_settings.fear_greed_long_threshold
-                )
-                if not fg_allowed:
-                    logger.info(f"Signal {signal.id} blocked by F&G filter: {fg_reason}")
-                    self._log('CHECK_FAILED', 'WARNING', f"F&G blocked: {fg_reason}",
+                if is_neutral_reversal:
+                    self._log('CHECK_PASSED', 'INFO',
+                              f"F&G={fg_value}: Signal already reversed at creation, proceeding",
                               details={'fg_value': fg_value}, **log_ctx)
-                    return None
-                self._log('CHECK_PASSED', 'INFO', f"F&G passed: {fg_reason}",
-                          details={'fg_value': fg_value}, **log_ctx)
+                else:
+                    fg_allowed, fg_reason = check_direction_allowed(
+                        direction, fg_value,
+                        trade_settings.fear_greed_short_threshold,
+                        trade_settings.fear_greed_long_threshold
+                    )
+                    if not fg_allowed:
+                        logger.info(f"Signal {signal.id} blocked by F&G filter: {fg_reason}")
+                        self._log('CHECK_FAILED', 'WARNING', f"F&G blocked: {fg_reason}",
+                                  details={'fg_value': fg_value}, **log_ctx)
+                        return None
+                    self._log('CHECK_PASSED', 'INFO', f"F&G passed: {fg_reason}",
+                              details={'fg_value': fg_value}, **log_ctx)
             else:
                 logger.warning(f"Signal {signal.id}: F&G unavailable, proceeding without filter")
 
@@ -1100,7 +1112,7 @@ class FuturesTradingService:
                         try:
                             market_data = await trader.execute_trade_from_signal(
                                 signal.id, symbol_name, direction,
-                                signal.sl, signal.tp, confidence
+                                trade_sl, trade_tp, confidence
                             )
                             if not market_data:
                                 return None
@@ -1109,7 +1121,7 @@ class FuturesTradingService:
                                 symbol_name, direction,
                                 trade_settings.leverage,
                                 trade_settings.trade_amount,
-                                signal.sl, signal.tp,
+                                trade_sl, trade_tp,
                                 market_data['symbol_info'],
                                 market_data['current_price']
                             )
@@ -1151,8 +1163,8 @@ class FuturesTradingService:
             leverage=trade_settings.leverage,
             quantity=result['quantity'],
             entry_price=result['entry_price'],
-            stop_loss=Decimal(result['sl_price']) if result.get('sl_price') else signal.sl,
-            take_profit=Decimal(result['tp_price']) if result.get('tp_price') else signal.tp,
+            stop_loss=Decimal(result['sl_price']) if result.get('sl_price') else trade_sl,
+            take_profit=Decimal(result['tp_price']) if result.get('tp_price') else trade_tp,
             position_size_usdt=trade_settings.trade_amount,
             binance_order_id=result.get('order_id', ''),
             sl_order_id=result.get('sl_order_id'),
@@ -1182,6 +1194,7 @@ class FuturesTradingService:
                       'sl_order_id': result.get('sl_order_id', ''),
                       'tp_order_id': result.get('tp_order_id', ''),
                       'warnings': result.get('warnings', []),
+                      'is_neutral_reversal': is_neutral_reversal,
                   })
 
         return futures_trade

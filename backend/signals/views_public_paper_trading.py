@@ -565,10 +565,11 @@ def public_open_positions(request):
     if direction and direction != 'ALL':
         queryset = queryset.filter(direction=direction.upper())
 
-    open_trades = list(queryset.only(
+    open_trades = list(queryset.select_related('signal').only(
         'id', 'symbol', 'direction', 'market_type', 'entry_price',
         'entry_time', 'position_size', 'stop_loss', 'take_profit',
-        'leverage', 'quantity', 'status', 'user_id', 'is_priority'
+        'leverage', 'quantity', 'status', 'user_id', 'is_priority',
+        'signal__meta'
     ).order_by('-entry_time'))
 
     if not open_trades:
@@ -612,6 +613,11 @@ def public_open_positions(request):
             'leverage': trade.leverage,
             'risk_reward_ratio': trade.risk_reward_ratio,
             'is_priority': trade.is_priority,
+            'is_neutral_reversal': bool(
+                trade.signal and
+                isinstance(getattr(trade.signal, 'meta', None), dict) and
+                trade.signal.meta.get('neutral_reversal')
+            ),
         }
 
         if current_price:

@@ -447,6 +447,7 @@ class PaperTradeSerializer(BaseModelSerializer):
     entry_price_formatted = serializers.SerializerMethodField()
     exit_price_formatted = serializers.SerializerMethodField()
     profit_loss_formatted = serializers.SerializerMethodField()
+    is_neutral_reversal = serializers.SerializerMethodField()
 
     class Meta:
         model = PaperTrade
@@ -459,7 +460,7 @@ class PaperTradeSerializer(BaseModelSerializer):
             'exit_price', 'exit_price_formatted', 'exit_time',
             'profit_loss', 'profit_loss_formatted', 'profit_loss_percentage',
             'leverage', 'status',
-            'is_priority', 'is_golden_2',
+            'is_priority', 'is_golden_2', 'is_neutral_reversal',
             'created_at', 'updated_at',
             'duration_hours', 'risk_reward_ratio',
             'is_open', 'is_closed', 'is_profitable'
@@ -485,6 +486,14 @@ class PaperTradeSerializer(BaseModelSerializer):
         pnl = float(obj.profit_loss)
         sign = "+" if pnl >= 0 else ""
         return f"{sign}${pnl:,.2f}"
+
+    def get_is_neutral_reversal(self, obj):
+        """Check if this trade was a neutral market reversal."""
+        if obj.signal_id:
+            meta = getattr(obj.signal, 'meta', None)
+            if isinstance(meta, dict):
+                return bool(meta.get('neutral_reversal'))
+        return False
 
 
 class PaperTradeListSerializer(serializers.ModelSerializer):

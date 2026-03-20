@@ -407,10 +407,15 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
     try:
         in_window = is_within_trading_window()
         current_time = get_nepal_time_str()
+        is_neutral_signal = bool(
+            isinstance(getattr(instance, 'meta', None), dict) and
+            instance.meta.get('neutral_reversal')
+        )
 
         logger.info(
             f"Signal {instance.id} ({instance.symbol.symbol}): "
-            f"is_priority={instance.is_priority}, in_window={in_window}, time={current_time}"
+            f"is_priority={instance.is_priority}, in_window={in_window}, "
+            f"is_neutral={is_neutral_signal}, time={current_time}"
         )
 
         if not instance.is_priority and not in_window:
@@ -429,7 +434,8 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
 
         logger.info(
             f"Calling futures_trading_service.execute_signal for signal {instance.id} "
-            f"({instance.symbol.symbol} {instance.direction}), force_execute={instance.is_priority}"
+            f"({instance.symbol.symbol} {instance.direction}), "
+            f"force_execute={instance.is_priority}, is_neutral={is_neutral_signal}"
         )
 
         trade = futures_trading_service.execute_signal(

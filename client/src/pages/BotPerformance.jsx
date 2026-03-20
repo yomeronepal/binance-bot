@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap } from 'lucide-react';
+import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
@@ -809,6 +809,12 @@ const PositionCard = ({ position, isSuperUser, onClose }) => {
                 PRIORITY
               </span>
             )}
+            {position.is_neutral_reversal && (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 bg-cyan-100 dark:bg-cyan-500/20 border border-cyan-300 dark:border-cyan-500/50 rounded text-xs font-medium text-cyan-600 dark:text-cyan-400">
+                <RefreshCw className="w-3 h-3" />
+                REVERSED
+              </span>
+            )}
             {hasLivePrice && (
               <span className="flex items-center gap-1 px-1.5 py-0.5 bg-green-100 dark:bg-green-500/20 border border-green-300 dark:border-green-500/50 rounded text-xs text-green-600 dark:text-green-400">
                 <span className="w-1 h-1 bg-green-500 dark:bg-green-400 rounded-full animate-pulse"></span>
@@ -921,6 +927,12 @@ const TradeHistoryTable = ({ trades }) => {
                       <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-500/50 rounded text-[10px] font-medium text-amber-600 dark:text-amber-400">
                         <Zap className="w-2.5 h-2.5" />
                         PRIORITY
+                      </span>
+                    )}
+                    {trade.is_neutral_reversal && (
+                      <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-cyan-100 dark:bg-cyan-500/20 border border-cyan-300 dark:border-cyan-500/50 rounded text-[10px] font-medium text-cyan-600 dark:text-cyan-400">
+                        <RefreshCw className="w-2.5 h-2.5" />
+                        REVERSED
                       </span>
                     )}
                   </div>
