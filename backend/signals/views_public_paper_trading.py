@@ -782,6 +782,117 @@ def public_summary(request):
     return Response(summary)
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def public_report(request):
+    """
+    Bot performance report with breakdowns by symbol, direction, timeframe, priority.
+
+    GET /api/public/paper-trading/report/
+    """
+    params = _get_filter_params(request)
+    cache_key = _build_cache_key('perf:report', params)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response(cached)
+
+    all_trades = PaperTrade.objects.filter(user__isnull=True)
+    filtered = _apply_common_filters(all_trades, params)
+    closed = filtered.filter(status__startswith='CLOSED')
+    overall = _compute_performance_metrics(filtered)
+
+    report = {
+        'overall': overall,
+        'by_symbol': _aggregate_by_field(closed, 'symbol'),
+        'by_direction': _aggregate_by_field(closed, 'direction'),
+        'by_timeframe': _aggregate_by_field(closed, 'timeframe'),
+        'by_priority': _build_priority_stats(closed),
+        'daily_pnl': _build_daily_pnl(closed),
+        'top_winners': _build_top_trades(closed, winners=True),
+        'top_losers': _build_top_trades(closed, winners=False),
+        'streaks': _compute_streaks(closed),
+    }
+    cache.set(cache_key, report, 30)
+    return Response(report)
+
+
+def _aggregate_by_field(closed_qs, field_name):
+    rows = list(
+        closed_qs.values(field_name).annotate(
+            total=Count('id'),
+            wins=Count('id', filter=Q(profit_loss__gt=0)),
+            losses=Count('id', filter=Q(profit_loss__lt=0)),
+            pnl=Sum('profit_loss'),
+            avg_pnl=Avg('profit_loss'),
+            best=Max('profit_loss'),
+            worst=Min('profit_loss'),
+        ).order_by('-pnl')
+    )
+    for row in rows:
+        row['win_rate'] = round((row['wins'] / row['total']) * 100, 1) if row['total'] > 0 else 0
+        for k in ['pnl', 'avg_pnl', 'best', 'worst']:
+            row[k] = float(row[k] or 0)
+    return rows
+
+
+def _build_priority_stats(closed_qs):
+    result = {}
+    for label, qs in [('priority', closed_qs.filter(is_priority=True)), ('non_priority', closed_qs.filter(is_priority=False))]:
+        stats = qs.aggregate(total=Count('id'), wins=Count('id', filter=Q(profit_loss__gt=0)), pnl=Sum('profit_loss'))
+        t = stats['total'] or 0
+        result[label] = {
+            'total': t,
+            'wins': stats['wins'] or 0,
+            'win_rate': round(((stats['wins'] or 0) / t) * 100, 1) if t > 0 else 0,
+            'pnl': float(stats['pnl'] or 0),
+        }
+    return result
+
+
+def _build_daily_pnl(closed_qs):
+    rows = list(
+        closed_qs.filter(exit_time__isnull=False)
+        .extra(select={'day': "DATE(exit_time)"})
+        .values('day')
+        .annotate(trades=Count('id'), pnl=Sum('profit_loss'), wins=Count('id', filter=Q(profit_loss__gt=0)))
+        .order_by('day')
+    )
+    cumulative = 0
+    for row in rows:
+        row['pnl'] = float(row['pnl'] or 0)
+        cumulative += row['pnl']
+        row['cumulative_pnl'] = round(cumulative, 2)
+        row['day'] = str(row['day'])
+    return rows
+
+
+def _build_top_trades(closed_qs, winners=True, limit=5):
+    if winners:
+        qs = closed_qs.filter(profit_loss__gt=0).order_by('-profit_loss')[:limit]
+    else:
+        qs = closed_qs.filter(profit_loss__lt=0).order_by('profit_loss')[:limit]
+    rows = list(qs.values('id', 'symbol', 'direction', 'entry_price', 'exit_price',
+                          'profit_loss', 'profit_loss_percentage', 'is_priority'))
+    for t in rows:
+        for k in ['entry_price', 'exit_price', 'profit_loss', 'profit_loss_percentage']:
+            t[k] = float(t[k] or 0)
+    return rows
+
+
+def _compute_streaks(closed_qs):
+    pnl_list = list(closed_qs.order_by('exit_time').values_list('profit_loss', flat=True))
+    max_win = max_lose = 0
+    streak = 0
+    for pnl in pnl_list:
+        if pnl and pnl > 0:
+            streak = streak + 1 if streak > 0 else 1
+            max_win = max(max_win, streak)
+        elif pnl and pnl < 0:
+            streak = streak - 1 if streak < 0 else -1
+            max_lose = max(max_lose, abs(streak))
+    return {'current': streak, 'max_win': max_win, 'max_loss': max_lose}
+
+
 def _invalidate_performance_cache():
     """Clear all performance-related caches after trade changes."""
     try:

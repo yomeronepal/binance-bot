@@ -1,11 +1,13 @@
 
 import React, { useEffect, useState } from 'react';
-import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Activity, X, Settings, Power, Calendar, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Activity, X, Settings, Power, Calendar, RefreshCw, AlertTriangle, FileBarChart, LineChart } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
 import { ShieldAlert } from 'lucide-react';
 import PullToRefresh from '../components/common/PullToRefresh';
 import FearGreedWidget from '../components/common/FearGreedWidget';
+import TradeReport from '../components/common/TradeReport';
+import TradeCharts from '../components/common/TradeCharts';
 
 const FuturesPerformance = () => {
     const [loading, setLoading] = useState(true);
@@ -276,15 +278,17 @@ const FuturesPerformance = () => {
                 {/* Tabs */}
                 <div className="mb-6">
                     <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
-                        {['overview', 'open', 'history'].map((tab) => (
+                        {['overview', 'open', 'history', 'report', 'graphs'].map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
-                                className={`px-6 py-3 font-medium transition-all capitalize ${activeTab === tab
+                                className={`px-6 py-3 font-medium transition-all capitalize flex items-center gap-2 ${activeTab === tab
                                     ? 'text-purple-600 dark:text-purple-400 border-b-2 border-purple-600 dark:border-purple-400'
                                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white'
                                     }`}
                             >
+                                {tab === 'report' && <FileBarChart className="w-4 h-4" />}
+                                {tab === 'graphs' && <LineChart className="w-4 h-4" />}
                                 {tab === 'open' ? `Open (${openCount})` : tab}
                             </button>
                         ))}
@@ -356,6 +360,14 @@ const FuturesPerformance = () => {
                             </div>
                         )}
                     </div>
+                )}
+
+                {activeTab === 'report' && (
+                    <TradeReport apiUrl="/futures/report/" useAuth={true} />
+                )}
+
+                {activeTab === 'graphs' && (
+                    <TradeCharts apiUrl="/futures/report/" useAuth={true} />
                 )}
 
                 {/* Settings Modal */}

@@ -7,7 +7,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.response import Response
-from django.db.models import Sum, Count, Q
+from django.db.models import Sum, Count, Q, Avg, Max, Min
 from django.utils import timezone
 
 from .models_futures import FuturesTradingSettings, FuturesTrade
@@ -341,4 +341,109 @@ def fear_greed_status(request):
             'short_allowed': short_allowed,
             'short_reason': short_reason,
         },
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def futures_report(request):
+    """
+    Futures trading report with breakdowns.
+
+    GET /api/futures/report/
+    """
+    closed = FuturesTrade.objects.select_related('signal').filter(status__startswith='CLOSED')
+    all_trades = FuturesTrade.objects.all()
+
+    total_closed = closed.count()
+    winners = closed.filter(profit_loss__gt=0).count()
+    losers = closed.filter(profit_loss__lt=0).count()
+
+    stats = closed.aggregate(
+        pnl=Sum('profit_loss'), avg_pnl=Avg('profit_loss'),
+        best=Max('profit_loss'), worst=Min('profit_loss'),
+    )
+
+    open_trades = all_trades.filter(status='OPEN')
+    unrealized = open_trades.aggregate(total=Sum('unrealized_pnl'))['total'] or Decimal('0')
+
+    overall = {
+        'total_trades': total_closed,
+        'open_trades': open_trades.count(),
+        'win_rate': round((winners / total_closed) * 100, 1) if total_closed > 0 else 0,
+        'total_pnl': float(stats['pnl'] or 0),
+        'unrealized_pnl': float(unrealized),
+        'avg_pnl': float(stats['avg_pnl'] or 0),
+        'best_trade': float(stats['best'] or 0),
+        'worst_trade': float(stats['worst'] or 0),
+        'profitable_trades': winners,
+        'losing_trades': losers,
+    }
+
+    def _agg(qs, field):
+        rows = list(qs.values(field).annotate(
+            total=Count('id'), wins=Count('id', filter=Q(profit_loss__gt=0)),
+            losses=Count('id', filter=Q(profit_loss__lt=0)), pnl=Sum('profit_loss'),
+            avg_pnl=Avg('profit_loss'), best=Max('profit_loss'), worst=Min('profit_loss'),
+        ).order_by('-pnl'))
+        for r in rows:
+            r['win_rate'] = round((r['wins'] / r['total']) * 100, 1) if r['total'] > 0 else 0
+            for k in ['pnl', 'avg_pnl', 'best', 'worst']:
+                r[k] = float(r[k] or 0)
+        return rows
+
+    priority_closed = closed.filter(signal__is_priority=True)
+    non_priority_closed = closed.filter(Q(signal__is_priority=False) | Q(signal__isnull=True))
+
+    def _prio_stats(qs):
+        s = qs.aggregate(total=Count('id'), wins=Count('id', filter=Q(profit_loss__gt=0)), pnl=Sum('profit_loss'))
+        t = s['total'] or 0
+        return {'total': t, 'wins': s['wins'] or 0,
+                'win_rate': round(((s['wins'] or 0) / t) * 100, 1) if t > 0 else 0,
+                'pnl': float(s['pnl'] or 0)}
+
+    daily = list(
+        closed.filter(exit_time__isnull=False)
+        .extra(select={'day': "DATE(exit_time)"})
+        .values('day')
+        .annotate(trades=Count('id'), pnl=Sum('profit_loss'), wins=Count('id', filter=Q(profit_loss__gt=0)))
+        .order_by('day')
+    )
+    cum = 0
+    for d in daily:
+        d['pnl'] = float(d['pnl'] or 0)
+        cum += d['pnl']
+        d['cumulative_pnl'] = round(cum, 2)
+        d['day'] = str(d['day'])
+
+    def _top(qs, asc=False, limit=5):
+        order = 'profit_loss' if asc else '-profit_loss'
+        filt = Q(profit_loss__lt=0) if asc else Q(profit_loss__gt=0)
+        rows = list(qs.filter(filt).order_by(order)[:limit].values(
+            'id', 'symbol', 'direction', 'leverage', 'entry_price', 'exit_price',
+            'profit_loss', 'profit_loss_percentage'))
+        for t in rows:
+            for k in ['entry_price', 'exit_price', 'profit_loss', 'profit_loss_percentage']:
+                t[k] = float(t[k] or 0)
+        return rows
+
+    pnl_list = list(closed.order_by('exit_time').values_list('profit_loss', flat=True))
+    max_win = max_lose = streak = 0
+    for p in pnl_list:
+        if p and p > 0:
+            streak = streak + 1 if streak > 0 else 1
+            max_win = max(max_win, streak)
+        elif p and p < 0:
+            streak = streak - 1 if streak < 0 else -1
+            max_lose = max(max_lose, abs(streak))
+
+    return Response({
+        'overall': overall,
+        'by_symbol': _agg(closed, 'symbol'),
+        'by_direction': _agg(closed, 'direction'),
+        'by_priority': {'priority': _prio_stats(priority_closed), 'non_priority': _prio_stats(non_priority_closed)},
+        'daily_pnl': daily,
+        'top_winners': _top(closed),
+        'top_losers': _top(closed, asc=True),
+        'streaks': {'current': streak, 'max_win': max_win, 'max_loss': max_lose},
     })

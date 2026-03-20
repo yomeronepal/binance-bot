@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw } from 'lucide-react';
+import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw, FileBarChart, LineChart } from 'lucide-react';
+import TradeReport from '../components/common/TradeReport';
+import TradeCharts from '../components/common/TradeCharts';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
@@ -621,6 +623,26 @@ const BotPerformance = () => {
             >
               Trade History
             </button>
+            <button
+              onClick={() => setActiveTab('report')}
+              className={`px-6 py-3 font-medium transition-all flex items-center gap-2 ${activeTab === 'report'
+                ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+            >
+              <FileBarChart className="w-4 h-4" />
+              Report
+            </button>
+            <button
+              onClick={() => setActiveTab('graphs')}
+              className={`px-6 py-3 font-medium transition-all flex items-center gap-2 ${activeTab === 'graphs'
+                ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+            >
+              <LineChart className="w-4 h-4" />
+              Graphs
+            </button>
           </div>
         </div>
 
@@ -773,6 +795,42 @@ const BotPerformance = () => {
             </div>
           )
         }
+
+        {activeTab === 'report' && (
+          <TradeReport
+            apiUrl="/public/paper-trading/report/"
+            filters={{
+              golden_window: activeWindow === 'gw1' ? 'true' : undefined,
+              golden_window_2: activeWindow === 'gw2' ? 'true' : undefined,
+              outside_golden_window: activeWindow === 'outside_gw' ? 'true' : undefined,
+              gw1_ai: activeWindow === 'gw1_ai' ? 'true' : undefined,
+              gw2_ai: activeWindow === 'gw2_ai' ? 'true' : undefined,
+              direction: direction,
+              weekday: weekday,
+              hour: hour,
+              month: month,
+              year: year,
+            }}
+          />
+        )}
+
+        {activeTab === 'graphs' && (
+          <TradeCharts
+            apiUrl="/public/paper-trading/report/"
+            filters={{
+              golden_window: activeWindow === 'gw1' ? 'true' : undefined,
+              golden_window_2: activeWindow === 'gw2' ? 'true' : undefined,
+              outside_golden_window: activeWindow === 'outside_gw' ? 'true' : undefined,
+              gw1_ai: activeWindow === 'gw1_ai' ? 'true' : undefined,
+              gw2_ai: activeWindow === 'gw2_ai' ? 'true' : undefined,
+              direction: direction,
+              weekday: weekday,
+              hour: hour,
+              month: month,
+              year: year,
+            }}
+          />
+        )}
       </div >
     </div >
     </PullToRefresh>

@@ -23,7 +23,8 @@ from signals.views_public_paper_trading import (
     public_performance,
     public_open_positions,
     public_summary,
-    public_close_trade
+    public_close_trade,
+    public_report
 )
 from signals.views_backtest import (
     BacktestViewSet,
@@ -58,7 +59,8 @@ from signals.views_futures import (
     close_futures_trade,
     futures_summary,
     futures_trade_detail,
-    fear_greed_status
+    fear_greed_status,
+    futures_report
 )
 from signals.views_market import get_order_book
 from signals.views_chart import chart_annotations, delete_annotation, fibonacci_setup
@@ -106,6 +108,7 @@ urlpatterns = [
     path('public/paper-trading/open-positions/', public_open_positions, name='public-open-positions'),
     path('public/paper-trading/summary/', public_summary, name='public-summary'),
     path('public/paper-trading/<int:trade_id>/close/', public_close_trade, name='public-close-trade'),
+    path('public/paper-trading/report/', public_report, name='public-report'),
     path('public/paper-trading/dashboard/', public_paper_trading_dashboard, name='public-dashboard'),
 
     # OPTIMIZED Dashboard endpoints (10x faster)
@@ -141,6 +144,7 @@ urlpatterns = [
     path('futures/positions/', futures_open_positions, name='futures-positions'),
     path('futures/summary/', futures_summary, name='futures-summary'),
     path('futures/fear-greed/', fear_greed_status, name='fear-greed-status'),
+    path('futures/report/', futures_report, name='futures-report'),
 
     # Market Data endpoints
     path('market/orderbook/<str:symbol>/', get_order_book, name='orderbook'),
