@@ -150,7 +150,7 @@ const Layout = () => {
   );
 
   return (
-    <div className="min-h-screen flex bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen flex bg-gray-50 dark:bg-gray-900 overflow-x-hidden">
       <aside className={`hidden md:flex flex-col fixed inset-y-0 left-0 z-30 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transition-all duration-300 ${
         collapsed ? 'w-[68px]' : 'w-64'
       }`}>
@@ -166,7 +166,7 @@ const Layout = () => {
         </div>
       )}
 
-      <div className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ${collapsed ? 'md:ml-[68px]' : 'md:ml-64'}`}>
+      <div className={`flex-1 flex flex-col min-h-screen transition-all duration-300 overflow-x-hidden ${collapsed ? 'md:ml-[68px]' : 'md:ml-64'}`}>
         <header className="md:hidden sticky top-0 z-20 flex items-center justify-between h-14 px-4 bg-white/80 dark:bg-gray-800/90 backdrop-blur-lg border-b border-gray-200 dark:border-gray-700">
           <button
             onClick={() => setMobileOpen(true)}
