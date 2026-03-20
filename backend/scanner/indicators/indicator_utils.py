@@ -142,31 +142,57 @@ def calculate_heikin_ashi(df: pd.DataFrame) -> pd.DataFrame:
     return ha_df
 
 
-def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculate all technical indicators for a DataFrame."""
+def calculate_all_indicators(df: pd.DataFrame, config=None) -> pd.DataFrame:
+    """
+    Calculate all technical indicators for a DataFrame.
+
+    Args:
+        df: OHLCV DataFrame
+        config: Optional StrategyConfig DB model or SignalConfig dataclass.
+                If None, uses default values.
+    """
+    rsi_p = getattr(config, 'rsi_period', 14)
+    macd_f = getattr(config, 'macd_fast', 12)
+    macd_s = getattr(config, 'macd_slow', 26)
+    macd_sig = getattr(config, 'macd_signal', 9)
+    ema_f = getattr(config, 'ema_fast', 9)
+    ema_m = getattr(config, 'ema_medium', 21)
+    ema_sl = getattr(config, 'ema_slow', 50)
+    ema_t = getattr(config, 'ema_trend', 200)
+    atr_p = getattr(config, 'atr_period', 14)
+    adx_p = getattr(config, 'adx_period', 14)
+    bb_p = getattr(config, 'bb_period', 20)
+    bb_sd = getattr(config, 'bb_std_dev', 2.0)
+    vol_p = getattr(config, 'volume_ma_period', 20)
+    st_p = getattr(config, 'supertrend_period', 10)
+    st_m = getattr(config, 'supertrend_multiplier', 3.0)
+    mfi_p = getattr(config, 'mfi_period', 14)
+    psar_a = getattr(config, 'psar_acceleration', 0.02)
+    psar_mx = getattr(config, 'psar_maximum', 0.2)
+
     result_df = df.copy()
 
     try:
-        result_df['rsi'] = calculate_rsi(df, period=14)
+        result_df['rsi'] = calculate_rsi(df, period=rsi_p)
 
-        macd, signal, hist = calculate_macd(df)
+        macd, signal, hist = calculate_macd(df, fast_period=macd_f, slow_period=macd_s, signal_period=macd_sig)
         result_df['macd'] = macd
         result_df['macd_signal'] = signal
         result_df['macd_hist'] = hist
 
-        result_df['ema_9'] = calculate_ema(df, 9)
-        result_df['ema_21'] = calculate_ema(df, 21)
-        result_df['ema_50'] = calculate_ema(df, 50)
-        result_df['ema_200'] = calculate_ema(df, 200)
+        result_df['ema_9'] = calculate_ema(df, ema_f)
+        result_df['ema_21'] = calculate_ema(df, ema_m)
+        result_df['ema_50'] = calculate_ema(df, ema_sl)
+        result_df['ema_200'] = calculate_ema(df, ema_t)
 
-        result_df['atr'] = calculate_atr(df, period=14)
+        result_df['atr'] = calculate_atr(df, period=atr_p)
 
-        adx, plus_di, minus_di = calculate_adx(df, period=14)
+        adx, plus_di, minus_di = calculate_adx(df, period=adx_p)
         result_df['adx'] = adx
         result_df['plus_di'] = plus_di
         result_df['minus_di'] = minus_di
 
-        bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(df, period=20, std_dev=2.0)
+        bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(df, period=bb_p, std_dev=bb_sd)
         result_df['bb_upper'] = bb_upper
         result_df['bb_middle'] = bb_middle
         result_df['bb_lower'] = bb_lower
@@ -178,22 +204,18 @@ def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
         result_df['ha_close'] = ha_df['ha_close']
         result_df['ha_bullish'] = ha_df['ha_close'] > ha_df['ha_open']
 
-        result_df['volume_trend'] = df['volume'] / df['volume'].rolling(window=20).mean()
+        result_df['volume_trend'] = df['volume'] / df['volume'].rolling(window=vol_p).mean()
 
-        # NEW INDICATORS
-        # SuperTrend
-        supertrend, st_direction = calculate_supertrend(df, period=10, multiplier=3.0)
+        supertrend, st_direction = calculate_supertrend(df, period=st_p, multiplier=st_m)
         result_df['supertrend'] = supertrend
-        result_df['supertrend_direction'] = st_direction  # 1 = bullish, -1 = bearish
+        result_df['supertrend_direction'] = st_direction
 
-        # Money Flow Index (MFI)
-        result_df['mfi'] = calculate_mfi(df, period=14)
+        result_df['mfi'] = calculate_mfi(df, period=mfi_p)
 
-        # Parabolic SAR
-        result_df['psar'] = calculate_parabolic_sar(df, acceleration=0.02, maximum=0.2)
-        result_df['psar_bullish'] = df['close'] > result_df['psar']  # Price above SAR = bullish
+        result_df['psar'] = calculate_parabolic_sar(df, acceleration=psar_a, maximum=psar_mx)
+        result_df['psar_bullish'] = df['close'] > result_df['psar']
 
-        logger.debug("Calculated all indicators successfully (including SuperTrend, MFI, PSAR)")
+        logger.debug("Calculated all indicators successfully")
 
     except Exception as e:
         logger.error(f"Error calculating indicators: {e}")
