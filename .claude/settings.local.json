@@ -81,7 +81,8 @@
       "Bash(grep:*)",
       "Bash(node:*)",
       "Bash(make docker-restart:*)",
-      "WebFetch(domain:revxsys.com)"
+      "WebFetch(domain:revxsys.com)",
+      "Bash(npx vite:*)"
     ],
     "deny": [],
     "ask": []
