@@ -56,11 +56,11 @@ const PushNotificationBanner = () => {
       const token = await requestNotificationPermission();
 
       if (!token) {
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-        if (isIOS) {
-          setErrorMsg('Push notifications are not yet supported on iOS Safari. Use Chrome on desktop or Android for push alerts.');
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+        if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !isStandalone) {
+          setErrorMsg('Install app to Home Screen first, then enable notifications.');
         } else {
-          setErrorMsg('Failed to enable notifications. Try refreshing the page or use Chrome/Edge.');
+          setErrorMsg('Failed to enable notifications. Try clearing site data and re-enabling.');
         }
         setLoading(false);
         return;
