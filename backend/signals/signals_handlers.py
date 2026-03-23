@@ -110,6 +110,29 @@ def _determine_volatility_from_symbol(symbol):
 # ============================================================================
 
 
+def _send_push_for_signal(signal):
+    """
+    Send a Firebase push notification only for priority signals
+    (generated within an active trading session).
+
+    Args:
+        signal: Signal model instance.
+    """
+    if not getattr(signal, 'is_priority', False):
+        return
+
+    try:
+        from signals.services.push_notification import send_signal_notification
+        result = send_signal_notification(signal)
+        if result['total'] > 0:
+            logger.info(
+                "Push notification for priority signal %s: %d/%d sent",
+                signal.id, result['sent'], result['total']
+            )
+    except Exception as e:
+        logger.error("Push notification failed for signal %s: %s", signal.id, e)
+
+
 @receiver(post_save, sender=Signal)
 def signal_post_save_handler(sender, instance, created, **kwargs):
     """
@@ -123,9 +146,9 @@ def signal_post_save_handler(sender, instance, created, **kwargs):
     """
     try:
         if created:
-            # New signal created
             logger.info(f"Signal created: {instance.id} - Broadcasting...")
             realtime_signal_service.broadcast_signal_created(instance)
+            _send_push_for_signal(instance)
         else:
             # Existing signal updated
             logger.info(f"Signal updated: {instance.id} - Broadcasting...")

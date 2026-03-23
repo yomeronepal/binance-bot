@@ -151,6 +151,12 @@ app.conf.beat_schedule = {
         'options': {'expires': 3600.0},
     },
 
+    'check-trading-session-activation': {
+        'task': 'scanner.tasks.celery_tasks.check_trading_session_activation',
+        'schedule': 60.0,
+        'options': {'expires': 55.0},
+    },
+
 }
 
 # Celery Configuration

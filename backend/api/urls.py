@@ -65,6 +65,7 @@ from signals.views_futures import (
 from signals.views_market import get_order_book
 from signals.views_chart import chart_annotations, delete_annotation, fibonacci_setup
 from signals.views_blacklist import BlacklistedSymbolViewSet
+from signals.views_push import subscribe_push, unsubscribe_push, push_status, subscribe_push_public
 
 app_name = 'api'
 
@@ -154,6 +155,12 @@ urlpatterns = [
     path('chart/annotations/', chart_annotations, name='chart-annotations-create'),
     path('chart/annotations/<int:annotation_id>/delete/', delete_annotation, name='delete-annotation'),
     path('chart/fib/<str:symbol>/', fibonacci_setup, name='fibonacci-setup'),
+
+    # Push Notifications
+    path('push/subscribe/', subscribe_push, name='push-subscribe'),
+    path('push/unsubscribe/', unsubscribe_push, name='push-unsubscribe'),
+    path('push/status/', push_status, name='push-status'),
+    path('public/push/subscribe/', subscribe_push_public, name='push-subscribe-public'),
 
     # Router URLs (includes user-specific paper-trades)
     path('', include(router.urls)),

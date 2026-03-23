@@ -18,6 +18,7 @@ from .models_futures import (
     FuturesTradeLog
 )
 from .models_blacklist import BlacklistedSymbol
+from .models_push import PushSubscription, NotificationLog
 
 
 class BaseModelAdmin(admin.ModelAdmin):
@@ -1955,4 +1956,51 @@ class BlacklistedSymbolAdmin(admin.ModelAdmin):
             messages.SUCCESS
         )
     remove_expiration.short_description = 'Make permanent (remove expiration)'
+
+
+@admin.register(PushSubscription)
+class PushSubscriptionAdmin(admin.ModelAdmin):
+    """Admin interface for push notification subscriptions."""
+    list_display = ('user', 'device_name', 'is_active', 'created_at', 'updated_at')
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('user__username', 'device_name', 'fcm_token')
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ('-created_at',)
+    actions = ['deactivate_subscriptions', 'activate_subscriptions']
+
+    def deactivate_subscriptions(self, request, queryset):
+        """Deactivate selected push subscriptions."""
+        updated = queryset.update(is_active=False)
+        self.message_user(request, f'{updated} subscriptions deactivated.', messages.SUCCESS)
+    deactivate_subscriptions.short_description = 'Deactivate selected subscriptions'
+
+    def activate_subscriptions(self, request, queryset):
+        """Activate selected push subscriptions."""
+        updated = queryset.update(is_active=True)
+        self.message_user(request, f'{updated} subscriptions activated.', messages.SUCCESS)
+    activate_subscriptions.short_description = 'Activate selected subscriptions'
+
+
+@admin.register(NotificationLog)
+class NotificationLogAdmin(admin.ModelAdmin):
+    """Admin interface for push notification audit logs."""
+    list_display = ('title', 'status_badge', 'user', 'tokens_targeted', 'tokens_succeeded', 'signal', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('title', 'body', 'user__username')
+    readonly_fields = ('user', 'title', 'body', 'data', 'status', 'error_message', 'signal', 'tokens_targeted', 'tokens_succeeded', 'created_at')
+    ordering = ('-created_at',)
+    date_hierarchy = 'created_at'
+
+    def has_add_permission(self, request):
+        return False
+
+    def status_badge(self, obj):
+        """Display status with color badge."""
+        color_map = {'SENT': '#28a745', 'FAILED': '#dc3545', 'PARTIAL': '#ffc107'}
+        color = color_map.get(obj.status, '#6c757d')
+        return mark_safe(
+            f'<span style="background-color: {color}; color: white; padding: 3px 8px; '
+            f'border-radius: 3px; font-size: 11px;">{obj.status}</span>'
+        )
+    status_badge.short_description = 'Status'
 
