@@ -23,12 +23,16 @@ function getFirebaseApp() {
 }
 
 async function getFirebaseMessaging() {
-  if (IS_IOS) return null;
   if (messaging) return messaging;
-  const supported = await isSupported();
-  if (!supported) return null;
-  messaging = getMessaging(getFirebaseApp());
-  return messaging;
+  try {
+    const supported = await isSupported();
+    if (!supported) return null;
+    messaging = getMessaging(getFirebaseApp());
+    return messaging;
+  } catch (e) {
+    console.warn('[PUSH] Firebase messaging init failed:', e.message);
+    return null;
+  }
 }
 
 async function getServiceWorkerRegistration() {
@@ -53,15 +57,13 @@ export async function requestNotificationPermission() {
 
     const swReg = await getServiceWorkerRegistration();
 
-    if (!IS_IOS) {
-      const token = await tryFirebaseToken(swReg);
-      if (token) return token;
-    }
+    const fcmToken = await tryFirebaseToken(swReg);
+    if (fcmToken) return fcmToken;
 
     const nativeToken = await tryNativePush(swReg);
     if (nativeToken) return nativeToken;
 
-    console.error('[PUSH] All token methods failed');
+    console.error('[PUSH] All token methods failed. IS_IOS:', IS_IOS, 'PushManager:', !!swReg?.pushManager);
     return null;
   } catch (error) {
     console.error('[PUSH] requestNotificationPermission error:', error);
@@ -131,11 +133,7 @@ export async function getFCMToken() {
   try {
     if (Notification.permission !== 'granted') return null;
     const swReg = await getServiceWorkerRegistration();
-    if (!IS_IOS) {
-      const token = await tryFirebaseToken(swReg);
-      if (token) return token;
-    }
-    return await tryNativePush(swReg);
+    return await tryFirebaseToken(swReg) || await tryNativePush(swReg);
   } catch (error) {
     console.error('[PUSH] getFCMToken error:', error);
     return null;
