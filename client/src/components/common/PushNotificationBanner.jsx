@@ -105,13 +105,27 @@ const PushNotificationBanner = () => {
     localStorage.setItem('push_banner_dismissed', 'true');
   };
 
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+
   if (!supported) {
-    return (
-      <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-lg p-3 text-sm text-red-600 dark:text-red-400 flex items-center gap-2">
-        <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-        Push notifications not supported. Use Chrome/Edge/Firefox.
-      </div>
-    );
+    if (isIOS && !isStandalone) {
+      return (
+        <div className="bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 rounded-lg p-3 text-sm text-indigo-600 dark:text-indigo-400 flex items-start gap-2">
+          <Bell className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium">Install app for push notifications</p>
+            <p className="text-xs mt-1 opacity-80">
+              Tap the share button <span className="inline-block align-middle">⬆️</span> then "Add to Home Screen" to enable notifications.
+            </p>
+          </div>
+          <button onClick={handleDismiss} className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      );
+    }
+    return null;
   }
 
   if (dismissed && !subscribed) return null;
