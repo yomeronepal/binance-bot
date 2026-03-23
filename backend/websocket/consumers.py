@@ -9,6 +9,19 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 logger = logging.getLogger(__name__)
 
 
+class NoOpConsumer(AsyncWebsocketConsumer):
+    """Silently accept and close connections to unused WebSocket paths."""
+
+    async def connect(self):
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        pass
+
+    async def receive(self, text_data=None, bytes_data=None):
+        pass
+
+
 class SignalConsumer(AsyncWebsocketConsumer):
     """
     WebSocket consumer for real-time trading signals with keepalive support
