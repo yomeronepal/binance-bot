@@ -77,7 +77,10 @@ async function tryNativePush(swReg) {
 export async function requestNotificationPermission() {
   const errors = [];
 
-  const permission = await Notification.requestPermission();
+  let permission = Notification.permission;
+  if (permission === 'default') {
+    permission = await Notification.requestPermission();
+  }
   if (permission !== 'granted') {
     throw new Error('Permission ' + permission);
   }

@@ -45,9 +45,12 @@ const PushNotificationBanner = () => {
     setErrorMsg(null);
 
     try {
-      const permission = await Notification.requestPermission();
+      let permission = Notification.permission;
+      if (permission === 'default') {
+        permission = await Notification.requestPermission();
+      }
       if (permission !== 'granted') {
-        setErrorMsg('Notification permission denied. Check browser settings.');
+        setErrorMsg('Notification permission denied. Go to Settings → Notifications → RevX → Allow.');
         setLoading(false);
         return;
       }
