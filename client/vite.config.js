@@ -125,10 +125,6 @@ export default defineConfig(({ mode }) => {
       filename: 'sw.js',
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      devOptions: {
-        enabled: true,
-        type: 'module',
-      },
       includeAssets: ['revx-logo.svg', 'apple-touch-icon.png'],
       manifest: {
         name: 'RevX - Binance Trading Bot',
