@@ -4,9 +4,9 @@ import { VitePWA } from 'vite-plugin-pwa'
 import { writeFileSync } from 'fs'
 import { resolve } from 'path'
 
-function generateFirebaseSW(envVars) {
+function generateCombinedSW(envVars) {
   return {
-    name: 'generate-firebase-sw',
+    name: 'generate-combined-sw',
     buildStart() {
       const env = { ...process.env, ...envVars }
       const config = {
@@ -21,57 +21,73 @@ function generateFirebaseSW(envVars) {
       const sw = `importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
-let messagingInitialized = false;
+var firebaseConfig = ${JSON.stringify(config)};
+var messagingInitialized = false;
 
 function initFirebase(config) {
   if (messagingInitialized) return;
-  firebase.initializeApp(config);
-  messagingInitialized = true;
-  setupMessaging();
-}
+  try {
+    firebase.initializeApp(config);
+    messagingInitialized = true;
 
-function setupMessaging() {
-  const messaging = firebase.messaging();
-  messaging.onBackgroundMessage((payload) => {
-    const ntf = payload.notification || {};
-    const data = payload.data || {};
-    return self.registration.showNotification(ntf.title || 'RevX Trading Bot', {
-      body: ntf.body || 'New trading signal received',
-      icon: '/icon-192x192.png',
-      badge: '/icon-192x192.png',
-      vibrate: [200, 100, 200, 100, 200],
-      silent: false,
-      requireInteraction: true,
-      tag: data.signal_id || 'revx-signal',
-      renotify: true,
-      data: { url: data.url || '/bot-performance', signal_id: data.signal_id, symbol: data.symbol, direction: data.direction },
+    var messaging = firebase.messaging();
+    messaging.onBackgroundMessage(function(payload) {
+      var ntf = payload.notification || {};
+      var data = payload.data || {};
+      return self.registration.showNotification(ntf.title || 'RevX Trading Bot', {
+        body: ntf.body || 'New trading signal received',
+        icon: '/icon-192x192.png',
+        badge: '/icon-192x192.png',
+        vibrate: [200, 100, 200, 100, 200],
+        silent: false,
+        requireInteraction: true,
+        tag: data.signal_id || 'revx-signal',
+        renotify: true,
+        data: { url: data.url || '/bot-performance', signal_id: data.signal_id, symbol: data.symbol, direction: data.direction },
+      });
     });
-  });
+  } catch(e) {
+    console.error('[SW] Firebase init error:', e);
+  }
 }
 
-var buildConfig = ${JSON.stringify(config)};
-if (buildConfig.projectId) {
-  initFirebase(buildConfig);
+if (firebaseConfig.projectId) {
+  initFirebase(firebaseConfig);
 }
 
-self.addEventListener('message', (event) => {
+self.addEventListener('message', function(event) {
   if (event.data && event.data.type === 'FIREBASE_CONFIG') {
     initFirebase(event.data.config);
   }
 });
 
-self.addEventListener('notificationclick', (event) => {
+self.addEventListener('notificationclick', function(event) {
   event.notification.close();
-  var url = event.notification.data?.url || '/bot-performance';
+  var url = event.notification.data && event.notification.data.url ? event.notification.data.url : '/bot-performance';
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
       for (var i = 0; i < clientList.length; i++) {
-        if (clientList[i].url.includes(self.location.origin) && 'focus' in clientList[i]) {
+        if (clientList[i].url.indexOf(self.location.origin) !== -1 && 'focus' in clientList[i]) {
           clientList[i].navigate(url);
           return clientList[i].focus();
         }
       }
       return clients.openWindow(url);
+    })
+  );
+});
+
+self.addEventListener('push', function(event) {
+  if (messagingInitialized) return;
+  var data = {};
+  try { data = event.data.json(); } catch(e) {}
+  var ntf = data.notification || {};
+  event.waitUntil(
+    self.registration.showNotification(ntf.title || 'RevX Trading Bot', {
+      body: ntf.body || 'New signal received',
+      icon: '/icon-192x192.png',
+      badge: '/icon-192x192.png',
+      vibrate: [200, 100, 200, 100, 200],
     })
   );
 });
@@ -85,7 +101,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')
   return {
   plugins: [
-    generateFirebaseSW(env),
+    generateCombinedSW(env),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
