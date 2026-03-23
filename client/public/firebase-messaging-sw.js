@@ -4,7 +4,7 @@ importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-com
 self.addEventListener('install', function() { self.skipWaiting(); });
 self.addEventListener('activate', function(event) { event.waitUntil(clients.claim()); });
 
-var firebaseConfig = {"apiKey":"","authDomain":"","projectId":"","storageBucket":"","messagingSenderId":"","appId":""};
+var firebaseConfig = {"apiKey":"AIzaSyC8aVRYOzcPHhohpNzFRUGItaiTBohQMjU","authDomain":"binance-bot-cb351.firebaseapp.com","projectId":"binance-bot-cb351","storageBucket":"binance-bot-cb351.firebasestorage.app","messagingSenderId":"932493851566","appId":"1:932493851566:web:9a3cdbfafce203eee6663f"};
 var messagingInitialized = false;
 
 function initFirebase(config) {

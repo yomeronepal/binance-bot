@@ -84,7 +84,8 @@
       "WebFetch(domain:revxsys.com)",
       "Bash(npx vite:*)",
       "Bash(pip3 install:*)",
-      "Bash(md5 /Users/gunsnrojeshprajapati/Desktop/project/binance-bot/client/public/icon-192x192.png)"
+      "Bash(md5 /Users/gunsnrojeshprajapati/Desktop/project/binance-bot/client/public/icon-192x192.png)",
+      "Bash(osascript -e 'display notification \"\"macOS notification test\"\" with title \"\"Test\"\"')"
     ],
     "deny": [],
     "ask": []
