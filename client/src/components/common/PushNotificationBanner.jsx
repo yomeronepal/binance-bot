@@ -52,15 +52,27 @@ const PushNotificationBanner = () => {
         return;
       }
 
-      const { requestNotificationPermission } = await import('../../services/firebase');
-      const token = await requestNotificationPermission();
+      const firebase = await import('../../services/firebase');
+      let token = null;
+      let lastError = '';
+
+      try {
+        token = await firebase.requestNotificationPermission();
+      } catch (e) {
+        lastError = e.message || String(e);
+      }
 
       if (!token) {
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-        if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !isStandalone) {
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const iosVer = navigator.userAgent.match(/OS (\d+)_/)?.[1];
+
+        if (isIOS && !isStandalone) {
           setErrorMsg('Install app to Home Screen first, then enable notifications.');
+        } else if (isIOS && iosVer && parseInt(iosVer) < 16) {
+          setErrorMsg(`iOS ${iosVer} detected. Push requires iOS 16.4+. Update your iPhone.`);
         } else {
-          setErrorMsg('Failed to enable notifications. Try clearing site data and re-enabling.');
+          setErrorMsg(`Push setup failed${lastError ? ': ' + lastError : ''}. iOS:${isIOS} PWA:${isStandalone} v:${iosVer || 'N/A'}`);
         }
         setLoading(false);
         return;
