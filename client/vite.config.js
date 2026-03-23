@@ -120,7 +120,15 @@ export default defineConfig(({ mode }) => {
     generateCombinedSW(env),
     react(),
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
       registerType: 'autoUpdate',
+      injectRegister: 'auto',
+      devOptions: {
+        enabled: true,
+        type: 'module',
+      },
       includeAssets: ['revx-logo.svg', 'apple-touch-icon.png'],
       manifest: {
         name: 'RevX - Binance Trading Bot',
@@ -144,24 +152,9 @@ export default defineConfig(({ mode }) => {
           }
         ]
       },
-      workbox: {
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/api\.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 5
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
-            }
-          }
-        ]
+        globIgnores: ['firebase-messaging-sw.js'],
       }
     })
   ],

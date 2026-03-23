@@ -33,12 +33,9 @@ async function getFirebaseMessaging() {
 }
 
 async function getServiceWorkerRegistration() {
-  let reg = await navigator.serviceWorker.getRegistration('/');
-  if (!reg) {
-    reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-  }
   await navigator.serviceWorker.ready;
-  if (reg.active) {
+  let reg = await navigator.serviceWorker.getRegistration('/');
+  if (reg && reg.active) {
     reg.active.postMessage({ type: 'FIREBASE_CONFIG', config: firebaseConfig });
   }
   return reg;
