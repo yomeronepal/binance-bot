@@ -1966,7 +1966,7 @@ class PushSubscriptionAdmin(admin.ModelAdmin):
     search_fields = ('user__username', 'device_name', 'fcm_token')
     readonly_fields = ('created_at', 'updated_at')
     ordering = ('-created_at',)
-    actions = ['deactivate_subscriptions', 'activate_subscriptions']
+    actions = ['deactivate_subscriptions', 'activate_subscriptions', 'send_test_notification', 'send_test_signal', 'send_test_session']
 
     def deactivate_subscriptions(self, request, queryset):
         """Deactivate selected push subscriptions."""
@@ -1980,10 +1980,53 @@ class PushSubscriptionAdmin(admin.ModelAdmin):
         self.message_user(request, f'{updated} subscriptions activated.', messages.SUCCESS)
     activate_subscriptions.short_description = 'Activate selected subscriptions'
 
+    def send_test_notification(self, request, queryset):
+        """Send a test push notification to selected subscribers."""
+        from signals.services.push_notification import _send_multicast
+        tokens = list(queryset.filter(is_active=True).values_list('fcm_token', flat=True))
+        if not tokens:
+            self.message_user(request, 'No active subscriptions selected.', messages.WARNING)
+            return
+        result = _send_multicast(tokens, 'RevX Test', 'Push notifications are working!', {'type': 'TEST'})
+        self.message_user(request, f'Test notification: {result["sent"]}/{result["total"]} sent.', messages.SUCCESS)
+    send_test_notification.short_description = 'Send test notification to selected'
+
+    def send_test_signal(self, request, queryset):
+        """Send a simulated priority signal notification to selected subscribers."""
+        from signals.services.push_notification import _send_multicast
+        tokens = list(queryset.filter(is_active=True).values_list('fcm_token', flat=True))
+        if not tokens:
+            self.message_user(request, 'No active subscriptions selected.', messages.WARNING)
+            return
+        result = _send_multicast(
+            tokens,
+            '\U0001F7E2 LONG BTCUSDT [PRIORITY]',
+            'Entry: $84,500 | SL: $83,200 | TP: $87,000 | Conf: 85%',
+            {'type': 'NEW_SIGNAL', 'symbol': 'BTCUSDT', 'direction': 'LONG', 'is_priority': 'true'},
+        )
+        self.message_user(request, f'Signal notification: {result["sent"]}/{result["total"]} sent.', messages.SUCCESS)
+    send_test_signal.short_description = 'Send test SIGNAL notification to selected'
+
+    def send_test_session(self, request, queryset):
+        """Send a simulated session activation notification to selected subscribers."""
+        from signals.services.push_notification import _send_multicast
+        tokens = list(queryset.filter(is_active=True).values_list('fcm_token', flat=True))
+        if not tokens:
+            self.message_user(request, 'No active subscriptions selected.', messages.WARNING)
+            return
+        result = _send_multicast(
+            tokens,
+            'Trading Session Active - GW1',
+            'Started at 10:15 AM NPT | Ends at 11:30 NPT | Priority signals will auto-trade',
+            {'type': 'SESSION_ACTIVE', 'session_name': 'GW1'},
+        )
+        self.message_user(request, f'Session notification: {result["sent"]}/{result["total"]} sent.', messages.SUCCESS)
+    send_test_session.short_description = 'Send test SESSION notification to selected'
+
 
 @admin.register(NotificationLog)
 class NotificationLogAdmin(admin.ModelAdmin):
-    """Admin interface for push notification audit logs."""
+    """Admin interface for push notification audit logs with send functionality."""
     list_display = ('title', 'status_badge', 'user', 'tokens_targeted', 'tokens_succeeded', 'signal', 'created_at')
     list_filter = ('status', 'created_at')
     search_fields = ('title', 'body', 'user__username')
@@ -1992,7 +2035,71 @@ class NotificationLogAdmin(admin.ModelAdmin):
     date_hierarchy = 'created_at'
 
     def has_add_permission(self, request):
-        return False
+        return True
+
+    def add_view(self, request, form_url='', extra_context=None):
+        """Override add view to show send notification form."""
+        from django.shortcuts import render, redirect
+
+        if request.method == 'POST':
+            title = request.POST.get('title', '').strip()
+            body = request.POST.get('body', '').strip()
+            target = request.POST.get('target', 'all')
+
+            if not title or not body:
+                messages.error(request, 'Title and body are required.')
+                return render(request, 'admin/send_push_notification.html', {
+                    'title': 'Send Push Notification',
+                    'opts': self.model._meta,
+                    'has_view_permission': True,
+                    'form_title': title,
+                    'form_body': body,
+                    'form_target': target,
+                    'subscriber_count': PushSubscription.objects.filter(is_active=True).count(),
+                })
+
+            from signals.services.push_notification import broadcast, send_to_user
+
+            if target == 'all':
+                result = broadcast(title, body, data={'type': 'ADMIN_BROADCAST'})
+            else:
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                try:
+                    user = User.objects.get(pk=int(target))
+                    result = send_to_user(user, title, body, data={'type': 'ADMIN_MESSAGE'})
+                except User.DoesNotExist:
+                    messages.error(request, f'User ID {target} not found.')
+                    return redirect('..')
+
+            if result['sent'] > 0:
+                messages.success(request, f'Notification sent: {result["sent"]}/{result["total"]} delivered.')
+            elif result['total'] == 0:
+                messages.warning(request, 'No active subscribers found.')
+            else:
+                messages.error(request, f'Send failed: {result["error"]}')
+
+            return redirect('..')
+
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        users_with_subs = (
+            PushSubscription.objects.filter(is_active=True)
+            .values_list('user__id', 'user__username')
+            .distinct()
+        )
+
+        context = {
+            'title': 'Send Push Notification',
+            'opts': self.model._meta,
+            'has_view_permission': True,
+            'form_title': '',
+            'form_body': '',
+            'form_target': 'all',
+            'subscriber_count': PushSubscription.objects.filter(is_active=True).count(),
+            'users_with_subs': list(users_with_subs),
+        }
+        return render(request, 'admin/send_push_notification.html', context)
 
     def status_badge(self, obj):
         """Display status with color badge."""
