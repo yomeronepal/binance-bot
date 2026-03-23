@@ -29,8 +29,23 @@ function getFirebaseMessaging() {
 
 async function getOrRegisterServiceWorker() {
   const existingReg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
-  if (existingReg) return existingReg;
-  return navigator.serviceWorker.register('/firebase-messaging-sw.js');
+  if (existingReg) {
+    sendConfigToSW(existingReg);
+    return existingReg;
+  }
+  const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+  await navigator.serviceWorker.ready;
+  sendConfigToSW(reg);
+  return reg;
+}
+
+function sendConfigToSW(registration) {
+  if (registration.active) {
+    registration.active.postMessage({
+      type: 'FIREBASE_CONFIG',
+      config: firebaseConfig,
+    });
+  }
 }
 
 export async function requestNotificationPermission() {
