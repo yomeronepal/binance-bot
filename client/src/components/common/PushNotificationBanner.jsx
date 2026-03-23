@@ -22,8 +22,12 @@ const PushNotificationBanner = () => {
     setDismissed(localStorage.getItem('push_banner_dismissed') === 'true');
 
     if (isPushSubscribed() && sup) {
-      checkAndResubscribe();
-      setupForegroundNotifications(handleForegroundMessage);
+      const initPush = async () => {
+        await checkAndResubscribe();
+        await setupForegroundNotifications(handleForegroundMessage);
+        console.log('[PUSH] Foreground listener registered');
+      };
+      initPush();
     }
   }, []);
 
@@ -68,7 +72,8 @@ const PushNotificationBanner = () => {
       localStorage.setItem('push_subscribed', 'true');
       localStorage.setItem('fcm_token', token);
       setSubscribed(true);
-      setupForegroundNotifications(handleForegroundMessage);
+      await setupForegroundNotifications(handleForegroundMessage);
+      console.log('[PUSH] Subscribed and foreground listener registered');
 
     } catch (err) {
       console.error('Push subscribe error:', err);

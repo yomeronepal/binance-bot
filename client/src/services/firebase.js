@@ -27,37 +27,35 @@ function getFirebaseMessaging() {
   return messaging;
 }
 
-async function getOrRegisterServiceWorker() {
-  const existingReg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
-  if (existingReg) {
-    sendConfigToSW(existingReg);
-    return existingReg;
-  }
-  const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+async function getServiceWorkerRegistration() {
   await navigator.serviceWorker.ready;
-  sendConfigToSW(reg);
-  return reg;
-}
 
-function sendConfigToSW(registration) {
-  if (registration.active) {
-    registration.active.postMessage({
-      type: 'FIREBASE_CONFIG',
-      config: firebaseConfig,
-    });
+  const regs = await navigator.serviceWorker.getRegistrations();
+  for (const reg of regs) {
+    if (reg.active) {
+      reg.active.postMessage({ type: 'FIREBASE_CONFIG', config: firebaseConfig });
+      return reg;
+    }
   }
+
+  const fbReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+  await navigator.serviceWorker.ready;
+  if (fbReg.active) {
+    fbReg.active.postMessage({ type: 'FIREBASE_CONFIG', config: firebaseConfig });
+  }
+  return fbReg;
 }
 
 export async function requestNotificationPermission() {
   try {
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
-      console.warn('Notification permission denied');
+      console.warn('[PUSH] Notification permission denied');
       return null;
     }
 
     const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY || 'BFIkedelUGPFVfvl_Yr-G0ZXzZ2KHchARgeS_7AYVpMTWenj-2EN2a7wKjiM9VNU4qaYJ5NzUMQN3Jkl-7JC5Ts';
-    const swRegistration = await getOrRegisterServiceWorker();
+    const swRegistration = await getServiceWorkerRegistration();
     const msg = getFirebaseMessaging();
 
     const token = await getToken(msg, {
@@ -65,20 +63,24 @@ export async function requestNotificationPermission() {
       serviceWorkerRegistration: swRegistration,
     });
 
-    console.log('FCM Token obtained:', token?.substring(0, 20) + '...');
+    console.log('[PUSH] FCM Token:', token?.substring(0, 30) + '...');
     return token;
   } catch (error) {
-    console.error('Failed to get FCM token:', error);
+    console.error('[PUSH] Failed to get FCM token:', error);
     return null;
   }
 }
 
 export function onForegroundMessage(callback) {
-  const msg = getFirebaseMessaging();
-  return onMessage(msg, (payload) => {
-    console.log('Foreground message:', payload);
-    callback(payload);
-  });
+  try {
+    const msg = getFirebaseMessaging();
+    return onMessage(msg, (payload) => {
+      console.log('[PUSH] Foreground message received:', payload);
+      callback(payload);
+    });
+  } catch (error) {
+    console.error('[PUSH] onForegroundMessage error:', error);
+  }
 }
 
 export async function getFCMToken() {
@@ -86,16 +88,15 @@ export async function getFCMToken() {
     if (Notification.permission !== 'granted') return null;
 
     const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY || 'BFIkedelUGPFVfvl_Yr-G0ZXzZ2KHchARgeS_7AYVpMTWenj-2EN2a7wKjiM9VNU4qaYJ5NzUMQN3Jkl-7JC5Ts';
-    const swRegistration = await getOrRegisterServiceWorker();
+    const swRegistration = await getServiceWorkerRegistration();
     const msg = getFirebaseMessaging();
 
-    const token = await getToken(msg, {
+    return await getToken(msg, {
       vapidKey,
       serviceWorkerRegistration: swRegistration,
     });
-    return token;
   } catch (error) {
-    console.error('Failed to get FCM token:', error);
+    console.error('[PUSH] Failed to get FCM token:', error);
     return null;
   }
 }

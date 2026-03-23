@@ -1,13 +1,13 @@
 import api from './api';
-import { requestNotificationPermission, getFCMToken, onForegroundMessage } from './firebase';
 
 const PUSH_SUBSCRIBE_URL = '/public/push/subscribe/';
 
 export async function subscribeToPush() {
-  const token = await requestNotificationPermission();
-  if (!token) return { success: false, reason: 'permission_denied' };
-
   try {
+    const { requestNotificationPermission } = await import('./firebase');
+    const token = await requestNotificationPermission();
+    if (!token) return { success: false, reason: 'permission_denied' };
+
     const deviceName = `${navigator.userAgent.includes('Mobile') ? 'Mobile' : 'Desktop'} - ${navigator.platform}`;
     const response = await api.post(PUSH_SUBSCRIBE_URL, {
       fcm_token: token,
@@ -45,19 +45,25 @@ export function isPushSupported() {
   return 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
 }
 
-export function setupForegroundNotifications(onNotification) {
-  return onForegroundMessage((payload) => {
-    const { title, body } = payload.notification || {};
-    if (title) {
-      new Notification(title, {
-        body,
-        icon: '/icon-192x192.png',
-        badge: '/icon-192x192.png',
-        data: payload.data,
-      });
-    }
-    if (onNotification) onNotification(payload);
-  });
+export async function setupForegroundNotifications(onNotification) {
+  try {
+    const { onForegroundMessage } = await import('./firebase');
+    return onForegroundMessage((payload) => {
+      console.log('[PUSH] Foreground message received:', payload);
+      const { title, body } = payload.notification || {};
+      if (title && Notification.permission === 'granted') {
+        new Notification(title, {
+          body,
+          icon: '/icon-192x192.png',
+          badge: '/icon-192x192.png',
+          data: payload.data,
+        });
+      }
+      if (onNotification) onNotification(payload);
+    });
+  } catch (error) {
+    console.error('[PUSH] Failed to setup foreground notifications:', error);
+  }
 }
 
 export async function checkAndResubscribe() {
@@ -65,20 +71,21 @@ export async function checkAndResubscribe() {
   if (!isPushSubscribed()) return;
   if (Notification.permission !== 'granted') return;
 
-  const currentToken = await getFCMToken();
-  const storedToken = localStorage.getItem('fcm_token');
+  try {
+    const { getFCMToken } = await import('./firebase');
+    const currentToken = await getFCMToken();
+    const storedToken = localStorage.getItem('fcm_token');
 
-  if (currentToken && currentToken !== storedToken) {
-    const deviceName = `${navigator.userAgent.includes('Mobile') ? 'Mobile' : 'Desktop'} - ${navigator.platform}`;
-    try {
+    if (currentToken && currentToken !== storedToken) {
+      const deviceName = `${navigator.userAgent.includes('Mobile') ? 'Mobile' : 'Desktop'} - ${navigator.platform}`;
       await api.post(PUSH_SUBSCRIBE_URL, {
         fcm_token: currentToken,
         device_name: deviceName,
       });
       localStorage.setItem('fcm_token', currentToken);
-      console.log('FCM token refreshed');
-    } catch (error) {
-      console.error('FCM token refresh failed:', error);
+      console.log('[PUSH] FCM token refreshed');
     }
+  } catch (error) {
+    console.error('[PUSH] Token refresh failed:', error);
   }
 }
