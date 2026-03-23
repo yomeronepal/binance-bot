@@ -112,22 +112,19 @@ def _determine_volatility_from_symbol(symbol):
 
 def _send_push_for_signal(signal):
     """
-    Send a Firebase push notification only for priority signals
-    (generated within an active trading session).
+    Send a Firebase push notification for every new signal.
 
     Args:
         signal: Signal model instance.
     """
-    if not getattr(signal, 'is_priority', False):
-        return
-
     try:
         from signals.services.push_notification import send_signal_notification
         result = send_signal_notification(signal)
         if result['total'] > 0:
             logger.info(
-                "Push notification for priority signal %s: %d/%d sent",
-                signal.id, result['sent'], result['total']
+                "Push notification for signal %s (priority=%s): %d/%d sent",
+                signal.id, getattr(signal, 'is_priority', False),
+                result['sent'], result['total']
             )
     except Exception as e:
         logger.error("Push notification failed for signal %s: %s", signal.id, e)
