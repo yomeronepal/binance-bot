@@ -1056,10 +1056,11 @@ def monitor_fibonacci_pullbacks(self):
 @shared_task
 def check_trading_session_activation():
     """
-    Check if a trading session just became active and send push notification.
+    Check trading sessions and send push notifications:
+    - 5 minutes before a session starts (warning)
+    - When a session becomes active
 
-    Uses Redis to track the last known state. Only sends a notification
-    on the transition from inactive to active.
+    Uses Redis to track sent notifications and avoid duplicates.
     """
     try:
         from django.core.cache import cache
@@ -1068,47 +1069,86 @@ def check_trading_session_activation():
 
         NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
         nepal_now = datetime.now(timezone.utc) + NEPAL_TZ_OFFSET
-        session = TradingSession.get_matching_session(nepal_now)
 
-        cache_key = 'trading_session_active_state'
-        was_active = cache.get(cache_key, False)
-        is_active = session is not None
-
-        cache.set(cache_key, is_active, timeout=120)
-
-        if is_active and not was_active:
-            _send_session_activation_push(session, nepal_now)
+        _check_session_activation(cache, nepal_now)
+        _check_upcoming_sessions(cache, nepal_now)
 
     except Exception as e:
         logger.error("Error checking trading session activation: %s", e, exc_info=True)
 
 
-def _send_session_activation_push(session, nepal_now):
+def _check_session_activation(cache, nepal_now):
+    """Send push when a session transitions from inactive to active."""
+    from signals.models import TradingSession
+
+    session = TradingSession.get_matching_session(nepal_now)
+    cache_key = 'trading_session_active_state'
+    was_active = cache.get(cache_key, False)
+    is_active = session is not None
+
+    cache.set(cache_key, is_active, timeout=120)
+
+    if is_active and not was_active:
+        _send_session_push(session, nepal_now, 'active')
+
+
+def _check_upcoming_sessions(cache, nepal_now):
+    """Send push 5 minutes before any session starts."""
+    from signals.models import TradingSession
+    from datetime import timedelta
+
+    nepal_in_5min = nepal_now + timedelta(minutes=5)
+    upcoming = TradingSession.get_matching_session(nepal_in_5min)
+
+    if not upcoming:
+        return
+
+    current = TradingSession.get_matching_session(nepal_now)
+    if current:
+        return
+
+    warn_key = f'session_5min_warned_{upcoming.id}_{nepal_now.date()}'
+    if cache.get(warn_key):
+        return
+
+    cache.set(warn_key, True, timeout=600)
+    _send_session_push(upcoming, nepal_now, 'upcoming')
+
+
+def _send_session_push(session, nepal_now, status):
     """
-    Send push notification when a trading session becomes active.
+    Send push notification for a trading session.
 
     Args:
-        session: TradingSession instance that just activated.
+        session: TradingSession instance.
         nepal_now: Current Nepal datetime.
+        status: 'active' or 'upcoming'.
     """
     from signals.services.push_notification import broadcast
 
-    time_str = nepal_now.strftime("%I:%M %p NPT")
+    start_str = f"{session.start_hour:02d}:{session.start_minute:02d} NPT"
     end_str = f"{session.end_hour:02d}:{session.end_minute:02d} NPT"
 
-    title = f"Trading Session Active - {session.name}"
-    body = f"Started at {time_str} | Ends at {end_str} | Priority signals will auto-trade"
+    if status == 'upcoming':
+        title = f"Session Starting Soon - {session.name}"
+        body = f"Starts at {start_str} (in ~5 min) | Ends at {end_str} | Get ready for priority signals"
+        notif_type = 'SESSION_UPCOMING'
+    else:
+        title = f"Trading Session Active - {session.name}"
+        body = f"Started at {nepal_now.strftime('%I:%M %p NPT')} | Ends at {end_str} | Priority signals will auto-trade"
+        notif_type = 'SESSION_ACTIVE'
 
     data = {
-        'type': 'SESSION_ACTIVE',
+        'type': notif_type,
         'session_name': session.name,
         'session_type': session.session_type,
+        'start_time': start_str,
         'end_time': end_str,
         'url': '/bot-performance',
     }
 
     result = broadcast(title, body, data=data)
     logger.info(
-        "Trading session %s activation push: %d/%d sent",
-        session.name, result['sent'], result['total']
+        "Trading session %s %s push: %d/%d sent",
+        session.name, status, result['sent'], result['total']
     )
