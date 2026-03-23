@@ -1051,3 +1051,64 @@ def monitor_fibonacci_pullbacks(self):
     except Exception as e:
         logger.error(f"❌ Error in Fibonacci monitoring: {e}", exc_info=True)
         raise self.retry(exc=e, countdown=30)
+
+
+@shared_task
+def check_trading_session_activation():
+    """
+    Check if a trading session just became active and send push notification.
+
+    Uses Redis to track the last known state. Only sends a notification
+    on the transition from inactive to active.
+    """
+    try:
+        from django.core.cache import cache
+        from signals.models import TradingSession
+        from datetime import datetime, timezone, timedelta
+
+        NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
+        nepal_now = datetime.now(timezone.utc) + NEPAL_TZ_OFFSET
+        session = TradingSession.get_matching_session(nepal_now)
+
+        cache_key = 'trading_session_active_state'
+        was_active = cache.get(cache_key, False)
+        is_active = session is not None
+
+        cache.set(cache_key, is_active, timeout=120)
+
+        if is_active and not was_active:
+            _send_session_activation_push(session, nepal_now)
+
+    except Exception as e:
+        logger.error("Error checking trading session activation: %s", e, exc_info=True)
+
+
+def _send_session_activation_push(session, nepal_now):
+    """
+    Send push notification when a trading session becomes active.
+
+    Args:
+        session: TradingSession instance that just activated.
+        nepal_now: Current Nepal datetime.
+    """
+    from signals.services.push_notification import broadcast
+
+    time_str = nepal_now.strftime("%I:%M %p NPT")
+    end_str = f"{session.end_hour:02d}:{session.end_minute:02d} NPT"
+
+    title = f"Trading Session Active - {session.name}"
+    body = f"Started at {time_str} | Ends at {end_str} | Priority signals will auto-trade"
+
+    data = {
+        'type': 'SESSION_ACTIVE',
+        'session_name': session.name,
+        'session_type': session.session_type,
+        'end_time': end_str,
+        'url': '/bot-performance',
+    }
+
+    result = broadcast(title, body, data=data)
+    logger.info(
+        "Trading session %s activation push: %d/%d sent",
+        session.name, result['sent'], result['total']
+    )

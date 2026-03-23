@@ -262,3 +262,6 @@ STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
 
 # Discord Notifications
 DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL', '')
+
+# Firebase Cloud Messaging
+FIREBASE_CREDENTIALS_PATH = os.getenv('FIREBASE_CREDENTIALS_PATH', 'firebase-credentials.json')

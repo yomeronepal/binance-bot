@@ -7,6 +7,7 @@ import {
   Calendar, BarChart3, Sun, Moon, LogOut, LogIn, Menu,
   X, ChevronLeft, ChevronRight, User
 } from 'lucide-react';
+import PushNotificationBanner from '../common/PushNotificationBanner';
 
 const Layout = () => {
   const { user, logout } = useAuthStore();
@@ -184,6 +185,9 @@ const Layout = () => {
         </header>
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8">
+          <div className="mb-4">
+            <PushNotificationBanner />
+          </div>
           <Outlet />
         </main>
 

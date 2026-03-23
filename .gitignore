@@ -34,6 +34,7 @@ staticfiles/
 # Environment
 .env
 .env.local
+firebase-credentials.json
 
 # IDEs
 .vscode/
