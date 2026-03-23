@@ -21,6 +21,9 @@ function generateCombinedSW(envVars) {
       const sw = `importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
+self.addEventListener('install', function() { self.skipWaiting(); });
+self.addEventListener('activate', function(event) { event.waitUntil(clients.claim()); });
+
 var firebaseConfig = ${JSON.stringify(config)};
 var messagingInitialized = false;
 
@@ -82,13 +85,26 @@ self.addEventListener('push', function(event) {
   var data = {};
   try { data = event.data.json(); } catch(e) {}
   var ntf = data.notification || {};
+  var pushData = data.data || {};
+
   event.waitUntil(
-    self.registration.showNotification(ntf.title || 'RevX Trading Bot', {
-      body: ntf.body || 'New signal received',
-      icon: '/icon-192x192.png',
-      badge: '/icon-192x192.png',
-      vibrate: [200, 100, 200, 100, 200],
-    })
+    Promise.all([
+      self.registration.showNotification(ntf.title || 'RevX Trading Bot', {
+        body: ntf.body || 'New signal received',
+        icon: '/icon-192x192.png',
+        badge: '/icon-192x192.png',
+        vibrate: [200, 100, 200, 100, 200],
+        requireInteraction: true,
+        tag: pushData.signal_id || 'revx-signal',
+        renotify: true,
+        data: { url: pushData.url || '/bot-performance' },
+      }),
+      clients.matchAll({ type: 'window' }).then(function(cls) {
+        cls.forEach(function(client) {
+          client.postMessage({ type: 'PUSH_RECEIVED', notification: ntf, data: pushData });
+        });
+      })
+    ])
   );
 });
 `
