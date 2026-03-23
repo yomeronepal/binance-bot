@@ -1,10 +1,91 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { writeFileSync } from 'fs'
+import { resolve } from 'path'
 
-// https://vite.dev/config/
-export default defineConfig({
+function generateFirebaseSW(envVars) {
+  return {
+    name: 'generate-firebase-sw',
+    buildStart() {
+      const env = { ...process.env, ...envVars }
+      const config = {
+        apiKey: env.VITE_FIREBASE_API_KEY || '',
+        authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || '',
+        projectId: env.VITE_FIREBASE_PROJECT_ID || '',
+        storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || '',
+        messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+        appId: env.VITE_FIREBASE_APP_ID || '',
+      }
+
+      const sw = `importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
+
+let messagingInitialized = false;
+
+function initFirebase(config) {
+  if (messagingInitialized) return;
+  firebase.initializeApp(config);
+  messagingInitialized = true;
+  setupMessaging();
+}
+
+function setupMessaging() {
+  const messaging = firebase.messaging();
+  messaging.onBackgroundMessage((payload) => {
+    const ntf = payload.notification || {};
+    const data = payload.data || {};
+    return self.registration.showNotification(ntf.title || 'RevX Trading Bot', {
+      body: ntf.body || 'New trading signal received',
+      icon: '/icon-192x192.png',
+      badge: '/icon-192x192.png',
+      vibrate: [200, 100, 200, 100, 200],
+      silent: false,
+      requireInteraction: true,
+      tag: data.signal_id || 'revx-signal',
+      renotify: true,
+      data: { url: data.url || '/bot-performance', signal_id: data.signal_id, symbol: data.symbol, direction: data.direction },
+    });
+  });
+}
+
+var buildConfig = ${JSON.stringify(config)};
+if (buildConfig.projectId) {
+  initFirebase(buildConfig);
+}
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'FIREBASE_CONFIG') {
+    initFirebase(event.data.config);
+  }
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  var url = event.notification.data?.url || '/bot-performance';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (var i = 0; i < clientList.length; i++) {
+        if (clientList[i].url.includes(self.location.origin) && 'focus' in clientList[i]) {
+          clientList[i].navigate(url);
+          return clientList[i].focus();
+        }
+      }
+      return clients.openWindow(url);
+    })
+  );
+});
+`
+      writeFileSync(resolve('public', 'firebase-messaging-sw.js'), sw)
+    }
+  }
+}
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), 'VITE_')
+  return {
   plugins: [
+    generateFirebaseSW(env),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
@@ -41,7 +122,7 @@ export default defineConfig({
               cacheName: 'api-cache',
               expiration: {
                 maxEntries: 50,
-                maxAgeSeconds: 60 * 5 // 5 minutes
+                maxAgeSeconds: 60 * 5
               },
               cacheableResponse: {
                 statuses: [0, 200]
@@ -52,4 +133,5 @@ export default defineConfig({
       }
     })
   ],
+}
 })
