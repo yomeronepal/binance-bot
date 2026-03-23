@@ -398,23 +398,30 @@ class BinanceFuturesTrader:
         if symbol_info:
             take_profit_price = self._round_price(take_profit_price, symbol_info)
 
-        logger.info(f"Placing TP: {symbol} {side} TAKE_PROFIT_MARKET @ {take_profit_price}")
-
-        result = await self._place_with_algo(
-            symbol, side, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP'
-        )
-        if result:
-            return result
+        logger.warning(f"Placing TP: {symbol} {side} TAKE_PROFIT_MARKET @ {take_profit_price} (entry: {current_price})")
 
         result = await self._place_with_quantity(
             symbol, side, quantity, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP'
         )
         if result:
+            logger.info(f"TP placed via quantity method: {result.get('orderId')}")
             return result
 
-        return await self._place_with_close_position(
+        result = await self._place_with_close_position(
             symbol, side, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP'
         )
+        if result:
+            logger.info(f"TP placed via closePosition method: {result.get('orderId')}")
+            return result
+
+        result = await self._place_with_algo(
+            symbol, side, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP'
+        )
+        if result:
+            logger.info(f"TP placed via algo method: {result.get('orderId')}")
+            return result
+
+        logger.error(f"ALL 3 TP methods FAILED for {symbol} {side} @ {take_profit_price}")
 
     async def _place_with_quantity(self, symbol, side, quantity, stop_price, order_type, label):
         """
@@ -752,6 +759,12 @@ class BinanceFuturesTrader:
                     f"SL: {'OK' if sl_ok else 'FAILED'} | TP: {'OK' if tp_ok else 'FAILED'}"
                 )
 
+            if not sl_ok and sl_res:
+                logger.error(f"[BATCH] SL error: code={sl_res.get('code')} msg={sl_res.get('msg')}")
+
+            if not tp_ok and tp_res:
+                logger.error(f"[BATCH] TP error: code={tp_res.get('code')} msg={tp_res.get('msg')}")
+
             if not entry_ok:
                 error_msg = entry_res.get('msg', str(entry_res)) if entry_res else 'No response'
                 logger.error(f"[BATCH] Entry failed: {error_msg}")
@@ -805,7 +818,7 @@ class BinanceFuturesTrader:
             batch_result = await self.place_batch_orders(symbol, direction, quantity, sl_rounded, tp_rounded)
 
             if batch_result and batch_result.get('entry'):
-                return self._parse_batch_result(batch_result, quantity, current_price, sl_rounded, tp_rounded, symbol, direction, symbol_info)
+                return await self._parse_batch_result(batch_result, quantity, current_price, sl_rounded, tp_rounded, symbol, direction, symbol_info)
 
             logger.warning(f"Batch failed for {symbol}, falling back to separate orders...")
             return await self._place_separate_orders(symbol, direction, quantity, sl_rounded, tp_rounded, current_price, symbol_info)
@@ -814,9 +827,9 @@ class BinanceFuturesTrader:
             logger.error(f"Failed to place orders for {symbol}: {e}")
             raise
 
-    def _parse_batch_result(self, batch_result, quantity, current_price, sl_rounded, tp_rounded, symbol, direction, symbol_info):
+    async def _parse_batch_result(self, batch_result, quantity, current_price, sl_rounded, tp_rounded, symbol, direction, symbol_info):
         """
-        Parse batch order result into the standard return format.
+        Parse batch order result and retry failed SL/TP separately.
 
         Args:
             batch_result: Result from place_batch_orders
@@ -837,39 +850,27 @@ class BinanceFuturesTrader:
         warnings = []
         sl_order_id = None
         tp_order_id = None
+        close_side = 'SELL' if direction == 'LONG' else 'BUY'
 
         if batch_result.get('sl'):
             sl_order_id = str(batch_result['sl'].get('orderId', ''))
         else:
-            warnings.append("SL failed in batch - needs separate placement")
+            logger.warning(f"SL failed in batch for {symbol}, retrying separately...")
+            sl_result = await self.place_stop_loss_order(symbol, close_side, quantity, sl_rounded, avg_price, symbol_info)
+            if sl_result:
+                sl_order_id = str(sl_result.get('orderId', ''))
+            else:
+                warnings.append("SL failed in batch and separate retry")
 
         if batch_result.get('tp'):
             tp_order_id = str(batch_result['tp'].get('orderId', ''))
         else:
-            warnings.append("TP failed in batch - needs separate placement")
-
-        if not batch_result.get('sl') or not batch_result.get('tp'):
-            import asyncio
-            close_side = 'SELL' if direction == 'LONG' else 'BUY'
-
-            loop = asyncio.get_event_loop()
-
-            if not batch_result.get('sl'):
-                sl_result = loop.run_until_complete(
-                    self.place_stop_loss_order(symbol, close_side, quantity, sl_rounded, avg_price, symbol_info)
-                )
-                if sl_result:
-                    sl_order_id = str(sl_result.get('orderId', ''))
-                    warnings.pop(0)
-
-            if not batch_result.get('tp'):
-                tp_result = loop.run_until_complete(
-                    self.place_take_profit_order(symbol, close_side, quantity, tp_rounded, avg_price, symbol_info)
-                )
-                if tp_result:
-                    tp_order_id = str(tp_result.get('orderId', ''))
-                    if warnings:
-                        warnings.pop()
+            logger.warning(f"TP failed in batch for {symbol}, retrying separately...")
+            tp_result = await self.place_take_profit_order(symbol, close_side, quantity, tp_rounded, avg_price, symbol_info)
+            if tp_result:
+                tp_order_id = str(tp_result.get('orderId', ''))
+            else:
+                warnings.append("TP failed in batch and all 3 separate retries")
 
         logger.info(
             f"Trade opened [BATCH]: {direction} {quantity} {symbol} @ {avg_price} "

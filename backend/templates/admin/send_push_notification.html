@@ -1,0 +1,69 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}Send Push Notification{% endblock %}
+
+{% block content %}
+<div style="max-width: 700px; margin: 0 auto;">
+    <h2 style="margin-bottom: 5px;">Send Push Notification</h2>
+    <p style="color: #666; margin-bottom: 20px;">
+        {{ subscriber_count }} active subscriber{{ subscriber_count|pluralize }}
+    </p>
+
+    <form method="post" style="background: #fff; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+        {% csrf_token %}
+
+        <div style="margin-bottom: 15px;">
+            <label for="target" style="display: block; font-weight: bold; margin-bottom: 5px;">Send To</label>
+            <select name="target" id="target" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                <option value="all" {% if form_target == 'all' %}selected{% endif %}>All Subscribers ({{ subscriber_count }})</option>
+                {% for user_id, username in users_with_subs %}
+                <option value="{{ user_id }}" {% if form_target == user_id|stringformat:"d" %}selected{% endif %}>{{ username }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div style="margin-bottom: 15px;">
+            <label for="title" style="display: block; font-weight: bold; margin-bottom: 5px;">Title *</label>
+            <input type="text" name="title" id="title" value="{{ form_title }}"
+                   placeholder="e.g. 🟢 LONG BTCUSDT [PRIORITY]"
+                   style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;"
+                   required>
+        </div>
+
+        <div style="margin-bottom: 15px;">
+            <label for="body" style="display: block; font-weight: bold; margin-bottom: 5px;">Body *</label>
+            <textarea name="body" id="body" rows="4"
+                      placeholder="e.g. Entry: $84,500 | SL: $83,200 | TP: $87,000"
+                      style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;"
+                      required>{{ form_body }}</textarea>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+            <button type="button" onclick="fillSignal()" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                Fill Signal Template
+            </button>
+            <button type="button" onclick="fillSession()" style="padding: 6px 12px; background: #17a2b8; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                Fill Session Template
+            </button>
+        </div>
+
+        <div style="border-top: 1px solid #eee; padding-top: 15px;">
+            <input type="submit" value="Send Notification"
+                   style="padding: 10px 25px; background: #417690; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold;">
+            <a href=".." style="margin-left: 10px; color: #666; text-decoration: none;">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<script>
+function fillSignal() {
+    document.getElementById('title').value = '🟢 LONG BTCUSDT [PRIORITY]';
+    document.getElementById('body').value = 'Entry: $84,500 | SL: $83,200 | TP: $87,000 | Conf: 85%';
+}
+function fillSession() {
+    document.getElementById('title').value = 'Trading Session Active - GW1';
+    document.getElementById('body').value = 'Started at 10:15 AM NPT | Ends at 11:30 NPT | Priority signals will auto-trade';
+}
+</script>
+{% endblock %}
