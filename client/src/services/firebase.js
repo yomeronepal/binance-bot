@@ -12,17 +12,18 @@ const firebaseConfig = {
 
 const VAPID_KEY = import.meta.env.VITE_FIREBASE_VAPID_KEY || 'BFIkedelUGPFVfvl_Yr-G0ZXzZ2KHchARgeS_7AYVpMTWenj-2EN2a7wKjiM9VNU4qaYJ5NzUMQN3Jkl-7JC5Ts';
 
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
 let app = null;
 let messaging = null;
 
 function getFirebaseApp() {
-  if (!app) {
-    app = initializeApp(firebaseConfig);
-  }
+  if (!app) app = initializeApp(firebaseConfig);
   return app;
 }
 
 async function getFirebaseMessaging() {
+  if (IS_IOS) return null;
   if (messaging) return messaging;
   const supported = await isSupported();
   if (!supported) return null;
@@ -52,16 +53,18 @@ export async function requestNotificationPermission() {
 
     const swReg = await getServiceWorkerRegistration();
 
-    let token = await tryFirebaseToken(swReg);
-    if (token) return token;
+    if (!IS_IOS) {
+      const token = await tryFirebaseToken(swReg);
+      if (token) return token;
+    }
 
-    token = await tryNativePush(swReg);
-    if (token) return token;
+    const nativeToken = await tryNativePush(swReg);
+    if (nativeToken) return nativeToken;
 
     console.error('[PUSH] All token methods failed');
     return null;
   } catch (error) {
-    console.error('[PUSH] Failed to get token:', error);
+    console.error('[PUSH] requestNotificationPermission error:', error);
     return null;
   }
 }
@@ -74,23 +77,31 @@ async function tryFirebaseToken(swReg) {
     console.log('[PUSH] FCM token:', token?.substring(0, 30) + '...');
     return token;
   } catch (error) {
-    console.warn('[PUSH] Firebase getToken failed, trying native:', error.message);
+    console.warn('[PUSH] Firebase getToken failed:', error.message);
     return null;
   }
 }
 
 async function tryNativePush(swReg) {
   try {
-    if (!swReg.pushManager) return null;
-    const subscription = await swReg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_KEY),
-    });
-    const token = JSON.stringify(subscription);
-    console.log('[PUSH] Native push subscription created');
-    return token;
+    if (!swReg.pushManager) {
+      console.warn('[PUSH] PushManager not available');
+      return null;
+    }
+
+    let subscription = await swReg.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await swReg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_KEY),
+      });
+    }
+
+    const token = btoa(JSON.stringify(subscription.toJSON()));
+    console.log('[PUSH] Native push token created');
+    return 'native:' + token;
   } catch (error) {
-    console.warn('[PUSH] Native push failed:', error.message);
+    console.warn('[PUSH] Native push subscribe failed:', error.message);
     return null;
   }
 }
@@ -120,9 +131,13 @@ export async function getFCMToken() {
   try {
     if (Notification.permission !== 'granted') return null;
     const swReg = await getServiceWorkerRegistration();
-    return await tryFirebaseToken(swReg) || await tryNativePush(swReg);
+    if (!IS_IOS) {
+      const token = await tryFirebaseToken(swReg);
+      if (token) return token;
+    }
+    return await tryNativePush(swReg);
   } catch (error) {
-    console.error('[PUSH] Failed to get token:', error);
+    console.error('[PUSH] getFCMToken error:', error);
     return null;
   }
 }
