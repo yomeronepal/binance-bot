@@ -51,15 +51,37 @@ export async function requestNotificationPermission() {
     }
 
     const swReg = await getServiceWorkerRegistration();
+
+    let token = await tryFirebaseToken(swReg);
+    if (token) return token;
+
+    token = await tryNativePush(swReg);
+    if (token) return token;
+
+    console.error('[PUSH] All token methods failed');
+    return null;
+  } catch (error) {
+    console.error('[PUSH] Failed to get token:', error);
+    return null;
+  }
+}
+
+async function tryFirebaseToken(swReg) {
+  try {
     const msg = await getFirebaseMessaging();
+    if (!msg) return null;
+    const token = await getToken(msg, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
+    console.log('[PUSH] FCM token:', token?.substring(0, 30) + '...');
+    return token;
+  } catch (error) {
+    console.warn('[PUSH] Firebase getToken failed, trying native:', error.message);
+    return null;
+  }
+}
 
-    if (msg) {
-      const token = await getToken(msg, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
-      console.log('[PUSH] FCM token:', token?.substring(0, 30) + '...');
-      return token;
-    }
-
-    console.log('[PUSH] Firebase messaging not supported, using native Push API');
+async function tryNativePush(swReg) {
+  try {
+    if (!swReg.pushManager) return null;
     const subscription = await swReg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(VAPID_KEY),
@@ -68,7 +90,7 @@ export async function requestNotificationPermission() {
     console.log('[PUSH] Native push subscription created');
     return token;
   } catch (error) {
-    console.error('[PUSH] Failed to get token:', error);
+    console.warn('[PUSH] Native push failed:', error.message);
     return null;
   }
 }
@@ -97,16 +119,8 @@ export async function onForegroundMessage(callback) {
 export async function getFCMToken() {
   try {
     if (Notification.permission !== 'granted') return null;
-
     const swReg = await getServiceWorkerRegistration();
-    const msg = await getFirebaseMessaging();
-
-    if (msg) {
-      return await getToken(msg, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
-    }
-
-    const subscription = await swReg.pushManager.getSubscription();
-    return subscription ? JSON.stringify(subscription) : null;
+    return await tryFirebaseToken(swReg) || await tryNativePush(swReg);
   } catch (error) {
     console.error('[PUSH] Failed to get token:', error);
     return null;
