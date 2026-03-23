@@ -82,7 +82,8 @@
       "Bash(node:*)",
       "Bash(make docker-restart:*)",
       "WebFetch(domain:revxsys.com)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(pip3 install:*)"
     ],
     "deny": [],
     "ask": []
