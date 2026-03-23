@@ -83,7 +83,8 @@
       "Bash(make docker-restart:*)",
       "WebFetch(domain:revxsys.com)",
       "Bash(npx vite:*)",
-      "Bash(pip3 install:*)"
+      "Bash(pip3 install:*)",
+      "Bash(md5 /Users/gunsnrojeshprajapati/Desktop/project/binance-bot/client/public/icon-192x192.png)"
     ],
     "deny": [],
     "ask": []
