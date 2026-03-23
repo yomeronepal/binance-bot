@@ -142,6 +142,8 @@ jobs:
             STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET || '' }}
             DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL || '' }}
             FIREBASE_CREDENTIALS_JSON=${{ secrets.FIREBASE_CREDENTIALS_JSON || '' }}
+            VAPID_PRIVATE_KEY=${{ secrets.VAPID_PRIVATE_KEY || '' }}
+            VAPID_EMAIL=mailto:admin@revxsys.com
             REACT_APP_API_URL=${{ secrets.REACT_APP_API_URL || 'http://localhost:8000' }}
             REACT_APP_WS_URL=${{ secrets.REACT_APP_WS_URL || 'ws://localhost:8000/ws/signals/' }}
             ENV_EOF

@@ -56,7 +56,12 @@ const PushNotificationBanner = () => {
       const token = await requestNotificationPermission();
 
       if (!token) {
-        setErrorMsg('Failed to get FCM token. Check console for details.');
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        if (isIOS) {
+          setErrorMsg('Push notifications are not yet supported on iOS Safari. Use Chrome on desktop or Android for push alerts.');
+        } else {
+          setErrorMsg('Failed to enable notifications. Try refreshing the page or use Chrome/Edge.');
+        }
         setLoading(false);
         return;
       }

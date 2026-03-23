@@ -176,10 +176,10 @@ def broadcast(title, body, data=None, signal_obj=None):
 
 def _send_multicast(tokens, title, body, data=None):
     """
-    Send a multicast message to a list of FCM tokens.
+    Send a multicast message to a list of tokens (FCM and native web push).
 
     Args:
-        tokens: List of FCM token strings.
+        tokens: List of FCM or native push token strings.
         title: Notification title.
         body: Notification body text.
         data: Optional dict of string key-value pairs.
@@ -187,9 +187,28 @@ def _send_multicast(tokens, title, body, data=None):
     Returns:
         dict with keys: sent, failed, total, error.
     """
+    fcm_tokens = [t for t in tokens if not t.startswith('native:')]
+    native_tokens = [t for t in tokens if t.startswith('native:')]
+
+    total_sent = 0
+    total_failed = 0
+    errors = []
+
+    if native_tokens:
+        native_result = _send_native_webpush(native_tokens, title, body, data)
+        total_sent += native_result['sent']
+        total_failed += native_result['failed']
+        if native_result.get('error'):
+            errors.append(native_result['error'])
+
+    if not fcm_tokens:
+        return {'sent': total_sent, 'failed': total_failed, 'total': len(tokens), 'error': '; '.join(errors)}
+
     app = get_firebase_app()
     if app is None:
-        return {'sent': 0, 'failed': len(tokens), 'total': len(tokens), 'error': 'Firebase not initialized'}
+        return {'sent': total_sent, 'failed': total_failed + len(fcm_tokens), 'total': len(tokens), 'error': 'Firebase not initialized'}
+
+    tokens = fcm_tokens
 
     try:
         from firebase_admin import messaging
@@ -235,15 +254,73 @@ def _send_multicast(tokens, title, body, data=None):
         )
 
         return {
-            'sent': response.success_count,
-            'failed': response.failure_count,
-            'total': len(tokens),
-            'error': '',
+            'sent': response.success_count + total_sent,
+            'failed': response.failure_count + total_failed,
+            'total': len(fcm_tokens) + len(native_tokens),
+            'error': '; '.join(errors) if errors else '',
         }
 
     except Exception as e:
         logger.error("Failed to send push notification: %s", e)
-        return {'sent': 0, 'failed': len(tokens), 'total': len(tokens), 'error': str(e)}
+        return {'sent': total_sent, 'failed': len(fcm_tokens) + total_failed, 'total': len(fcm_tokens) + len(native_tokens), 'error': str(e)}
+
+
+def _send_native_webpush(native_tokens, title, body, data=None):
+    """
+    Send push notifications to native web push subscriptions (Safari/iOS).
+
+    Args:
+        native_tokens: List of tokens prefixed with 'native:'.
+        title: Notification title.
+        body: Notification body text.
+        data: Optional dict of extra data.
+
+    Returns:
+        dict with keys: sent, failed, error.
+    """
+    try:
+        from pywebpush import webpush, WebPushException
+        import base64
+
+        vapid_private_key = os.getenv('VAPID_PRIVATE_KEY', '')
+        vapid_email = os.getenv('VAPID_EMAIL', 'mailto:admin@revxsys.com')
+
+        if not vapid_private_key:
+            logger.warning("VAPID_PRIVATE_KEY not set, cannot send native web push")
+            return {'sent': 0, 'failed': len(native_tokens), 'error': 'VAPID_PRIVATE_KEY not configured'}
+
+        payload = json.dumps({
+            'notification': {'title': title, 'body': body},
+            'data': data or {},
+        })
+
+        sent = 0
+        failed = 0
+
+        for token in native_tokens:
+            try:
+                sub_json = json.loads(base64.b64decode(token[7:]).decode('utf-8'))
+                webpush(
+                    subscription_info=sub_json,
+                    data=payload,
+                    vapid_private_key=vapid_private_key,
+                    vapid_claims={'sub': vapid_email},
+                )
+                sent += 1
+            except WebPushException as e:
+                logger.warning("Native webpush failed: %s", e)
+                if '410' in str(e) or '404' in str(e):
+                    _deactivate_stale_tokens([token])
+                failed += 1
+            except Exception as e:
+                logger.warning("Native webpush error: %s", e)
+                failed += 1
+
+        return {'sent': sent, 'failed': failed, 'error': ''}
+
+    except ImportError:
+        logger.warning("pywebpush not installed, cannot send native web push")
+        return {'sent': 0, 'failed': len(native_tokens), 'error': 'pywebpush not installed'}
 
 
 def _collect_stale_tokens(response, tokens):
