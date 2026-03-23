@@ -12,8 +12,6 @@ const firebaseConfig = {
 
 const VAPID_KEY = import.meta.env.VITE_FIREBASE_VAPID_KEY || 'BFIkedelUGPFVfvl_Yr-G0ZXzZ2KHchARgeS_7AYVpMTWenj-2EN2a7wKjiM9VNU4qaYJ5NzUMQN3Jkl-7JC5Ts';
 
-const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-
 let app = null;
 let messaging = null;
 
@@ -30,7 +28,6 @@ async function getFirebaseMessaging() {
     messaging = getMessaging(getFirebaseApp());
     return messaging;
   } catch (e) {
-    console.warn('[PUSH] Firebase messaging init failed:', e.message);
     return null;
   }
 }
@@ -47,49 +44,20 @@ async function getServiceWorkerRegistration() {
   return reg;
 }
 
-export async function requestNotificationPermission() {
-  try {
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') {
-      console.warn('[PUSH] Permission denied');
-      return null;
-    }
-
-    const swReg = await getServiceWorkerRegistration();
-
-    const fcmToken = await tryFirebaseToken(swReg);
-    if (fcmToken) return fcmToken;
-
-    const nativeToken = await tryNativePush(swReg);
-    if (nativeToken) return nativeToken;
-
-    console.error('[PUSH] All token methods failed. IS_IOS:', IS_IOS, 'PushManager:', !!swReg?.pushManager);
-    return null;
-  } catch (error) {
-    console.error('[PUSH] requestNotificationPermission error:', error);
-    return null;
-  }
-}
-
 async function tryFirebaseToken(swReg) {
   try {
     const msg = await getFirebaseMessaging();
-    if (!msg) return null;
+    if (!msg) return [null, 'messaging not supported'];
     const token = await getToken(msg, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
-    console.log('[PUSH] FCM token:', token?.substring(0, 30) + '...');
-    return token;
+    return [token, null];
   } catch (error) {
-    console.warn('[PUSH] Firebase getToken failed:', error.message);
-    return null;
+    return [null, error.message];
   }
 }
 
 async function tryNativePush(swReg) {
   try {
-    if (!swReg.pushManager) {
-      console.warn('[PUSH] PushManager not available');
-      return null;
-    }
+    if (!swReg.pushManager) return [null, 'PushManager not available'];
 
     let subscription = await swReg.pushManager.getSubscription();
     if (!subscription) {
@@ -100,12 +68,31 @@ async function tryNativePush(swReg) {
     }
 
     const token = btoa(JSON.stringify(subscription.toJSON()));
-    console.log('[PUSH] Native push token created');
-    return 'native:' + token;
+    return ['native:' + token, null];
   } catch (error) {
-    console.warn('[PUSH] Native push subscribe failed:', error.message);
-    return null;
+    return [null, error.message];
   }
+}
+
+export async function requestNotificationPermission() {
+  const errors = [];
+
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    throw new Error('Permission ' + permission);
+  }
+
+  const swReg = await getServiceWorkerRegistration();
+
+  const [fcmToken, fcmErr] = await tryFirebaseToken(swReg);
+  if (fcmToken) return fcmToken;
+  if (fcmErr) errors.push('FCM:' + fcmErr);
+
+  const [nativeToken, nativeErr] = await tryNativePush(swReg);
+  if (nativeToken) return nativeToken;
+  if (nativeErr) errors.push('Native:' + nativeErr);
+
+  throw new Error(errors.join(' | '));
 }
 
 export async function onForegroundMessage(callback) {
@@ -113,14 +100,12 @@ export async function onForegroundMessage(callback) {
     const msg = await getFirebaseMessaging();
     if (msg) {
       return onMessage(msg, (payload) => {
-        console.log('[PUSH] Foreground message:', payload);
         callback(payload);
       });
     }
 
     navigator.serviceWorker.addEventListener('message', (event) => {
       if (event.data && event.data.type === 'PUSH_RECEIVED') {
-        console.log('[PUSH] Foreground message (native):', event.data);
         callback({ notification: event.data.notification, data: event.data.data });
       }
     });
@@ -133,9 +118,11 @@ export async function getFCMToken() {
   try {
     if (Notification.permission !== 'granted') return null;
     const swReg = await getServiceWorkerRegistration();
-    return await tryFirebaseToken(swReg) || await tryNativePush(swReg);
+    const [fcm] = await tryFirebaseToken(swReg);
+    if (fcm) return fcm;
+    const [native] = await tryNativePush(swReg);
+    return native;
   } catch (error) {
-    console.error('[PUSH] getFCMToken error:', error);
     return null;
   }
 }
