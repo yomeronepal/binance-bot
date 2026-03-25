@@ -893,15 +893,64 @@ def _compute_streaks(closed_qs):
     return {'current': streak, 'max_win': max_win, 'max_loss': max_lose}
 
 
+def _load_candles_from_csv(symbol, timeframe, start_time, end_time):
+    """Load candles from local CSV backtest data if available."""
+    import csv
+    import os
+    from django.conf import settings
+
+    volatility_map = {
+        'BTCUSDT': 'low', 'ETHUSDT': 'low',
+        'ADAUSDT': 'medium', 'SOLUSDT': 'medium', 'BNBUSDT': 'medium', 'XRPUSDT': 'medium',
+        'DOGEUSDT': 'high', 'SHIBUSDT': 'high', 'PEPEUSDT': 'high',
+    }
+    vol = volatility_map.get(symbol)
+    if not vol:
+        return []
+
+    csv_path = os.path.join(settings.BASE_DIR, 'backtest_data', vol, f'{symbol}_{timeframe}.csv')
+    if not os.path.exists(csv_path):
+        return []
+
+    candles = []
+    start_str = start_time.strftime('%Y-%m-%d %H:%M')
+    end_str = end_time.strftime('%Y-%m-%d %H:%M')
+
+    try:
+        with open(csv_path, 'r') as f:
+            reader = csv.reader(f)
+            next(reader, None)
+            for row in reader:
+                ts_str = row[0][:16]
+                if ts_str < start_str:
+                    continue
+                if ts_str > end_str:
+                    break
+                from datetime import datetime as dt
+                ts = int(dt.strptime(row[0][:19], '%Y-%m-%d %H:%M:%S').timestamp())
+                candles.append({
+                    'time': ts,
+                    'open': float(row[1]),
+                    'high': float(row[2]),
+                    'low': float(row[3]),
+                    'close': float(row[4]),
+                    'volume': float(row[5]),
+                })
+    except Exception as e:
+        logger.warning(f"CSV load failed for replay: {e}")
+        return []
+
+    return candles
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def trade_replay(request, trade_id):
     """
     GET /api/public/paper-trading/replay/{trade_id}/
     Fetch candles around a trade for visual replay on a candlestick chart.
-    Returns candles from 20 candles before entry to 20 candles after exit.
+    Returns candles from 30 candles before entry to 30 candles after exit.
     """
-    import aiohttp
 
     try:
         trade = PaperTrade.objects.get(id=trade_id)
@@ -920,41 +969,39 @@ def trade_replay(request, trade_id):
     minutes = tf_minutes.get(timeframe, 60)
     padding = timedelta(minutes=minutes * 30)
 
-    start_ms = int((entry_time - padding).timestamp() * 1000)
-    end_ms = int((exit_time + padding).timestamp() * 1000)
+    start_time = entry_time - padding
+    end_time = exit_time + padding
 
-    async def fetch_candles():
-        url = 'https://fapi.binance.com/fapi/v1/klines'
+    candles = _load_candles_from_csv(symbol, timeframe, start_time, end_time)
+
+    if not candles:
+        import requests as req
+        start_ms = int(start_time.timestamp() * 1000)
+        end_ms = int(end_time.timestamp() * 1000)
         params = {
-            'symbol': symbol,
-            'interval': timeframe,
-            'startTime': start_ms,
-            'endTime': end_ms,
-            'limit': 500,
+            'symbol': symbol, 'interval': timeframe,
+            'startTime': start_ms, 'endTime': end_ms, 'limit': 500,
         }
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as resp:
-                if resp.status != 200:
-                    url_spot = 'https://api.binance.com/api/v3/klines'
-                    async with session.get(url_spot, params=params) as resp2:
-                        return await resp2.json()
-                return await resp.json()
+        for url in ['https://fapi.binance.com/fapi/v1/klines', 'https://api.binance.com/api/v3/klines']:
+            try:
+                resp = req.get(url, params=params, timeout=10)
+                if resp.status_code == 200:
+                    for c in resp.json():
+                        candles.append({
+                            'time': int(c[0]) // 1000,
+                            'open': float(c[1]),
+                            'high': float(c[2]),
+                            'low': float(c[3]),
+                            'close': float(c[4]),
+                            'volume': float(c[5]),
+                        })
+                    if candles:
+                        break
+            except Exception as e:
+                logger.warning(f"Binance {url} failed: {e}")
 
-    try:
-        candles_raw = asyncio.run(fetch_candles())
-    except Exception as e:
-        return Response({'error': f'Failed to fetch candles: {str(e)}'}, status=500)
-
-    candles = []
-    for c in candles_raw:
-        candles.append({
-            'time': int(c[0]) // 1000,
-            'open': float(c[1]),
-            'high': float(c[2]),
-            'low': float(c[3]),
-            'close': float(c[4]),
-            'volume': float(c[5]),
-        })
+    if not candles:
+        return Response({'error': 'No candle data available for this trade'}, status=404)
 
     markers = []
     entry_ts = int(entry_time.timestamp())

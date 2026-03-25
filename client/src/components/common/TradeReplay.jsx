@@ -46,7 +46,15 @@ const TradeReplay = ({ tradeId, onClose }) => {
       setTradeData(res.data.trade);
       setAllCandles(res.data.candles);
       setVisibleCount(res.data.candles.length);
-      setTimeout(() => initChart(res.data), 100);
+      setTimeout(() => {
+        initChart(res.data);
+        setTimeout(() => {
+          if (chartInstance.current && chartRef.current) {
+            chartInstance.current.applyOptions({ width: chartRef.current.clientWidth });
+            chartInstance.current.timeScale().fitContent();
+          }
+        }, 50);
+      }, 200);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load trade data');
     } finally {
@@ -55,12 +63,16 @@ const TradeReplay = ({ tradeId, onClose }) => {
   };
 
   const initChart = (data) => {
-    if (!chartRef.current) return;
+    if (!chartRef.current || !data.candles?.length) return;
     if (chartInstance.current) {
       chartInstance.current.remove();
+      chartInstance.current = null;
     }
 
-    const chart = createChart(chartRef.current, {
+    const container = chartRef.current;
+    const width = container.clientWidth || container.offsetWidth || 800;
+
+    const chart = createChart(container, {
       layout: {
         background: { type: ColorType.Solid, color: '#111827' },
         textColor: '#9ca3af',
@@ -79,7 +91,7 @@ const TradeReplay = ({ tradeId, onClose }) => {
         borderColor: '#374151',
         timeVisible: true,
       },
-      width: chartRef.current.clientWidth,
+      width: width,
       height: 400,
     });
 
@@ -304,9 +316,7 @@ const TradeReplay = ({ tradeId, onClose }) => {
           </div>
         </div>
 
-        <div className="flex-1 min-h-0">
-          <div ref={chartRef} className="w-full h-[400px]" />
-        </div>
+        <div style={{ width: '100%', height: '400px' }} ref={chartRef} />
 
         <div className="grid grid-cols-4 gap-px bg-gray-800 border-t border-gray-800">
           <div className="bg-gray-900 px-3 py-2 text-center">
