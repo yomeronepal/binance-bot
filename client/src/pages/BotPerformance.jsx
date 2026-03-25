@@ -1,8 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw, FileBarChart, LineChart, PlayCircle } from 'lucide-react';
+import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw, FileBarChart, LineChart, CirclePlay } from 'lucide-react';
 import TradeReport from '../components/common/TradeReport';
 import TradeCharts from '../components/common/TradeCharts';
-import TradeReplay from '../components/common/TradeReplay';
+import { lazy, Suspense } from 'react';
+const LazyTradeReplay = lazy(() => import('../components/common/TradeReplay'));
+
+const SafeTradeReplay = ({ tradeId, onClose }) => (
+  <Suspense fallback={
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center">
+      <div className="bg-gray-900 rounded-xl p-8 text-gray-300">Loading chart...</div>
+    </div>
+  }>
+    <LazyTradeReplay tradeId={tradeId} onClose={onClose} />
+  </Suspense>
+);
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
@@ -754,7 +765,7 @@ const BotPerformance = () => {
       </div >
     </div >
     {replayTradeId && (
-      <TradeReplay tradeId={replayTradeId} onClose={() => setReplayTradeId(null)} />
+      <SafeTradeReplay tradeId={replayTradeId} onClose={() => setReplayTradeId(null)} />
     )}
     </PullToRefresh>
   );
@@ -950,7 +961,7 @@ const TradeHistoryTable = ({ trades, onReplay }) => {
                 <td className="px-2 sm:px-4 py-2 sm:py-3">
                   <button onClick={() => onReplay?.(trade.id)} title="Replay trade"
                     className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                    <PlayCircle className="w-4 h-4 text-blue-500" />
+                    <CirclePlay className="w-4 h-4 text-blue-500" />
                   </button>
                 </td>
               </tr>

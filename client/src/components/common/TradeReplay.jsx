@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, LineStyle } from 'lightweight-charts';
-import { X, Loader, Play, Pause, SkipForward, RotateCcw, TrendingUp, TrendingDown } from 'lucide-react';
+import { X, Loader, Play, Pause, RotateCcw, TrendingUp, TrendingDown } from 'lucide-react';
 import api from '../../services/api';
 
 const formatPrice = (price) => {
@@ -13,8 +13,8 @@ const formatPrice = (price) => {
 };
 
 const TradeReplay = ({ tradeId, onClose }) => {
+  const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
-  const chartInstance = useRef(null);
   const candleSeriesRef = useRef(null);
   const volumeSeriesRef = useRef(null);
 
@@ -22,39 +22,36 @@ const TradeReplay = ({ tradeId, onClose }) => {
   const [error, setError] = useState(null);
   const [tradeData, setTradeData] = useState(null);
   const [allCandles, setAllCandles] = useState([]);
-  const [visibleCount, setVisibleCount] = useState(0);
+  const [allMarkers, setAllMarkers] = useState([]);
+  const [allLines, setAllLines] = useState([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(100);
-  const playIntervalRef = useRef(null);
+  const [visibleCount, setVisibleCount] = useState(0);
+  const playRef = useRef(null);
+  const [chartReady, setChartReady] = useState(false);
 
   useEffect(() => {
-    fetchReplayData();
+    loadData();
     return () => {
-      stopPlayback();
-      if (chartInstance.current) {
-        chartInstance.current.remove();
-        chartInstance.current = null;
+      clearInterval(playRef.current);
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
       }
     };
   }, [tradeId]);
 
-  const fetchReplayData = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
       setError(null);
+      setChartReady(false);
       const res = await api.get(`/public/paper-trading/${tradeId}/replay/`);
       setTradeData(res.data.trade);
-      setAllCandles(res.data.candles);
-      setVisibleCount(res.data.candles.length);
-      setTimeout(() => {
-        initChart(res.data);
-        setTimeout(() => {
-          if (chartInstance.current && chartRef.current) {
-            chartInstance.current.applyOptions({ width: chartRef.current.clientWidth });
-            chartInstance.current.timeScale().fitContent();
-          }
-        }, 50);
-      }, 200);
+      setAllCandles(res.data.candles || []);
+      setAllMarkers(res.data.markers || []);
+      setAllLines(res.data.lines || []);
+      setVisibleCount(res.data.candles?.length || 0);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load trade data');
     } finally {
@@ -62,17 +59,19 @@ const TradeReplay = ({ tradeId, onClose }) => {
     }
   };
 
-  const initChart = (data) => {
-    if (!chartRef.current || !data.candles?.length) return;
-    if (chartInstance.current) {
-      chartInstance.current.remove();
-      chartInstance.current = null;
+  const buildChart = useCallback(async () => {
+    const container = chartContainerRef.current;
+    if (!container || allCandles.length === 0) return;
+
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
     }
 
-    const container = chartRef.current;
-    const width = container.clientWidth || container.offsetWidth || 800;
-
+    container.innerHTML = '';
     const chart = createChart(container, {
+      width: container.clientWidth,
+      height: container.clientHeight,
       layout: {
         background: { type: ColorType.Solid, color: '#111827' },
         textColor: '#9ca3af',
@@ -81,25 +80,19 @@ const TradeReplay = ({ tradeId, onClose }) => {
         vertLines: { color: '#1f2937' },
         horzLines: { color: '#1f2937' },
       },
-      crosshair: {
-        mode: 0,
-      },
-      rightPriceScale: {
-        borderColor: '#374151',
-      },
-      timeScale: {
-        borderColor: '#374151',
-        timeVisible: true,
-      },
-      width: width,
-      height: 400,
+      rightPriceScale: { borderColor: '#374151', entireTextOnly: true },
+      timeScale: { borderColor: '#374151', timeVisible: true },
     });
 
-    const minPrice = Math.min(...data.candles.map(c => c.low));
-    const precision = minPrice >= 1000 ? 2 : minPrice >= 1 ? 4 : minPrice >= 0.01 ? 6 : 8;
-    const minMove = parseFloat((1 / Math.pow(10, precision)).toFixed(precision));
+    const minPrice = Math.min(...allCandles.map(c => c.low).filter(p => p > 0));
+    let precision = 2;
+    if (minPrice < 0.0001) precision = 8;
+    else if (minPrice < 0.01) precision = 6;
+    else if (minPrice < 1) precision = 5;
+    else if (minPrice < 100) precision = 4;
+    const minMove = 1 / Math.pow(10, precision);
 
-    const candleSeries = chart.addCandlestickSeries({
+    const candleOpts = {
       upColor: '#22c55e',
       downColor: '#ef4444',
       borderUpColor: '#22c55e',
@@ -107,18 +100,39 @@ const TradeReplay = ({ tradeId, onClose }) => {
       wickUpColor: '#22c55e',
       wickDownColor: '#ef4444',
       priceFormat: { type: 'price', precision, minMove },
-    });
-
-    const volumeSeries = chart.addHistogramSeries({
+    };
+    const volumeOpts = {
       color: '#3b82f680',
       priceFormat: { type: 'volume' },
       priceScaleId: '',
-    });
+    };
+
+    let candleSeries, volumeSeries;
+    if (chart.addCandlestickSeries) {
+      candleSeries = chart.addCandlestickSeries(candleOpts);
+      volumeSeries = chart.addHistogramSeries(volumeOpts);
+    } else {
+      const lc = await import('lightweight-charts');
+      candleSeries = chart.addSeries(lc.CandlestickSeries, candleOpts);
+      volumeSeries = chart.addSeries(lc.HistogramSeries, volumeOpts);
+    }
     volumeSeries.priceScale().applyOptions({
       scaleMargins: { top: 0.8, bottom: 0 },
     });
 
-    data.lines.forEach(line => {
+    console.log('[TradeReplay] Setting candle data:', allCandles.length, 'candles, container:', container.clientWidth, 'x', container.clientHeight, 'first:', allCandles[0]);
+    candleSeries.setData(allCandles);
+    volumeSeries.setData(allCandles.map(c => ({
+      time: c.time,
+      value: c.volume,
+      color: c.close >= c.open ? '#22c55e40' : '#ef444440',
+    })));
+
+    if (allMarkers.length > 0) {
+      candleSeries.setMarkers(allMarkers);
+    }
+
+    allLines.forEach(line => {
       candleSeries.createPriceLine({
         price: line.price,
         color: line.color,
@@ -129,120 +143,127 @@ const TradeReplay = ({ tradeId, onClose }) => {
       });
     });
 
-    chartInstance.current = chart;
+    chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
-
-    candleSeries.setData(data.candles);
-    volumeSeries.setData(data.candles.map(c => ({ time: c.time, value: c.volume, color: c.close >= c.open ? '#22c55e40' : '#ef444440' })));
-    candleSeries.setMarkers(data.markers);
+    setChartReady(true);
 
     chart.timeScale().fitContent();
 
-    const handleResize = () => {
-      if (chartRef.current) {
-        chart.applyOptions({ width: chartRef.current.clientWidth });
-      }
+    const onResize = () => {
+      chart.applyOptions({ width: container.clientWidth });
     };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  };
+    window.addEventListener('resize', onResize);
 
-  const startPlayback = () => {
-    if (isPlaying) return;
-    setIsPlaying(true);
-    setVisibleCount(1);
+    setTimeout(() => {
+      chart.applyOptions({ width: container.clientWidth });
+      chart.timeScale().fitContent();
+    }, 100);
+  }, [allCandles, allMarkers, allLines]);
 
-    if (candleSeriesRef.current) {
-      candleSeriesRef.current.setData([]);
-      volumeSeriesRef.current.setData([]);
-      candleSeriesRef.current.setMarkers([]);
+  useEffect(() => {
+    if (loading || allCandles.length === 0 || chartReady) return;
+    const container = chartContainerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry && entry.contentRect.width > 100) {
+        observer.disconnect();
+        buildChart();
+      }
+    });
+    observer.observe(container);
+
+    const fallback = setTimeout(() => {
+      observer.disconnect();
+      if (!chartReady) buildChart();
+    }, 500);
+
+    return () => {
+      observer.disconnect();
+      clearTimeout(fallback);
+    };
+  }, [loading, allCandles, chartReady, buildChart]);
+
+  const startReplay = () => {
+    if (isPlaying) {
+      clearInterval(playRef.current);
+      setIsPlaying(false);
+      return;
     }
 
-    let count = 1;
-    playIntervalRef.current = setInterval(() => {
+    setIsPlaying(true);
+    let count = 0;
+
+    candleSeriesRef.current?.setData([]);
+    volumeSeriesRef.current?.setData([]);
+    candleSeriesRef.current?.setMarkers([]);
+
+    playRef.current = setInterval(() => {
+      count++;
       if (count >= allCandles.length) {
-        stopPlayback();
-        if (tradeData) {
-          const markers = buildMarkers(tradeData, allCandles);
-          candleSeriesRef.current?.setMarkers(markers);
-        }
+        clearInterval(playRef.current);
+        setIsPlaying(false);
+        candleSeriesRef.current?.setMarkers(allMarkers);
+        setVisibleCount(allCandles.length);
         return;
       }
 
       const slice = allCandles.slice(0, count + 1);
       candleSeriesRef.current?.setData(slice);
-      volumeSeriesRef.current?.setData(
-        slice.map(c => ({ time: c.time, value: c.volume, color: c.close >= c.open ? '#22c55e40' : '#ef444440' }))
-      );
+      volumeSeriesRef.current?.setData(slice.map(c => ({
+        time: c.time,
+        value: c.volume,
+        color: c.close >= c.open ? '#22c55e40' : '#ef444440',
+      })));
 
-      const entryTs = tradeData ? new Date(tradeData.entry_time).getTime() / 1000 : 0;
-      const exitTs = tradeData?.exit_time ? new Date(tradeData.exit_time).getTime() / 1000 : 0;
-      const lastCandle = slice[slice.length - 1];
+      setVisibleCount(count + 1);
 
-      const markers = [];
-      if (lastCandle.time >= entryTs) {
-        markers.push(...buildMarkers(tradeData, slice, true, lastCandle.time >= exitTs));
+      if (tradeData) {
+        const entryTs = new Date(tradeData.entry_time).getTime() / 1000;
+        const exitTs = tradeData.exit_time ? new Date(tradeData.exit_time).getTime() / 1000 : Infinity;
+        const lastTs = slice[slice.length - 1].time;
+
+        const m = [];
+        if (lastTs >= entryTs) {
+          const closest = slice.reduce((a, b) => Math.abs(a.time - entryTs) < Math.abs(b.time - entryTs) ? a : b);
+          m.push({
+            time: closest.time,
+            position: tradeData.direction === 'LONG' ? 'belowBar' : 'aboveBar',
+            color: '#22c55e',
+            shape: tradeData.direction === 'LONG' ? 'arrowUp' : 'arrowDown',
+            text: 'ENTRY',
+          });
+        }
+        if (lastTs >= exitTs && tradeData.exit_time) {
+          const closest = slice.reduce((a, b) => Math.abs(a.time - exitTs) < Math.abs(b.time - exitTs) ? a : b);
+          m.push({
+            time: closest.time,
+            position: tradeData.direction === 'LONG' ? 'aboveBar' : 'belowBar',
+            color: (tradeData.profit_loss || 0) >= 0 ? '#22c55e' : '#ef4444',
+            shape: tradeData.direction === 'LONG' ? 'arrowDown' : 'arrowUp',
+            text: 'EXIT',
+          });
+        }
+        if (m.length) candleSeriesRef.current?.setMarkers(m.sort((a, b) => a.time - b.time));
       }
-      candleSeriesRef.current?.setMarkers(markers);
-
-      count++;
-      setVisibleCount(count);
     }, speed);
   };
 
-  const stopPlayback = () => {
-    setIsPlaying(false);
-    if (playIntervalRef.current) {
-      clearInterval(playIntervalRef.current);
-      playIntervalRef.current = null;
-    }
-  };
-
   const resetChart = () => {
-    stopPlayback();
-    if (candleSeriesRef.current && allCandles.length > 0) {
+    clearInterval(playRef.current);
+    setIsPlaying(false);
+    if (candleSeriesRef.current) {
       candleSeriesRef.current.setData(allCandles);
-      volumeSeriesRef.current.setData(
-        allCandles.map(c => ({ time: c.time, value: c.volume, color: c.close >= c.open ? '#22c55e40' : '#ef444440' }))
-      );
-      const markers = buildMarkers(tradeData, allCandles);
-      candleSeriesRef.current.setMarkers(markers);
-      chartInstance.current?.timeScale().fitContent();
+      volumeSeriesRef.current?.setData(allCandles.map(c => ({
+        time: c.time, value: c.volume,
+        color: c.close >= c.open ? '#22c55e40' : '#ef444440',
+      })));
+      candleSeriesRef.current.setMarkers(allMarkers);
+      chartRef.current?.timeScale().fitContent();
       setVisibleCount(allCandles.length);
     }
-  };
-
-  const buildMarkers = (trade, candles, showEntry = true, showExit = true) => {
-    if (!trade || candles.length === 0) return [];
-    const markers = [];
-    const entryTs = new Date(trade.entry_time).getTime() / 1000;
-    const closestEntry = candles.reduce((a, b) => Math.abs(a.time - entryTs) < Math.abs(b.time - entryTs) ? a : b);
-
-    if (showEntry) {
-      markers.push({
-        time: closestEntry.time,
-        position: trade.direction === 'LONG' ? 'belowBar' : 'aboveBar',
-        color: '#22c55e',
-        shape: trade.direction === 'LONG' ? 'arrowUp' : 'arrowDown',
-        text: `ENTRY $${formatPrice(trade.entry_price)}`,
-      });
-    }
-
-    if (showExit && trade.exit_price && trade.exit_time) {
-      const exitTs = new Date(trade.exit_time).getTime() / 1000;
-      const closestExit = candles.reduce((a, b) => Math.abs(a.time - exitTs) < Math.abs(b.time - exitTs) ? a : b);
-      const isWin = (trade.profit_loss || 0) >= 0;
-      markers.push({
-        time: closestExit.time,
-        position: trade.direction === 'LONG' ? 'aboveBar' : 'belowBar',
-        color: isWin ? '#22c55e' : '#ef4444',
-        shape: trade.direction === 'LONG' ? 'arrowDown' : 'arrowUp',
-        text: `EXIT $${formatPrice(trade.exit_price)}`,
-      });
-    }
-
-    return markers.sort((a, b) => a.time - b.time);
   };
 
   if (loading) {
@@ -273,10 +294,10 @@ const TradeReplay = ({ tradeId, onClose }) => {
   const isWin = pnl >= 0;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-      <div className="bg-gray-900 rounded-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-2 sm:p-4">
+      <div className="bg-gray-900 rounded-xl w-full max-w-5xl overflow-hidden flex flex-col" style={{ maxHeight: '90vh' }}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             {isLong ? <TrendingUp className="w-5 h-5 text-emerald-500" /> : <TrendingDown className="w-5 h-5 text-rose-500" />}
             <h3 className="font-bold text-white">{trade?.symbol}</h3>
             <span className={`text-xs font-bold px-2 py-0.5 rounded ${isLong ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
@@ -287,41 +308,39 @@ const TradeReplay = ({ tradeId, onClose }) => {
               {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)} USDT
             </span>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-800 rounded-lg transition-colors">
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-800 rounded-lg">
             <X className="w-5 h-5 text-gray-400" />
           </button>
         </div>
 
         <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-800 bg-gray-900/50">
-          <button onClick={isPlaying ? stopPlayback : startPlayback}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors">
+          <button onClick={startReplay}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white">
             {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
             {isPlaying ? 'Pause' : 'Replay'}
           </button>
           <button onClick={resetChart}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-700 hover:bg-gray-600 text-white transition-colors">
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-700 hover:bg-gray-600 text-white">
             <RotateCcw className="w-3.5 h-3.5" /> Reset
           </button>
           <div className="flex items-center gap-1 ml-2">
-            <span className="text-[10px] text-gray-500 uppercase">Speed</span>
-            {[200, 100, 50, 20].map(s => (
-              <button key={s} onClick={() => { setSpeed(s); if (isPlaying) { stopPlayback(); setTimeout(() => startPlayback(), 50); } }}
-                className={`px-2 py-1 rounded text-[10px] font-medium ${speed === s ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
-                {s === 200 ? '0.5x' : s === 100 ? '1x' : s === 50 ? '2x' : '5x'}
+            <span className="text-[10px] text-gray-500">SPEED</span>
+            {[{ ms: 200, label: '0.5x' }, { ms: 100, label: '1x' }, { ms: 50, label: '2x' }, { ms: 20, label: '5x' }].map(s => (
+              <button key={s.ms} onClick={() => setSpeed(s.ms)}
+                className={`px-2 py-1 rounded text-[10px] font-medium ${speed === s.ms ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                {s.label}
               </button>
             ))}
           </div>
-          <div className="ml-auto text-[10px] text-gray-500">
-            {visibleCount}/{allCandles.length} candles
-          </div>
+          <span className="ml-auto text-[10px] text-gray-500">{visibleCount}/{allCandles.length} candles</span>
         </div>
 
-        <div style={{ width: '100%', height: '400px' }} ref={chartRef} />
+        <div ref={chartContainerRef} style={{ width: '100%', height: '400px', minHeight: '400px' }} />
 
         <div className="grid grid-cols-4 gap-px bg-gray-800 border-t border-gray-800">
           <div className="bg-gray-900 px-3 py-2 text-center">
             <div className="text-[10px] text-gray-500">Entry</div>
-            <div className="text-sm font-mono text-blue-400">${trade?.entry_price ? formatPrice(trade.entry_price) : '0'}</div>
+            <div className="text-sm font-mono text-blue-400">${trade?.entry_price ? formatPrice(trade.entry_price) : '-'}</div>
           </div>
           <div className="bg-gray-900 px-3 py-2 text-center">
             <div className="text-[10px] text-gray-500">Exit</div>

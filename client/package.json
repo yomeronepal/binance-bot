@@ -13,7 +13,7 @@
     "axios": "^1.13.0",
     "date-fns": "^4.1.0",
     "firebase": "^12.11.0",
-    "lightweight-charts": "^5.1.0",
+    "lightweight-charts": "^4.2.2",
     "lucide-react": "^0.548.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
