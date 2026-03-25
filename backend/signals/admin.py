@@ -2222,8 +2222,12 @@ class BacktestTradeAdmin(admin.ModelAdmin):
 
 @admin.register(BacktestMetric)
 class BacktestMetricAdmin(admin.ModelAdmin):
-    list_display = ('id', 'backtest_run', 'metric_name', 'metric_value', 'created_at')
-    list_filter = ('metric_name',)
-    readonly_fields = ('backtest_run', 'metric_name', 'metric_value', 'created_at')
+    list_display = ('id', 'backtest_run', 'timestamp', 'equity', 'total_pnl', 'total_trades')
+    list_filter = ('backtest_run',)
+    readonly_fields = (
+        'backtest_run', 'timestamp', 'equity', 'cash', 'open_positions_value',
+        'total_pnl', 'unrealized_pnl', 'realized_pnl',
+        'total_trades', 'winning_trades', 'losing_trades', 'open_trades',
+    )
     list_per_page = 50
 
