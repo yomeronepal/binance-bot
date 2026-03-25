@@ -87,6 +87,7 @@ class BacktestRunSerializer(serializers.ModelSerializer):
             'avg_trade_duration_hours', 'avg_profit_per_trade',
             'sharpe_ratio', 'profit_factor',
             'equity_curve',
+            'progress_log', 'progress_pct',
             'created_at', 'updated_at'
         ]
         read_only_fields = [

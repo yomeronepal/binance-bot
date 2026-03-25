@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 
 class NoOpConsumer(AsyncWebsocketConsumer):
-    """Silently accept and close connections to unused WebSocket paths."""
 
     async def connect(self):
         await self.accept()
@@ -20,6 +19,37 @@ class NoOpConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, text_data=None, bytes_data=None):
         pass
+
+
+class BacktestConsumer(AsyncWebsocketConsumer):
+    """
+    WebSocket consumer for real-time backtest progress updates.
+    Client connects to ws/backtest/{id}/ to receive live logs.
+    """
+
+    async def connect(self):
+        self.backtest_id = self.scope['url_route']['kwargs']['backtest_id']
+        self.group_name = f'backtest_{self.backtest_id}'
+
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+        logger.info(f"Backtest WS connected: #{self.backtest_id}")
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def receive(self, text_data=None, bytes_data=None):
+        if not text_data:
+            return
+        data = json.loads(text_data)
+        if data.get('type') == 'ping':
+            await self.send(text_data=json.dumps({'type': 'pong'}))
+
+    async def backtest_progress(self, event):
+        await self.send(text_data=json.dumps(event['data']))
+
+    async def backtest_completed(self, event):
+        await self.send(text_data=json.dumps(event['data']))
 
 
 class SignalConsumer(AsyncWebsocketConsumer):

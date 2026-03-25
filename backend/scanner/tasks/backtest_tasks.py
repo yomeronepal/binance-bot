@@ -12,7 +12,7 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
-@shared_task(bind=True, max_retries=2, default_retry_delay=300)
+@shared_task(bind=True, max_retries=2, default_retry_delay=300, soft_time_limit=3600, time_limit=3900)
 def run_backtest_async(self, backtest_id: int):
     """
     Run a backtest asynchronously.
@@ -31,14 +31,46 @@ def run_backtest_async(self, backtest_id: int):
     try:
         logger.info(f"📊 Starting backtest {backtest_id}")
 
-        # Get backtest run
         backtest_run = BacktestRun.objects.get(id=backtest_id)
         backtest_run.status = 'RUNNING'
         backtest_run.started_at = timezone.now()
+        backtest_run.progress_log = []
+        backtest_run.progress_pct = 0
         backtest_run.save()
 
-        # Fetch historical data
-        logger.info(f"Fetching historical data for {len(backtest_run.symbols)} symbols...")
+        def log_progress(msg, pct=None):
+            from django.utils import timezone as tz
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+
+            entry = {
+                'time': tz.now().strftime('%H:%M:%S'),
+                'msg': msg,
+            }
+            backtest_run.progress_log.append(entry)
+            if pct is not None:
+                backtest_run.progress_pct = pct
+            backtest_run.save(update_fields=['progress_log', 'progress_pct'])
+
+            try:
+                channel_layer = get_channel_layer()
+                async_to_sync(channel_layer.group_send)(
+                    f'backtest_{backtest_id}',
+                    {
+                        'type': 'backtest_progress',
+                        'data': {
+                            'type': 'progress',
+                            'id': backtest_id,
+                            'status': backtest_run.status,
+                            'progress_pct': backtest_run.progress_pct,
+                            'log_entry': entry,
+                        }
+                    }
+                )
+            except Exception:
+                pass
+
+        log_progress(f"Starting backtest for {', '.join(backtest_run.symbols)}", 5)
 
         # Use asyncio.run() to prevent memory leaks - properly manages event loop lifecycle
         symbols_data = asyncio.run(
@@ -54,7 +86,8 @@ def run_backtest_async(self, backtest_id: int):
         if not symbols_data:
             raise Exception("No historical data fetched")
 
-        logger.info(f"Fetched data for {len(symbols_data)} symbols")
+        total_candles = sum(len(k) for k in symbols_data.values())
+        log_progress(f"Loaded {total_candles:,} candles for {len(symbols_data)} symbols", 15)
 
         # Generate signals using strategy
         logger.info("Generating signals from historical data...")
@@ -64,14 +97,16 @@ def run_backtest_async(self, backtest_id: int):
         # Volatility-aware mode overrides sl_atr_multiplier, tp_atr_multiplier, adx_min, and min_confidence
         # which prevents us from testing different parameter combinations
         engine = SignalDetectionEngine(signal_config, use_volatility_aware=False)
-        logger.info("Signal engine initialized (volatility-aware mode DISABLED for parameter testing)")
+        log_progress(f"Signal engine ready (conf={signal_config.min_confidence}, RSI={signal_config.long_rsi_min}-{signal_config.long_rsi_max})", 20)
 
         signals = []
         for symbol, klines in symbols_data.items():
             if not klines:
                 continue
 
-            logger.info(f"Processing {symbol} with {len(klines)} candles...")
+            sym_idx = list(symbols_data.keys()).index(symbol)
+            base_pct = 20 + int((sym_idx / max(len(symbols_data), 1)) * 50)
+            log_progress(f"Processing {symbol} ({len(klines):,} candles)", base_pct)
 
             # Process candles sequentially to simulate real-time signal generation
             # Add candles one by one and check for signals after each
@@ -103,22 +138,19 @@ def run_backtest_async(self, backtest_id: int):
                         'confidence': signal_data.get('confidence', 0.7),
                         'indicators': signal_data.get('conditions_met', {})
                     })
-                    logger.info(f"✅ Signal generated for {symbol}: {signal_data['direction']} @ {signal_data['entry']}")
+                    log_progress(f"Signal: {signal_data['direction']} {symbol} @ {signal_data['entry']}")
 
-        logger.info(f"Generated {len(signals)} signals across {len(symbols_data)} symbols")
-
-        # Run backtest
-        logger.info("Running backtest simulation...")
+        log_progress(f"Generated {len(signals)} signals total", 75)
         backtest_engine = BacktestEngine(
             initial_capital=backtest_run.initial_capital,
             position_size=backtest_run.position_size,
             strategy_params=backtest_run.strategy_params
         )
 
+        log_progress("Running backtest simulation...", 80)
         results = backtest_engine.run_backtest(symbols_data, signals)
 
-        # Save results
-        logger.info("Saving backtest results...")
+        log_progress(f"Simulation done: {results['total_trades']} trades, {float(results['win_rate']):.1f}% win rate", 90)
 
         # Update backtest run with metrics
         backtest_run.total_trades = results['total_trades']
@@ -136,7 +168,34 @@ def run_backtest_async(self, backtest_id: int):
         backtest_run.equity_curve = results.get('equity_curve', [])
         backtest_run.status = 'COMPLETED'
         backtest_run.completed_at = timezone.now()
+        backtest_run.progress_pct = 100
+        backtest_run.progress_log.append({
+            'time': timezone.now().strftime('%H:%M:%S'),
+            'msg': f"Completed: {results['total_trades']} trades, ROI: {float(results['roi']):.2f}%"
+        })
         backtest_run.save()
+
+        try:
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f'backtest_{backtest_id}',
+                {
+                    'type': 'backtest_completed',
+                    'data': {
+                        'type': 'completed',
+                        'id': backtest_id,
+                        'status': 'COMPLETED',
+                        'progress_pct': 100,
+                        'total_trades': results['total_trades'],
+                        'win_rate': float(results['win_rate']),
+                        'roi': float(results['roi']),
+                    }
+                }
+            )
+        except Exception:
+            pass
 
         # Save trades
         for trade_data in results['closed_trades']:
@@ -188,6 +247,22 @@ def run_backtest_async(self, backtest_id: int):
             backtest_run.error_message = str(exc)
             backtest_run.completed_at = timezone.now()
             backtest_run.save()
+
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f'backtest_{backtest_id}',
+                {
+                    'type': 'backtest_completed',
+                    'data': {
+                        'type': 'failed',
+                        'id': backtest_id,
+                        'status': 'FAILED',
+                        'error': str(exc),
+                    }
+                }
+            )
         except Exception as db_error:
             logger.error(f"Failed to update backtest status to FAILED: {db_error}", exc_info=True)
 
@@ -370,25 +445,19 @@ def generate_recommendations_async(
 
 
 def _dict_to_signal_config(params: dict):
-    """Convert parameter dict to SignalConfig."""
+    """Convert parameter dict to SignalConfig. Maps all matching fields dynamically."""
     from scanner.strategies.signal_engine import SignalConfig
+    import dataclasses
 
     config = SignalConfig()
+    valid_fields = {f.name for f in dataclasses.fields(SignalConfig)}
 
-    param_mapping = {
-        'long_rsi_min': 'long_rsi_min',
-        'long_rsi_max': 'long_rsi_max',
-        'short_rsi_min': 'short_rsi_min',
-        'short_rsi_max': 'short_rsi_max',
-        'long_adx_min': 'long_adx_min',
-        'short_adx_min': 'short_adx_min',
-        'sl_atr_multiplier': 'sl_atr_multiplier',
-        'tp_atr_multiplier': 'tp_atr_multiplier',
-        'min_confidence': 'min_confidence',
-    }
-
-    for param_key, config_key in param_mapping.items():
-        if param_key in params:
-            setattr(config, config_key, params[param_key])
+    for key, value in params.items():
+        if key in valid_fields:
+            try:
+                current = getattr(config, key)
+                setattr(config, key, type(current)(value))
+            except (ValueError, TypeError):
+                pass
 
     return config

@@ -120,7 +120,7 @@ services:
   celery:
     image: yomeronepal/binance-bot-backend:latest
     container_name: binancebot_celery_prod
-    command: sh -c "celery -A config worker -l info --concurrency=2 -Q celery,paper_trading,notifications,maintenance,backtesting,futures_trading"
+    command: sh -c "celery -A config worker -l info --concurrency=2 -Q celery,paper_trading,notifications,maintenance,futures_trading"
     env_file:
       - .env
     depends_on:
@@ -148,9 +148,20 @@ services:
       - binancebot_network
     restart: unless-stopped
 
-  # -------------------------
-  # Celery Beat
-  # -------------------------
+  celery-backtest:
+    image: yomeronepal/binance-bot-backend:latest
+    container_name: binancebot_celery_backtest_prod
+    command: sh -c "celery -A config worker -l info --concurrency=2 -Q backtesting -n backtest@%h"
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+      - web
+    networks:
+      - binancebot_network
+    restart: unless-stopped
+
   celery-beat:
     image: yomeronepal/binance-bot-backend:latest
     container_name: binancebot_celery_beat_prod

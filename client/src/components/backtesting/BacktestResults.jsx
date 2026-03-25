@@ -12,7 +12,7 @@ const BacktestResults = ({ backtest }) => {
     fetchBacktestDetails,
     fetchBacktestTrades,
     fetchBacktestMetrics,
-    pollBacktestStatus,
+    connectBacktestWS,
     stopPolling,
     currentBacktest,
     backtestTrades,
@@ -25,6 +25,7 @@ const BacktestResults = ({ backtest }) => {
 
   useEffect(() => {
     if (backtest) {
+      stopPolling();
       loadBacktestData();
     }
 
@@ -44,9 +45,7 @@ const BacktestResults = ({ backtest }) => {
           fetchBacktestMetrics(backtest.id)
         ]);
       } else if (details.status === 'RUNNING' || details.status === 'PENDING') {
-        // Start polling for updates
-        pollBacktestStatus(backtest.id, async (completedBacktest) => {
-          // Load trades and metrics after completion
+        connectBacktestWS(backtest.id, async (completedBacktest) => {
           await Promise.all([
             fetchBacktestTrades(completedBacktest.id),
             fetchBacktestMetrics(completedBacktest.id)
@@ -105,10 +104,26 @@ const BacktestResults = ({ backtest }) => {
         </div>
 
         {isRunning && (
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mt-4">
-            <p className="text-blue-300 text-sm">
-              Backtest is running... This may take a few minutes depending on the date range and number of symbols.
-            </p>
+          <div className="mt-4 space-y-3">
+            {data.progress_pct > 0 && (
+              <div className="w-full bg-gray-700 rounded-full h-2">
+                <div className="bg-blue-500 h-2 rounded-full transition-all duration-500" style={{ width: `${data.progress_pct}%` }} />
+              </div>
+            )}
+            <div className="bg-gray-900/50 border border-gray-700/50 rounded-lg p-3 max-h-48 overflow-y-auto">
+              {(data.progress_log || []).length === 0 ? (
+                <p className="text-gray-500 text-xs">Waiting for logs...</p>
+              ) : (
+                <div className="space-y-1">
+                  {(data.progress_log || []).map((log, i) => (
+                    <div key={i} className="flex items-start gap-2 text-xs">
+                      <span className="text-gray-500 font-mono flex-shrink-0">{log.time}</span>
+                      <span className={`${log.msg?.includes('Signal:') ? 'text-emerald-400' : 'text-gray-300'}`}>{log.msg}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -229,6 +244,19 @@ const BacktestResults = ({ backtest }) => {
                   Trades ({backtestTrades.length})
                 </div>
               </button>
+              <button
+                onClick={() => setActiveTab('logs')}
+                className={`flex-1 px-6 py-4 font-medium transition-colors ${
+                  activeTab === 'logs'
+                    ? 'bg-blue-500/10 text-blue-400 border-b-2 border-blue-500'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center justify-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  Logs ({(data.progress_log || []).length})
+                </div>
+              </button>
             </div>
 
             <div className="p-6">
@@ -237,6 +265,25 @@ const BacktestResults = ({ backtest }) => {
               )}
               {activeTab === 'trades' && (
                 <TradesTable trades={backtestTrades} />
+              )}
+              {activeTab === 'logs' && (
+                <div className="space-y-1 max-h-96 overflow-y-auto">
+                  {(data.progress_log || []).length === 0 ? (
+                    <p className="text-gray-500 text-sm">No logs available</p>
+                  ) : (
+                    (data.progress_log || []).map((log, i) => (
+                      <div key={i} className="flex items-start gap-3 py-1.5 border-b border-gray-800/50 last:border-0">
+                        <span className="text-gray-500 font-mono text-xs flex-shrink-0 pt-0.5">{log.time}</span>
+                        <span className={`text-sm ${
+                          log.msg?.includes('Signal:') ? 'text-emerald-400' :
+                          log.msg?.includes('Completed') ? 'text-green-400 font-medium' :
+                          log.msg?.includes('Failed') ? 'text-red-400' :
+                          'text-gray-300'
+                        }`}>{log.msg}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
               )}
             </div>
           </div>

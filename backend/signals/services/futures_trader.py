@@ -345,13 +345,17 @@ class BinanceFuturesTrader:
         Place a stop loss order with 3-level fallback.
         Order: quantity+reduceOnly -> closePosition -> algo order.
         """
-        if current_price:
+        if current_price and current_price > 0:
             if side == 'SELL' and stop_price >= current_price:
                 stop_price = current_price * Decimal('0.97')
                 logger.warning(f"SL auto-corrected to 3% below entry: {stop_price}")
             if side == 'BUY' and stop_price <= current_price:
                 stop_price = current_price * Decimal('1.03')
                 logger.warning(f"SL auto-corrected to 3% above entry: {stop_price}")
+
+        if stop_price <= 0:
+            logger.error(f"SL price is {stop_price}, cannot place order")
+            return None
 
         if symbol_info:
             stop_price = self._round_price(stop_price, symbol_info)
@@ -387,13 +391,17 @@ class BinanceFuturesTrader:
         Place a take profit order with 3-level fallback.
         Order: quantity+reduceOnly -> closePosition -> algo order.
         """
-        if current_price:
+        if current_price and current_price > 0:
             if side == 'SELL' and take_profit_price <= current_price:
                 take_profit_price = current_price * Decimal('1.05')
                 logger.warning(f"TP auto-corrected to 5% above entry: {take_profit_price}")
             if side == 'BUY' and take_profit_price >= current_price:
                 take_profit_price = current_price * Decimal('0.95')
                 logger.warning(f"TP auto-corrected to 5% below entry: {take_profit_price}")
+
+        if take_profit_price <= 0:
+            logger.error(f"TP price is {take_profit_price}, cannot place order")
+            return None
 
         if symbol_info:
             take_profit_price = self._round_price(take_profit_price, symbol_info)
@@ -845,7 +853,10 @@ class BinanceFuturesTrader:
             Dict with trade result
         """
         entry = batch_result['entry']
-        avg_price = Decimal(entry.get('avgPrice', str(current_price)))
+        raw_avg = entry.get('avgPrice', '0')
+        avg_price = Decimal(raw_avg) if raw_avg and Decimal(raw_avg) > 0 else current_price
+        if Decimal(raw_avg or '0') <= 0:
+            logger.warning(f"Batch avgPrice was {raw_avg}, using current_price {current_price} instead")
 
         warnings = []
         sl_order_id = None

@@ -106,6 +106,75 @@ class BacktestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+    @action(detail=False, methods=['get'])
+    def datasets(self, request):
+        """
+        GET /api/backtest/datasets/
+        Scan backtest_data/ and return available symbols, timeframes, and date ranges.
+        """
+        import os
+        import csv
+        from django.conf import settings
+
+        base_dir = os.path.join(settings.BASE_DIR, 'backtest_data')
+        datasets = []
+
+        for volatility in ['low', 'medium', 'high']:
+            vol_dir = os.path.join(base_dir, volatility)
+            if not os.path.isdir(vol_dir):
+                continue
+
+            for fname in sorted(os.listdir(vol_dir)):
+                if not fname.endswith('.csv'):
+                    continue
+
+                parts = fname.replace('.csv', '').split('_')
+                if len(parts) < 2:
+                    continue
+
+                symbol = parts[0]
+                timeframe = parts[1]
+                fpath = os.path.join(vol_dir, fname)
+
+                first_date, last_date, row_count = None, None, 0
+                try:
+                    with open(fpath, 'r') as f:
+                        reader = csv.reader(f)
+                        header = next(reader, None)
+                        first_row = next(reader, None)
+                        if first_row:
+                            first_date = first_row[0][:10]
+                            row_count = 1
+                            for row in reader:
+                                last_date = row[0][:10]
+                                row_count += 1
+                            if not last_date:
+                                last_date = first_date
+                except Exception:
+                    continue
+
+                datasets.append({
+                    'symbol': symbol,
+                    'timeframe': timeframe,
+                    'volatility': volatility,
+                    'start_date': first_date,
+                    'end_date': last_date,
+                    'candles': row_count,
+                    'file': fname,
+                })
+
+        symbols = sorted(set(d['symbol'] for d in datasets))
+        timeframes_available = sorted(
+            set(d['timeframe'] for d in datasets),
+            key=lambda t: ['1m', '5m', '15m', '1h', '4h', '1d'].index(t) if t in ['1m', '5m', '15m', '1h', '4h', '1d'] else 99
+        )
+
+        return Response({
+            'symbols': symbols,
+            'timeframes': timeframes_available,
+            'datasets': datasets,
+        })
+
     @action(detail=True, methods=['get'])
     def trades(self, request, pk=None):
         """

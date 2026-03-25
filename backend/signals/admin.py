@@ -19,6 +19,7 @@ from .models_futures import (
 )
 from .models_blacklist import BlacklistedSymbol
 from .models_push import PushSubscription, NotificationLog
+from .models_backtest import BacktestRun, BacktestTrade, BacktestMetric
 
 
 class BaseModelAdmin(admin.ModelAdmin):
@@ -2110,4 +2111,119 @@ class NotificationLogAdmin(admin.ModelAdmin):
             f'border-radius: 3px; font-size: 11px;">{obj.status}</span>'
         )
     status_badge.short_description = 'Status'
+
+
+class BacktestTradeInline(admin.TabularInline):
+    model = BacktestTrade
+    extra = 0
+    readonly_fields = (
+        'symbol', 'direction', 'entry_price', 'exit_price',
+        'stop_loss', 'take_profit', 'profit_loss', 'profit_loss_percentage',
+        'status', 'opened_at', 'closed_at', 'duration_hours',
+    )
+    fields = readonly_fields
+    can_delete = False
+    show_change_link = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(BacktestRun)
+class BacktestRunAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'name', 'status_badge', 'symbols_display', 'timeframe',
+        'total_trades', 'win_rate_display', 'roi_display', 'created_at',
+    )
+    list_filter = ('status', 'timeframe', 'created_at')
+    search_fields = ('name',)
+    readonly_fields = (
+        'status', 'started_at', 'completed_at', 'error_message',
+        'total_trades', 'winning_trades', 'losing_trades', 'win_rate',
+        'total_profit_loss', 'roi', 'max_drawdown', 'sharpe_ratio',
+        'profit_factor', 'progress_pct', 'created_at', 'updated_at',
+    )
+    inlines = [BacktestTradeInline]
+    date_hierarchy = 'created_at'
+    list_per_page = 25
+    ordering = ('-created_at',)
+
+    fieldsets = (
+        ('Configuration', {
+            'fields': ('name', 'user', 'symbols', 'timeframe', 'start_date', 'end_date',
+                       'initial_capital', 'position_size', 'strategy_params'),
+        }),
+        ('Execution', {
+            'fields': ('status', 'progress_pct', 'started_at', 'completed_at', 'error_message'),
+        }),
+        ('Results', {
+            'fields': ('total_trades', 'winning_trades', 'losing_trades', 'win_rate',
+                       'total_profit_loss', 'roi', 'max_drawdown', 'sharpe_ratio', 'profit_factor'),
+        }),
+    )
+
+    def status_badge(self, obj):
+        colors = {'COMPLETED': '#28a745', 'FAILED': '#dc3545', 'RUNNING': '#007bff', 'PENDING': '#6c757d'}
+        color = colors.get(obj.status, '#6c757d')
+        return mark_safe(
+            f'<span style="background:{color};color:white;padding:2px 8px;border-radius:3px;font-size:11px;">'
+            f'{obj.status}</span>'
+        )
+    status_badge.short_description = 'Status'
+
+    def symbols_display(self, obj):
+        return ', '.join(obj.symbols) if obj.symbols else '-'
+    symbols_display.short_description = 'Symbols'
+
+    def win_rate_display(self, obj):
+        if obj.win_rate:
+            return f'{obj.win_rate:.1f}%'
+        return '-'
+    win_rate_display.short_description = 'Win Rate'
+
+    def roi_display(self, obj):
+        if obj.roi is None:
+            return '-'
+        color = '#28a745' if obj.roi >= 0 else '#dc3545'
+        return mark_safe(f'<span style="color:{color};font-weight:bold;">{obj.roi:+.2f}%</span>')
+    roi_display.short_description = 'ROI'
+
+
+@admin.register(BacktestTrade)
+class BacktestTradeAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'backtest_run', 'symbol', 'direction_badge', 'entry_price',
+        'exit_price', 'pnl_display', 'status', 'duration_hours',
+    )
+    list_filter = ('direction', 'status', 'symbol')
+    readonly_fields = (
+        'backtest_run', 'symbol', 'direction', 'entry_price', 'exit_price',
+        'stop_loss', 'take_profit', 'position_size', 'quantity',
+        'profit_loss', 'profit_loss_percentage', 'status',
+        'opened_at', 'closed_at', 'duration_hours',
+    )
+    list_per_page = 50
+
+    def direction_badge(self, obj):
+        color = '#28a745' if obj.direction == 'LONG' else '#dc3545'
+        return mark_safe(
+            f'<span style="background:{color};color:white;padding:2px 6px;border-radius:3px;font-size:11px;">'
+            f'{obj.direction}</span>'
+        )
+    direction_badge.short_description = 'Direction'
+
+    def pnl_display(self, obj):
+        if obj.profit_loss is None:
+            return '-'
+        color = '#28a745' if obj.profit_loss >= 0 else '#dc3545'
+        return mark_safe(f'<span style="color:{color};font-weight:bold;">${obj.profit_loss:+.2f}</span>')
+    pnl_display.short_description = 'P/L'
+
+
+@admin.register(BacktestMetric)
+class BacktestMetricAdmin(admin.ModelAdmin):
+    list_display = ('id', 'backtest_run', 'metric_name', 'metric_value', 'created_at')
+    list_filter = ('metric_name',)
+    readonly_fields = ('backtest_run', 'metric_name', 'metric_value', 'created_at')
+    list_per_page = 50
 

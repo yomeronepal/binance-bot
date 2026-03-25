@@ -27,12 +27,16 @@ const useBacktestStore = create((set, get) => ({
     }
   },
 
-  // Fetch single backtest details
   fetchBacktestDetails: async (id) => {
     set({ loading: true, error: null });
     try {
       const response = await api.get(`/backtest/${id}/`);
-      set({ currentBacktest: response.data, loading: false });
+      const current = get().currentBacktest;
+      if (!current || current.id === id) {
+        set({ currentBacktest: response.data, loading: false });
+      } else {
+        set({ loading: false });
+      }
       return response.data;
     } catch (error) {
       console.error('Error fetching backtest details:', error);
@@ -93,51 +97,79 @@ const useBacktestStore = create((set, get) => ({
     }
   },
 
-  // Poll backtest status
-  pollBacktestStatus: async (id, onComplete) => {
-    const poll = async () => {
-      try {
-        const backtest = await get().fetchBacktestDetails(id);
+  connectBacktestWS: (id, onComplete) => {
+    get().stopPolling();
 
-        if (backtest.status === 'COMPLETED') {
-          set({ taskStatus: 'COMPLETED' });
-          if (onComplete) onComplete(backtest);
-          return true; // Stop polling
-        } else if (backtest.status === 'FAILED') {
-          set({ taskStatus: 'FAILED', error: backtest.error_message || 'Backtest failed' });
-          return true; // Stop polling
-        } else {
-          set({ taskStatus: backtest.status });
-          return false; // Continue polling
+    const wsBase = import.meta.env.VITE_WS_URL?.replace('/ws/signals/', '') || 'ws://localhost:8000';
+    const wsUrl = `${wsBase}/ws/backtest/${id}/`;
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      set({ taskStatus: 'RUNNING' });
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'progress') {
+          set((state) => {
+            const current = state.currentBacktest;
+            if (!current || current.id !== data.id) return {};
+
+            const updatedLog = [...(current.progress_log || []), data.log_entry];
+            return {
+              currentBacktest: {
+                ...current,
+                progress_pct: data.progress_pct,
+                progress_log: updatedLog,
+                status: data.status,
+              },
+              taskStatus: data.status,
+            };
+          });
         }
-      } catch (error) {
-        console.error('Error polling backtest status:', error);
-        return false; // Continue polling on error
+
+        if (data.type === 'completed') {
+          set((state) => ({
+            taskStatus: 'COMPLETED',
+            backtests: state.backtests.map(b => b.id === data.id ? { ...b, status: 'COMPLETED' } : b),
+          }));
+          if (onComplete) {
+            api.get(`/backtest/${id}/`).then(res => onComplete(res.data));
+          }
+          ws.close();
+        }
+
+        if (data.type === 'failed') {
+          set((state) => ({
+            taskStatus: 'FAILED',
+            error: data.error || 'Backtest failed',
+            backtests: state.backtests.map(b => b.id === data.id ? { ...b, status: 'FAILED' } : b),
+          }));
+          ws.close();
+        }
+      } catch (e) {
+        console.error('WS parse error:', e);
       }
     };
 
-    // Initial poll
-    const shouldStop = await poll();
-    if (shouldStop) return;
+    ws.onerror = (err) => {
+      console.warn('Backtest WS error:', err);
+    };
 
-    // Poll every 3 seconds
-    const intervalId = setInterval(async () => {
-      const shouldStop = await poll();
-      if (shouldStop) {
-        clearInterval(intervalId);
-      }
-    }, 3000);
+    ws.onclose = () => {
+      set({ backtestWS: null });
+    };
 
-    // Store interval ID for cleanup
-    set({ pollingIntervalId: intervalId });
+    set({ backtestWS: ws });
   },
 
-  // Stop polling
   stopPolling: () => {
-    const { pollingIntervalId } = get();
-    if (pollingIntervalId) {
-      clearInterval(pollingIntervalId);
-      set({ pollingIntervalId: null });
+    const { backtestWS } = get();
+    if (backtestWS) {
+      backtestWS.close();
+      set({ backtestWS: null });
     }
   },
 

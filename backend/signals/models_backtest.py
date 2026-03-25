@@ -57,6 +57,8 @@ class BacktestRun(models.Model):
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
+    progress_log = models.JSONField(default=list, blank=True, help_text="Step-by-step execution log")
+    progress_pct = models.IntegerField(default=0, help_text="Progress percentage 0-100")
 
     # Performance Metrics (computed after backtest completes)
     total_trades = models.IntegerField(default=0)
