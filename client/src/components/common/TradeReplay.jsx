@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, LineStyle } from 'lightweight-charts';
 import { X, Loader, Play, Pause, RotateCcw, TrendingUp, TrendingDown } from 'lucide-react';
 import api from '../../services/api';
+import useThemeStore from '../../store/useThemeStore';
 
 const formatPrice = (price) => {
   if (!price || price === 0) return '0';
@@ -29,6 +30,8 @@ const TradeReplay = ({ tradeId, onClose }) => {
   const [visibleCount, setVisibleCount] = useState(0);
   const playRef = useRef(null);
   const [chartReady, setChartReady] = useState(false);
+  const { theme } = useThemeStore();
+  const isDark = theme === 'dark';
 
   useEffect(() => {
     loadData();
@@ -73,15 +76,15 @@ const TradeReplay = ({ tradeId, onClose }) => {
       width: container.clientWidth,
       height: container.clientHeight,
       layout: {
-        background: { type: ColorType.Solid, color: '#111827' },
-        textColor: '#9ca3af',
+        background: { type: ColorType.Solid, color: isDark ? '#111827' : '#ffffff' },
+        textColor: isDark ? '#9ca3af' : '#475569',
       },
       grid: {
-        vertLines: { color: '#1f2937' },
-        horzLines: { color: '#1f2937' },
+        vertLines: { color: isDark ? '#1f2937' : '#f1f5f9' },
+        horzLines: { color: isDark ? '#1f2937' : '#f1f5f9' },
       },
-      rightPriceScale: { borderColor: '#374151', entireTextOnly: true },
-      timeScale: { borderColor: '#374151', timeVisible: true },
+      rightPriceScale: { borderColor: isDark ? '#374151' : '#e2e8f0', entireTextOnly: true },
+      timeScale: { borderColor: isDark ? '#374151' : '#e2e8f0', timeVisible: true },
     });
 
     const minPrice = Math.min(...allCandles.map(c => c.low).filter(p => p > 0));
@@ -269,9 +272,9 @@ const TradeReplay = ({ tradeId, onClose }) => {
   if (loading) {
     return (
       <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center">
-        <div className="bg-gray-900 rounded-xl p-8 flex items-center gap-3">
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-8 flex items-center gap-3 shadow-2xl">
           <Loader className="w-5 h-5 animate-spin text-blue-500" />
-          <span className="text-gray-300">Loading trade replay...</span>
+          <span className="text-gray-600 dark:text-gray-300">Loading trade replay...</span>
         </div>
       </div>
     );
@@ -294,12 +297,12 @@ const TradeReplay = ({ tradeId, onClose }) => {
   const isWin = pnl >= 0;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-gray-900 rounded-xl w-full max-w-5xl overflow-hidden flex flex-col" style={{ maxHeight: '90vh' }}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+    <div className="fixed inset-0 z-50 bg-black/60 dark:bg-black/80 flex items-center justify-center p-2 sm:p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-900 rounded-xl w-full max-w-4xl overflow-hidden flex flex-col shadow-2xl m-auto" style={{ maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
           <div className="flex items-center gap-3 flex-wrap">
             {isLong ? <TrendingUp className="w-5 h-5 text-emerald-500" /> : <TrendingDown className="w-5 h-5 text-rose-500" />}
-            <h3 className="font-bold text-white">{trade?.symbol}</h3>
+            <h3 className="font-bold text-gray-900 dark:text-white">{trade?.symbol}</h3>
             <span className={`text-xs font-bold px-2 py-0.5 rounded ${isLong ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
               {trade?.direction}
             </span>
@@ -313,21 +316,21 @@ const TradeReplay = ({ tradeId, onClose }) => {
           </button>
         </div>
 
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-800 bg-gray-900/50">
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
           <button onClick={startReplay}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white">
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
             {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
             {isPlaying ? 'Pause' : 'Replay'}
           </button>
           <button onClick={resetChart}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-700 hover:bg-gray-600 text-white">
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-white">
             <RotateCcw className="w-3.5 h-3.5" /> Reset
           </button>
           <div className="flex items-center gap-1 ml-2">
             <span className="text-[10px] text-gray-500">SPEED</span>
             {[{ ms: 200, label: '0.5x' }, { ms: 100, label: '1x' }, { ms: 50, label: '2x' }, { ms: 20, label: '5x' }].map(s => (
               <button key={s.ms} onClick={() => setSpeed(s.ms)}
-                className={`px-2 py-1 rounded text-[10px] font-medium ${speed === s.ms ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                className={`px-2 py-1 rounded text-[10px] font-medium ${speed === s.ms ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
                 {s.label}
               </button>
             ))}
@@ -337,22 +340,22 @@ const TradeReplay = ({ tradeId, onClose }) => {
 
         <div ref={chartContainerRef} style={{ width: '100%', height: '400px', minHeight: '400px' }} />
 
-        <div className="grid grid-cols-4 gap-px bg-gray-800 border-t border-gray-800">
-          <div className="bg-gray-900 px-3 py-2 text-center">
+        <div className="grid grid-cols-4 gap-px bg-gray-200 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-800">
+          <div className="bg-white dark:bg-gray-900 px-3 py-2 text-center">
             <div className="text-[10px] text-gray-500">Entry</div>
             <div className="text-sm font-mono text-blue-400">${trade?.entry_price ? formatPrice(trade.entry_price) : '-'}</div>
           </div>
-          <div className="bg-gray-900 px-3 py-2 text-center">
+          <div className="bg-white dark:bg-gray-900 px-3 py-2 text-center">
             <div className="text-[10px] text-gray-500">Exit</div>
             <div className={`text-sm font-mono ${isWin ? 'text-emerald-400' : 'text-rose-400'}`}>
               {trade?.exit_price ? `$${formatPrice(trade.exit_price)}` : '-'}
             </div>
           </div>
-          <div className="bg-gray-900 px-3 py-2 text-center">
+          <div className="bg-white dark:bg-gray-900 px-3 py-2 text-center">
             <div className="text-[10px] text-rose-400">Stop Loss</div>
             <div className="text-sm font-mono text-rose-400">{trade?.stop_loss ? `$${formatPrice(trade.stop_loss)}` : '-'}</div>
           </div>
-          <div className="bg-gray-900 px-3 py-2 text-center">
+          <div className="bg-white dark:bg-gray-900 px-3 py-2 text-center">
             <div className="text-[10px] text-emerald-400">Take Profit</div>
             <div className="text-sm font-mono text-emerald-400">{trade?.take_profit ? `$${formatPrice(trade.take_profit)}` : '-'}</div>
           </div>

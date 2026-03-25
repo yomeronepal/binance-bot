@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, ColorType, LineStyle } from 'lightweight-charts';
 import { Loader, BarChart3 } from 'lucide-react';
 import api from '../../services/api';
+import useThemeStore from '../../store/useThemeStore';
 
 const SignalChart = ({ signalId }) => {
   const chartContainerRef = useRef(null);
@@ -9,6 +10,8 @@ const SignalChart = ({ signalId }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
+  const { theme } = useThemeStore();
+  const isDark = theme === 'dark';
   const [showIndicator, setShowIndicator] = useState({
     ema9: true, ema21: true, ema50: false,
     bb: true, rsi: true,
@@ -58,15 +61,15 @@ const SignalChart = ({ signalId }) => {
       width: container.clientWidth,
       height: container.clientHeight || 400,
       layout: {
-        background: { type: ColorType.Solid, color: '#0f172a' },
-        textColor: '#94a3b8',
+        background: { type: ColorType.Solid, color: isDark ? '#0f172a' : '#ffffff' },
+        textColor: isDark ? '#94a3b8' : '#475569',
       },
       grid: {
-        vertLines: { color: '#1e293b' },
-        horzLines: { color: '#1e293b' },
+        vertLines: { color: isDark ? '#1e293b' : '#f1f5f9' },
+        horzLines: { color: isDark ? '#1e293b' : '#f1f5f9' },
       },
-      rightPriceScale: { borderColor: '#334155' },
-      timeScale: { borderColor: '#334155', timeVisible: true },
+      rightPriceScale: { borderColor: isDark ? '#334155' : '#e2e8f0' },
+      timeScale: { borderColor: isDark ? '#334155' : '#e2e8f0', timeVisible: true },
     });
 
     const minPrice = Math.min(...data.candles.map(c => c.low).filter(p => p > 0));
@@ -133,22 +136,22 @@ const SignalChart = ({ signalId }) => {
 
     const onResize = () => chart.applyOptions({ width: container.clientWidth });
     window.addEventListener('resize', onResize);
-  }, [data, showIndicator]);
+  }, [data, showIndicator, isDark]);
 
   const toggleIndicator = (key) => setShowIndicator(prev => ({ ...prev, [key]: !prev[key] }));
 
   if (loading) {
     return (
-      <div className="bg-slate-900/50 rounded-xl border border-slate-700/50 p-8 flex items-center justify-center gap-2">
+      <div className="bg-white dark:bg-slate-900/50 rounded-xl border border-gray-200 dark:border-slate-700/50 p-8 flex items-center justify-center gap-2">
         <Loader className="w-5 h-5 animate-spin text-blue-500" />
-        <span className="text-slate-400 text-sm">Loading chart...</span>
+        <span className="text-gray-500 dark:text-slate-400 text-sm">Loading chart...</span>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-slate-900/50 rounded-xl border border-slate-700/50 p-6 text-center">
+      <div className="bg-white dark:bg-slate-900/50 rounded-xl border border-gray-200 dark:border-slate-700/50 p-6 text-center">
         <BarChart3 className="w-8 h-8 text-slate-600 mx-auto mb-2" />
         <p className="text-slate-500 text-sm">{error}</p>
       </div>
@@ -167,11 +170,11 @@ const SignalChart = ({ signalId }) => {
   const rsiData = data?.indicators?.rsi || [];
 
   return (
-    <div className="bg-slate-900/50 rounded-xl border border-slate-700/50 overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700/50">
+    <div className="bg-white dark:bg-slate-900/50 rounded-xl border border-gray-200 dark:border-slate-700/50 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-slate-700/50">
         <div className="flex items-center gap-2">
           <BarChart3 className="w-4 h-4 text-blue-500" />
-          <span className="text-sm font-medium text-white">{sig?.symbol} {sig?.timeframe}</span>
+          <span className="text-sm font-medium text-gray-900 dark:text-white">{sig?.symbol} {sig?.timeframe}</span>
           <span className="text-[10px] text-slate-500">{data?.candles?.length} candles</span>
         </div>
         <div className="flex items-center gap-1">
@@ -190,7 +193,7 @@ const SignalChart = ({ signalId }) => {
       <div ref={chartContainerRef} style={{ width: '100%', height: '400px' }} />
 
       {showIndicator.rsi && rsiData.length > 0 && (
-        <div className="border-t border-slate-700/50 px-4 py-2">
+        <div className="border-t border-gray-200 dark:border-slate-700/50 px-4 py-2">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] text-slate-500 uppercase">RSI (14)</span>
             <span className={`text-xs font-mono font-bold ${
@@ -214,11 +217,11 @@ const SignalChart = ({ signalId }) => {
       )}
 
       {sig?.meta && Object.keys(sig.meta).length > 0 && (
-        <div className="border-t border-slate-700/50 px-4 py-2">
+        <div className="border-t border-gray-200 dark:border-slate-700/50 px-4 py-2">
           <span className="text-[10px] text-slate-500 uppercase block mb-1">Confluence</span>
           <div className="flex flex-wrap gap-1">
             {Object.entries(sig.meta).map(([key, val]) => (
-              <span key={key} className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">
+              <span key={key} className="text-[10px] bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-400 px-2 py-0.5 rounded">
                 {key}: {typeof val === 'object' ? JSON.stringify(val) : String(val)}
               </span>
             ))}
