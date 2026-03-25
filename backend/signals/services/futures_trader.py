@@ -854,9 +854,26 @@ class BinanceFuturesTrader:
         """
         entry = batch_result['entry']
         raw_avg = entry.get('avgPrice', '0')
-        avg_price = Decimal(raw_avg) if raw_avg and Decimal(raw_avg) > 0 else current_price
-        if Decimal(raw_avg or '0') <= 0:
-            logger.warning(f"Batch avgPrice was {raw_avg}, using current_price {current_price} instead")
+        avg_price = Decimal(raw_avg) if raw_avg and Decimal(raw_avg) > 0 else Decimal('0')
+
+        if avg_price <= 0:
+            try:
+                order_id = entry.get('orderId')
+                if order_id:
+                    import asyncio
+                    order_detail = await self._request('GET', '/fapi/v1/order', {
+                        'symbol': symbol, 'orderId': order_id
+                    }, signed=True)
+                    fetched_avg = order_detail.get('avgPrice', '0')
+                    if fetched_avg and Decimal(fetched_avg) > 0:
+                        avg_price = Decimal(fetched_avg)
+                        logger.info(f"Fetched real avgPrice from order {order_id}: {avg_price}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch order details: {e}")
+
+        if avg_price <= 0:
+            avg_price = current_price
+            logger.warning(f"Using current_price {current_price} as fallback (avgPrice was {raw_avg})")
 
         warnings = []
         sl_order_id = None
