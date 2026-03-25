@@ -893,6 +893,175 @@ def _compute_streaks(closed_qs):
     return {'current': streak, 'max_win': max_win, 'max_loss': max_lose}
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def signal_chart(request, signal_id):
+    """
+    GET /api/public/signal/{signal_id}/chart/
+    Returns candles + indicators + price levels for signal detail chart.
+    """
+    from signals.models import Signal
+    import requests as req
+
+    try:
+        sig = Signal.objects.select_related('symbol').get(id=signal_id)
+    except Signal.DoesNotExist:
+        return Response({'error': 'Signal not found'}, status=404)
+
+    symbol = sig.symbol.symbol
+    timeframe = sig.timeframe or '1h'
+    created = sig.created_at
+
+    tf_minutes = {
+        '1m': 1, '5m': 5, '15m': 15, '30m': 30,
+        '1h': 60, '4h': 240, '1d': 1440,
+    }
+    minutes = tf_minutes.get(timeframe, 60)
+    padding = timedelta(minutes=minutes * 50)
+    start_time = created - padding
+    end_time = created + padding
+
+    candles = _load_candles_from_csv(symbol, timeframe, start_time, end_time)
+
+    if not candles:
+        start_ms = int(start_time.timestamp() * 1000)
+        end_ms = int(end_time.timestamp() * 1000)
+        params = {
+            'symbol': symbol, 'interval': timeframe,
+            'startTime': start_ms, 'endTime': end_ms, 'limit': 500,
+        }
+        for url in ['https://fapi.binance.com/fapi/v1/klines', 'https://api.binance.com/api/v3/klines']:
+            try:
+                resp = req.get(url, params=params, timeout=10)
+                if resp.status_code == 200:
+                    for c in resp.json():
+                        candles.append({
+                            'time': int(c[0]) // 1000,
+                            'open': float(c[1]),
+                            'high': float(c[2]),
+                            'low': float(c[3]),
+                            'close': float(c[4]),
+                            'volume': float(c[5]),
+                        })
+                    if candles:
+                        break
+            except Exception as e:
+                logger.warning(f"Binance fetch failed: {e}")
+
+    if not candles:
+        return Response({'error': 'No candle data available'}, status=404)
+
+    indicators = _compute_indicators(candles)
+
+    entry_ts = int(created.timestamp())
+    closest = min(candles, key=lambda c: abs(c['time'] - entry_ts))
+    markers = [{
+        'time': closest['time'],
+        'position': 'belowBar' if sig.direction == 'LONG' else 'aboveBar',
+        'color': '#22c55e' if sig.direction == 'LONG' else '#ef4444',
+        'shape': 'arrowUp' if sig.direction == 'LONG' else 'arrowDown',
+        'text': f'{sig.direction} @ {float(sig.entry):.4f}',
+    }]
+
+    lines = [
+        {'price': float(sig.entry), 'color': '#3b82f6', 'title': 'Entry', 'lineWidth': 2, 'lineStyle': 0},
+        {'price': float(sig.sl), 'color': '#ef4444', 'title': 'Stop Loss', 'lineWidth': 1, 'lineStyle': 2},
+        {'price': float(sig.tp), 'color': '#22c55e', 'title': 'Take Profit', 'lineWidth': 1, 'lineStyle': 2},
+    ]
+
+    return Response({
+        'signal': {
+            'id': sig.id,
+            'symbol': symbol,
+            'direction': sig.direction,
+            'timeframe': timeframe,
+            'entry': float(sig.entry),
+            'sl': float(sig.sl),
+            'tp': float(sig.tp),
+            'confidence': sig.confidence,
+            'meta': sig.meta,
+            'created_at': sig.created_at.isoformat(),
+        },
+        'candles': candles,
+        'indicators': indicators,
+        'markers': markers,
+        'lines': lines,
+    })
+
+
+def _compute_indicators(candles):
+    """Compute EMA, BB, RSI, MACD from candle data for chart overlays."""
+    import numpy as np
+
+    closes = np.array([c['close'] for c in candles])
+    highs = np.array([c['high'] for c in candles])
+    lows = np.array([c['low'] for c in candles])
+    times = [c['time'] for c in candles]
+    n = len(closes)
+
+    def ema(data, period):
+        result = np.full(len(data), np.nan)
+        if len(data) < period:
+            return result
+        k = 2 / (period + 1)
+        result[period - 1] = np.mean(data[:period])
+        for i in range(period, len(data)):
+            result[i] = data[i] * k + result[i - 1] * (1 - k)
+        return result
+
+    def rsi(data, period=14):
+        result = np.full(len(data), np.nan)
+        if len(data) < period + 1:
+            return result
+        deltas = np.diff(data)
+        gains = np.where(deltas > 0, deltas, 0)
+        losses = np.where(deltas < 0, -deltas, 0)
+        avg_gain = np.mean(gains[:period])
+        avg_loss = np.mean(losses[:period])
+        for i in range(period, len(deltas)):
+            avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+            avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+            rs = avg_gain / avg_loss if avg_loss != 0 else 100
+            result[i + 1] = 100 - (100 / (1 + rs))
+        return result
+
+    ema9 = ema(closes, 9)
+    ema21 = ema(closes, 21)
+    ema50 = ema(closes, 50)
+    rsi_vals = rsi(closes, 14)
+
+    bb_period = 20
+    bb_mid = ema(closes, bb_period)
+    bb_std = np.full(n, np.nan)
+    for i in range(bb_period - 1, n):
+        bb_std[i] = np.std(closes[i - bb_period + 1:i + 1])
+    bb_upper = bb_mid + 2 * bb_std
+    bb_lower = bb_mid - 2 * bb_std
+
+    result = {
+        'ema9': [], 'ema21': [], 'ema50': [],
+        'bb_upper': [], 'bb_mid': [], 'bb_lower': [],
+        'rsi': [],
+    }
+
+    for i in range(n):
+        t = times[i]
+        if not np.isnan(ema9[i]):
+            result['ema9'].append({'time': t, 'value': round(ema9[i], 8)})
+        if not np.isnan(ema21[i]):
+            result['ema21'].append({'time': t, 'value': round(ema21[i], 8)})
+        if not np.isnan(ema50[i]):
+            result['ema50'].append({'time': t, 'value': round(ema50[i], 8)})
+        if not np.isnan(bb_upper[i]):
+            result['bb_upper'].append({'time': t, 'value': round(bb_upper[i], 8)})
+            result['bb_mid'].append({'time': t, 'value': round(bb_mid[i], 8)})
+            result['bb_lower'].append({'time': t, 'value': round(bb_lower[i], 8)})
+        if not np.isnan(rsi_vals[i]):
+            result['rsi'].append({'time': t, 'value': round(rsi_vals[i], 2)})
+
+    return result
+
+
 def _load_candles_from_csv(symbol, timeframe, start_time, end_time):
     """Load candles from local CSV backtest data if available."""
     import csv

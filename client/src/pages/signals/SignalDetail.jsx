@@ -11,6 +11,7 @@ import { format } from 'date-fns';
 import TradingViewWidget from '../../components/charts/TradingViewWidget';
 import LiquidityHeatmap from '../../components/charts/LiquidityHeatmap';
 import FibLevelsManager from '../../components/charts/FibLevelsManager';
+import SignalChart from '../../components/charts/SignalChart';
 
 const SignalDetail = () => {
   const { id } = useParams();
@@ -240,6 +241,11 @@ const SignalDetail = () => {
               isFutures={isFutures}
             />
           </div>
+        </div>
+
+        <div className="mt-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Signal Analysis</h3>
+          <SignalChart signalId={signal.id} />
         </div>
 
         {/* Liquidity Heatmap */}
