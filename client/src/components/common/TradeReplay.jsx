@@ -3,6 +3,15 @@ import { createChart, ColorType, LineStyle } from 'lightweight-charts';
 import { X, Loader, Play, Pause, SkipForward, RotateCcw, TrendingUp, TrendingDown } from 'lucide-react';
 import api from '../../services/api';
 
+const formatPrice = (price) => {
+  if (!price || price === 0) return '0';
+  const num = typeof price === 'string' ? parseFloat(price) : price;
+  if (num >= 1000) return num.toFixed(2);
+  if (num >= 1) return num.toFixed(4);
+  if (num >= 0.01) return num.toFixed(6);
+  return num.toFixed(8);
+};
+
 const TradeReplay = ({ tradeId, onClose }) => {
   const chartRef = useRef(null);
   const chartInstance = useRef(null);
@@ -36,8 +45,8 @@ const TradeReplay = ({ tradeId, onClose }) => {
       const res = await api.get(`/public/paper-trading/${tradeId}/replay/`);
       setTradeData(res.data.trade);
       setAllCandles(res.data.candles);
-      setVisibleCount(1);
-      initChart(res.data);
+      setVisibleCount(res.data.candles.length);
+      setTimeout(() => initChart(res.data), 100);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load trade data');
     } finally {
@@ -74,6 +83,10 @@ const TradeReplay = ({ tradeId, onClose }) => {
       height: 400,
     });
 
+    const minPrice = Math.min(...data.candles.map(c => c.low));
+    const precision = minPrice >= 1000 ? 2 : minPrice >= 1 ? 4 : minPrice >= 0.01 ? 6 : 8;
+    const minMove = parseFloat((1 / Math.pow(10, precision)).toFixed(precision));
+
     const candleSeries = chart.addCandlestickSeries({
       upColor: '#22c55e',
       downColor: '#ef4444',
@@ -81,6 +94,7 @@ const TradeReplay = ({ tradeId, onClose }) => {
       borderDownColor: '#ef4444',
       wickUpColor: '#22c55e',
       wickDownColor: '#ef4444',
+      priceFormat: { type: 'price', precision, minMove },
     });
 
     const volumeSeries = chart.addHistogramSeries({
@@ -199,7 +213,7 @@ const TradeReplay = ({ tradeId, onClose }) => {
         position: trade.direction === 'LONG' ? 'belowBar' : 'aboveBar',
         color: '#22c55e',
         shape: trade.direction === 'LONG' ? 'arrowUp' : 'arrowDown',
-        text: `ENTRY $${trade.entry_price.toFixed(2)}`,
+        text: `ENTRY $${formatPrice(trade.entry_price)}`,
       });
     }
 
@@ -212,7 +226,7 @@ const TradeReplay = ({ tradeId, onClose }) => {
         position: trade.direction === 'LONG' ? 'aboveBar' : 'belowBar',
         color: isWin ? '#22c55e' : '#ef4444',
         shape: trade.direction === 'LONG' ? 'arrowDown' : 'arrowUp',
-        text: `EXIT $${trade.exit_price.toFixed(2)}`,
+        text: `EXIT $${formatPrice(trade.exit_price)}`,
       });
     }
 
@@ -258,7 +272,7 @@ const TradeReplay = ({ tradeId, onClose }) => {
             </span>
             <span className="text-xs text-gray-400">{trade?.timeframe}</span>
             <span className={`text-sm font-bold ${isWin ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} USDT
+              {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)} USDT
             </span>
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-800 rounded-lg transition-colors">
@@ -297,21 +311,21 @@ const TradeReplay = ({ tradeId, onClose }) => {
         <div className="grid grid-cols-4 gap-px bg-gray-800 border-t border-gray-800">
           <div className="bg-gray-900 px-3 py-2 text-center">
             <div className="text-[10px] text-gray-500">Entry</div>
-            <div className="text-sm font-mono text-blue-400">${trade?.entry_price?.toFixed(2)}</div>
+            <div className="text-sm font-mono text-blue-400">${trade?.entry_price ? formatPrice(trade.entry_price) : '0'}</div>
           </div>
           <div className="bg-gray-900 px-3 py-2 text-center">
             <div className="text-[10px] text-gray-500">Exit</div>
             <div className={`text-sm font-mono ${isWin ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {trade?.exit_price ? `$${trade.exit_price.toFixed(2)}` : '-'}
+              {trade?.exit_price ? `$${formatPrice(trade.exit_price)}` : '-'}
             </div>
           </div>
           <div className="bg-gray-900 px-3 py-2 text-center">
             <div className="text-[10px] text-rose-400">Stop Loss</div>
-            <div className="text-sm font-mono text-rose-400">{trade?.stop_loss ? `$${trade.stop_loss.toFixed(2)}` : '-'}</div>
+            <div className="text-sm font-mono text-rose-400">{trade?.stop_loss ? `$${formatPrice(trade.stop_loss)}` : '-'}</div>
           </div>
           <div className="bg-gray-900 px-3 py-2 text-center">
             <div className="text-[10px] text-emerald-400">Take Profit</div>
-            <div className="text-sm font-mono text-emerald-400">{trade?.take_profit ? `$${trade.take_profit.toFixed(2)}` : '-'}</div>
+            <div className="text-sm font-mono text-emerald-400">{trade?.take_profit ? `$${formatPrice(trade.take_profit)}` : '-'}</div>
           </div>
         </div>
       </div>
