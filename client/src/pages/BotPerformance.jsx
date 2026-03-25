@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw, FileBarChart, LineChart } from 'lucide-react';
+import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw, FileBarChart, LineChart, PlayCircle } from 'lucide-react';
 import TradeReport from '../components/common/TradeReport';
 import TradeCharts from '../components/common/TradeCharts';
+import TradeReplay from '../components/common/TradeReplay';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
@@ -16,6 +17,7 @@ const BotPerformance = () => {
   const [openPositions, setOpenPositions] = useState([]);
   const [recentTrades, setRecentTrades] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
+  const [replayTradeId, setReplayTradeId] = useState(null);
   const [activeWindow, setActiveWindow] = useState(() => {
     return localStorage.getItem('bot_perf_active_window') || 'all';
   });
@@ -593,7 +595,7 @@ const BotPerformance = () => {
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Recent Closed Trades</h2>
                 {recentTrades.length > 0 ? (
                   <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden shadow-sm">
-                    <TradeHistoryTable trades={recentTrades.slice(0, 10)} />
+                    <TradeHistoryTable trades={recentTrades.slice(0, 10)} onReplay={setReplayTradeId} />
                   </div>
                 ) : (
                   <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center shadow-sm">
@@ -672,6 +674,7 @@ const BotPerformance = () => {
                   <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4 shadow-sm">
                     <TradeHistoryTable
                       trades={recentTrades}
+                      onReplay={setReplayTradeId}
                     />
                   </div>
 
@@ -750,6 +753,9 @@ const BotPerformance = () => {
         )}
       </div >
     </div >
+    {replayTradeId && (
+      <TradeReplay tradeId={replayTradeId} onClose={() => setReplayTradeId(null)} />
+    )}
     </PullToRefresh>
   );
 };
@@ -872,7 +878,7 @@ const PositionCard = ({ position, isSuperUser, onClose }) => {
   );
 };
 
-const TradeHistoryTable = ({ trades }) => {
+const TradeHistoryTable = ({ trades, onReplay }) => {
   return (
     <div>
       <table className="w-full text-xs sm:text-sm">
@@ -886,6 +892,7 @@ const TradeHistoryTable = ({ trades }) => {
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Status</th>
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase hidden lg:table-cell">Duration</th>
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase hidden sm:table-cell">Date</th>
+            <th className="px-2 sm:px-4 py-2 sm:py-3 text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase w-8"></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -939,6 +946,12 @@ const TradeHistoryTable = ({ trades }) => {
                 </td>
                 <td className="px-2 sm:px-4 py-2 sm:py-3 text-gray-500 hidden sm:table-cell">
                   <div>{new Date(trade.entry_time).toLocaleDateString()}</div>
+                </td>
+                <td className="px-2 sm:px-4 py-2 sm:py-3">
+                  <button onClick={() => onReplay?.(trade.id)} title="Replay trade"
+                    className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                    <PlayCircle className="w-4 h-4 text-blue-500" />
+                  </button>
                 </td>
               </tr>
             );

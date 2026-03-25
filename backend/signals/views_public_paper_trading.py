@@ -893,6 +893,123 @@ def _compute_streaks(closed_qs):
     return {'current': streak, 'max_win': max_win, 'max_loss': max_lose}
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def trade_replay(request, trade_id):
+    """
+    GET /api/public/paper-trading/replay/{trade_id}/
+    Fetch candles around a trade for visual replay on a candlestick chart.
+    Returns candles from 20 candles before entry to 20 candles after exit.
+    """
+    import aiohttp
+
+    try:
+        trade = PaperTrade.objects.get(id=trade_id)
+    except PaperTrade.DoesNotExist:
+        return Response({'error': 'Trade not found'}, status=404)
+
+    symbol = trade.symbol
+    timeframe = trade.timeframe or '1h'
+    entry_time = trade.entry_time or trade.created_at
+    exit_time = trade.exit_time or trade.updated_at
+
+    tf_minutes = {
+        '1m': 1, '3m': 3, '5m': 5, '15m': 15, '30m': 30,
+        '1h': 60, '2h': 120, '4h': 240, '1d': 1440,
+    }
+    minutes = tf_minutes.get(timeframe, 60)
+    padding = timedelta(minutes=minutes * 30)
+
+    start_ms = int((entry_time - padding).timestamp() * 1000)
+    end_ms = int((exit_time + padding).timestamp() * 1000)
+
+    async def fetch_candles():
+        url = 'https://fapi.binance.com/fapi/v1/klines'
+        params = {
+            'symbol': symbol,
+            'interval': timeframe,
+            'startTime': start_ms,
+            'endTime': end_ms,
+            'limit': 500,
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    url_spot = 'https://api.binance.com/api/v3/klines'
+                    async with session.get(url_spot, params=params) as resp2:
+                        return await resp2.json()
+                return await resp.json()
+
+    try:
+        candles_raw = asyncio.run(fetch_candles())
+    except Exception as e:
+        return Response({'error': f'Failed to fetch candles: {str(e)}'}, status=500)
+
+    candles = []
+    for c in candles_raw:
+        candles.append({
+            'time': int(c[0]) // 1000,
+            'open': float(c[1]),
+            'high': float(c[2]),
+            'low': float(c[3]),
+            'close': float(c[4]),
+            'volume': float(c[5]),
+        })
+
+    markers = []
+    entry_ts = int(entry_time.timestamp())
+    closest_entry = min(candles, key=lambda c: abs(c['time'] - entry_ts), default=None)
+    if closest_entry:
+        markers.append({
+            'time': closest_entry['time'],
+            'position': 'belowBar' if trade.direction == 'LONG' else 'aboveBar',
+            'color': '#22c55e' if trade.direction == 'LONG' else '#ef4444',
+            'shape': 'arrowUp' if trade.direction == 'LONG' else 'arrowDown',
+            'text': f'ENTRY ${float(trade.entry_price):.2f}',
+        })
+
+    if trade.exit_price and exit_time:
+        exit_ts = int(exit_time.timestamp())
+        closest_exit = min(candles, key=lambda c: abs(c['time'] - exit_ts), default=None)
+        if closest_exit:
+            is_win = float(trade.profit_loss or 0) >= 0
+            markers.append({
+                'time': closest_exit['time'],
+                'position': 'aboveBar' if trade.direction == 'LONG' else 'belowBar',
+                'color': '#22c55e' if is_win else '#ef4444',
+                'shape': 'arrowDown' if trade.direction == 'LONG' else 'arrowUp',
+                'text': f'EXIT ${float(trade.exit_price):.2f}',
+            })
+
+    lines = []
+    if trade.entry_price:
+        lines.append({'price': float(trade.entry_price), 'color': '#3b82f6', 'title': 'Entry', 'lineWidth': 2})
+    if trade.stop_loss:
+        lines.append({'price': float(trade.stop_loss), 'color': '#ef4444', 'title': 'Stop Loss', 'lineWidth': 1, 'lineStyle': 2})
+    if trade.take_profit:
+        lines.append({'price': float(trade.take_profit), 'color': '#22c55e', 'title': 'Take Profit', 'lineWidth': 1, 'lineStyle': 2})
+
+    return Response({
+        'trade': {
+            'id': trade.id,
+            'symbol': symbol,
+            'direction': trade.direction,
+            'entry_price': float(trade.entry_price),
+            'exit_price': float(trade.exit_price) if trade.exit_price else None,
+            'stop_loss': float(trade.stop_loss) if trade.stop_loss else None,
+            'take_profit': float(trade.take_profit) if trade.take_profit else None,
+            'profit_loss': float(trade.profit_loss) if trade.profit_loss else None,
+            'status': trade.status,
+            'timeframe': timeframe,
+            'entry_time': entry_time.isoformat(),
+            'exit_time': exit_time.isoformat() if exit_time else None,
+        },
+        'candles': candles,
+        'markers': markers,
+        'lines': lines,
+    })
+
+
 def _invalidate_performance_cache():
     """Clear all performance-related caches after trade changes."""
     try:
