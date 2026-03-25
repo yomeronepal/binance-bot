@@ -15,6 +15,20 @@ logger = logging.getLogger(__name__)
 NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
 
 
+def _store_fg_in_meta(signal):
+    """Store current Fear & Greed value in signal meta at creation time."""
+    try:
+        from .services.fear_greed import get_fear_greed_value
+        fg = get_fear_greed_value()
+        if fg is not None:
+            if not signal.meta:
+                signal.meta = {}
+            signal.meta['fg_value'] = fg
+            signal.save(update_fields=['meta'])
+    except Exception as e:
+        logger.warning(f"Failed to store F&G in signal {signal.id}: {e}")
+
+
 def _get_nepal_now():
     """Get current Nepal Time datetime."""
     return datetime.now(timezone.utc) + NEPAL_TZ_OFFSET
@@ -143,6 +157,7 @@ def signal_post_save_handler(sender, instance, created, **kwargs):
     """
     try:
         if created:
+            _store_fg_in_meta(instance)
             logger.info(f"Signal created: {instance.id} - Broadcasting...")
             realtime_signal_service.broadcast_signal_created(instance)
             _send_push_for_signal(instance)

@@ -25,6 +25,7 @@ const TradeReplay = ({ tradeId, onClose }) => {
   const [allCandles, setAllCandles] = useState([]);
   const [allMarkers, setAllMarkers] = useState([]);
   const [allLines, setAllLines] = useState([]);
+  const [fearGreed, setFearGreed] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(100);
   const [visibleCount, setVisibleCount] = useState(0);
@@ -54,6 +55,7 @@ const TradeReplay = ({ tradeId, onClose }) => {
       setAllCandles(res.data.candles || []);
       setAllMarkers(res.data.markers || []);
       setAllLines(res.data.lines || []);
+      setFearGreed(res.data.fear_greed || null);
       setVisibleCount(res.data.candles?.length || 0);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load trade data');
@@ -310,6 +312,27 @@ const TradeReplay = ({ tradeId, onClose }) => {
             <span className={`text-sm font-bold ${isWin ? 'text-emerald-400' : 'text-rose-400'}`}>
               {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)} USDT
             </span>
+            {fearGreed?.value != null && (
+              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                fearGreed.value <= 25 ? 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400' :
+                fearGreed.value <= 40 ? 'bg-orange-100 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400' :
+                fearGreed.value <= 60 ? 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-600 dark:text-yellow-400' :
+                fearGreed.value <= 75 ? 'bg-lime-100 dark:bg-lime-500/20 text-lime-600 dark:text-lime-400' :
+                'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400'
+              }`}>
+                F&G: {fearGreed.value} {fearGreed.label} {fearGreed.source === 'live' ? '(live)' : '(at entry)'}
+              </span>
+            )}
+            {trade?.is_priority && (
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400">
+                PRIORITY
+              </span>
+            )}
+            {trade?.is_neutral_reversal && (
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-cyan-100 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400">
+                REVERSED ({trade.original_direction} → {trade.direction})
+              </span>
+            )}
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-800 rounded-lg">
             <X className="w-5 h-5 text-gray-400" />
@@ -340,7 +363,7 @@ const TradeReplay = ({ tradeId, onClose }) => {
 
         <div ref={chartContainerRef} style={{ width: '100%', height: '400px', minHeight: '400px' }} />
 
-        <div className="grid grid-cols-4 gap-px bg-gray-200 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-800">
+        <div className={`grid ${fearGreed?.value != null ? 'grid-cols-5' : 'grid-cols-4'} gap-px bg-gray-200 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-800`}>
           <div className="bg-white dark:bg-gray-900 px-3 py-2 text-center">
             <div className="text-[10px] text-gray-500">Entry</div>
             <div className="text-sm font-mono text-blue-400">${trade?.entry_price ? formatPrice(trade.entry_price) : '-'}</div>
@@ -359,6 +382,24 @@ const TradeReplay = ({ tradeId, onClose }) => {
             <div className="text-[10px] text-emerald-400">Take Profit</div>
             <div className="text-sm font-mono text-emerald-400">{trade?.take_profit ? `$${formatPrice(trade.take_profit)}` : '-'}</div>
           </div>
+          {fearGreed?.value != null && (
+            <div className="bg-white dark:bg-gray-900 px-3 py-2 text-center">
+              <div className={`text-[10px] ${
+                fearGreed.value <= 25 ? 'text-red-400' :
+                fearGreed.value <= 40 ? 'text-orange-400' :
+                fearGreed.value <= 60 ? 'text-yellow-400' :
+                fearGreed.value <= 75 ? 'text-lime-400' :
+                'text-green-400'
+              }`}>Fear & Greed</div>
+              <div className={`text-sm font-bold ${
+                fearGreed.value <= 25 ? 'text-red-400' :
+                fearGreed.value <= 40 ? 'text-orange-400' :
+                fearGreed.value <= 60 ? 'text-yellow-400' :
+                fearGreed.value <= 75 ? 'text-lime-400' :
+                'text-green-400'
+              }`}>{fearGreed.value}</div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -109,6 +109,16 @@ class PaperTradingService:
         is_golden_1 = session is not None
         is_golden_2 = session is not None and session.session_type == 'GOLDEN_WINDOW'
 
+        fg_value = None
+        try:
+            if isinstance(getattr(signal, 'meta', None), dict):
+                fg_value = signal.meta.get('fg_value')
+            if fg_value is None:
+                from signals.services.fear_greed import get_fear_greed_value
+                fg_value = get_fear_greed_value()
+        except Exception:
+            pass
+
         paper_trade = PaperTrade.objects.create(
             signal=signal,
             user=user,
@@ -126,6 +136,7 @@ class PaperTradingService:
             leverage=signal.leverage if signal.market_type == 'FUTURES' else None,
             is_priority=is_golden_1,
             is_golden_2=is_golden_2,
+            fear_greed_at_entry=fg_value,
             status='OPEN'
         )
 

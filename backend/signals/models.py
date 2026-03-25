@@ -753,6 +753,11 @@ class PaperTrade(models.Model):
         default=False,
         help_text=_("Whether this is a Golden Window 2.0 trade (Sun/Wed/Thu 21-23 NPT)")
     )
+    fear_greed_at_entry = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text=_("Fear & Greed Index value when trade was opened")
+    )
 
     # Status
     status = models.CharField(

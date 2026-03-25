@@ -1205,6 +1205,49 @@ def trade_replay(request, trade_id):
     if trade.take_profit:
         lines.append({'price': float(trade.take_profit), 'color': '#22c55e', 'title': 'Take Profit', 'lineWidth': 1, 'lineStyle': 2})
 
+    fg_value = None
+    fg_label = 'Unknown'
+    fg_source = 'live'
+    try:
+        if trade.fear_greed_at_entry is not None:
+            fg_value = trade.fear_greed_at_entry
+            fg_source = 'at_entry'
+        else:
+            signal_obj = getattr(trade, 'signal', None)
+            if signal_obj and isinstance(getattr(signal_obj, 'meta', None), dict):
+                stored_fg = signal_obj.meta.get('fg_value') or signal_obj.meta.get('neutral_reversal', {}).get('fg_value')
+                if stored_fg:
+                    fg_value = int(stored_fg)
+                    fg_source = 'at_entry'
+
+        if fg_value is None:
+            from signals.services.fear_greed import get_fear_greed_value
+            fg_value = get_fear_greed_value()
+            fg_source = 'live'
+
+        if fg_value is not None:
+            if fg_value <= 25:
+                fg_label = 'Extreme Fear'
+            elif fg_value <= 40:
+                fg_label = 'Fear'
+            elif fg_value <= 60:
+                fg_label = 'Neutral'
+            elif fg_value <= 75:
+                fg_label = 'Greed'
+            else:
+                fg_label = 'Extreme Greed'
+    except Exception:
+        pass
+
+    is_neutral_reversal = False
+    original_direction = None
+    signal = getattr(trade, 'signal', None)
+    if signal and isinstance(getattr(signal, 'meta', None), dict):
+        nr = signal.meta.get('neutral_reversal')
+        if nr:
+            is_neutral_reversal = True
+            original_direction = nr.get('original_direction')
+
     return Response({
         'trade': {
             'id': trade.id,
@@ -1219,10 +1262,18 @@ def trade_replay(request, trade_id):
             'timeframe': timeframe,
             'entry_time': entry_time.isoformat(),
             'exit_time': exit_time.isoformat() if exit_time else None,
+            'is_priority': getattr(trade, 'is_priority', False),
+            'is_neutral_reversal': is_neutral_reversal,
+            'original_direction': original_direction,
         },
         'candles': candles,
         'markers': markers,
         'lines': lines,
+        'fear_greed': {
+            'value': fg_value,
+            'label': fg_label,
+            'source': fg_source,
+        },
     })
 
 
