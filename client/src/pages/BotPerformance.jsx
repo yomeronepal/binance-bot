@@ -771,6 +771,15 @@ const BotPerformance = () => {
   );
 };
 
+const formatPrice = (price) => {
+  const p = parseFloat(price);
+  if (p === 0) return '$0';
+  if (p >= 1000) return `$${p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (p >= 1) return `$${p.toFixed(4)}`;
+  if (p >= 0.01) return `$${p.toFixed(6)}`;
+  return `$${p.toPrecision(4)}`;
+};
+
 const PositionCard = ({ position, isSuperUser, onClose }) => {
   const pnl = parseFloat(position.unrealized_pnl || 0);
   const pnlPct = parseFloat(position.unrealized_pnl_pct || 0);
@@ -778,112 +787,81 @@ const PositionCard = ({ position, isSuperUser, onClose }) => {
   const hasLivePrice = position.has_real_time_price;
 
   return (
-    <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg p-3 sm:p-4 hover:border-blue-400 dark:hover:border-blue-500/50 transition-all shadow-sm relative group">
+    <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden hover:border-blue-400 dark:hover:border-blue-500/50 transition-all shadow-sm relative group">
+      <div className={`h-1 ${pnl >= 0 ? 'bg-green-500' : 'bg-red-500'}`} />
+
       {isSuperUser && onClose && (
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose();
-          }}
-          className="absolute top-2 right-2 p-1.5 bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-200 dark:hover:bg-red-500/30"
-          title="Close Trade (Admin)"
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          className="absolute top-3 right-2 p-1 bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+          title="Close Trade"
         >
-          <X className="w-4 h-4" />
+          <X className="w-3.5 h-3.5" />
         </button>
       )}
-      <div className="flex items-start justify-between mb-3 pr-8">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-gray-900 dark:text-white font-semibold text-lg">{position.symbol}</h3>
-            {position.is_priority && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-500/50 rounded text-xs font-medium text-amber-600 dark:text-amber-400">
-                <Zap className="w-3 h-3" />
-                PRIORITY
-              </span>
-            )}
-            {position.is_neutral_reversal && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 bg-cyan-100 dark:bg-cyan-500/20 border border-cyan-300 dark:border-cyan-500/50 rounded text-xs font-medium text-cyan-600 dark:text-cyan-400">
-                <RefreshCw className="w-3 h-3" />
-                REVERSED
-              </span>
-            )}
-            {hasLivePrice && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 bg-green-100 dark:bg-green-500/20 border border-green-300 dark:border-green-500/50 rounded text-xs text-green-600 dark:text-green-400">
-                <span className="w-1 h-1 bg-green-500 dark:bg-green-400 rounded-full animate-pulse"></span>
-              </span>
-            )}
-          </div>
-          <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${position.direction === 'LONG' ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400' : 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400'
-            }`}>
-            {position.direction}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={`text-sm px-2 py-1 rounded ${position.market_type === 'FUTURES'
-            ? 'bg-purple-100 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400'
-            : 'bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400'
-            }`}>
-            {position.market_type}
-          </span>
-        </div>
-      </div>
 
-      <div className="space-y-2 text-sm">
-        <div className="flex justify-between">
-          <span className="text-gray-600 dark:text-gray-400">Entry Price:</span>
-          <span className="text-gray-900 dark:text-white font-mono">${parseFloat(position.entry_price).toFixed(4)}</span>
+      <div className="p-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-gray-900 dark:text-white font-bold text-sm truncate">{position.symbol}</span>
+            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${position.direction === 'LONG' ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
+              {position.direction}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {position.is_priority && <Zap className="w-3.5 h-3.5 text-amber-500" />}
+            {position.is_neutral_reversal && <RefreshCw className="w-3.5 h-3.5 text-cyan-500" />}
+            {hasLivePrice && <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />}
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${position.market_type === 'FUTURES' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
+              {position.market_type === 'FUTURES' ? 'FUT' : 'SPOT'}
+            </span>
+          </div>
         </div>
-        {hasLivePrice && (
-          <>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600 dark:text-gray-400">Current Price:</span>
-              <div className="text-right">
-                <span className="text-gray-900 dark:text-white font-mono">${parseFloat(position.current_price).toFixed(4)}</span>
+
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+          <div>
+            <span className="text-gray-500 dark:text-gray-500">Entry</span>
+            <div className="text-gray-900 dark:text-white font-mono text-xs">{formatPrice(position.entry_price)}</div>
+          </div>
+          {hasLivePrice && (
+            <div>
+              <span className="text-gray-500 dark:text-gray-500">Current</span>
+              <div className="text-gray-900 dark:text-white font-mono text-xs">
+                {formatPrice(position.current_price)}
                 {priceChangePct !== 0 && (
-                  <div className={`text-xs ${priceChangePct >= 0 ? 'text-green-500 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
-                    {priceChangePct >= 0 ? '↑' : '↓'} {Math.abs(priceChangePct).toFixed(2)}%
-                  </div>
+                  <span className={`ml-1 text-[10px] ${priceChangePct >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {priceChangePct >= 0 ? '+' : ''}{priceChangePct.toFixed(1)}%
+                  </span>
                 )}
               </div>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Current Value:</span>
-              <span className="text-gray-900 dark:text-white">${parseFloat(position.current_value || position.position_size).toFixed(2)}</span>
+          )}
+          <div>
+            <span className="text-gray-500 dark:text-gray-500">Size</span>
+            <div className="text-gray-900 dark:text-white text-xs">${parseFloat(position.position_size).toFixed(2)}</div>
+          </div>
+          {hasLivePrice && (
+            <div>
+              <span className="text-gray-500 dark:text-gray-500">Value</span>
+              <div className="text-gray-900 dark:text-white text-xs">${parseFloat(position.current_value || position.position_size).toFixed(2)}</div>
             </div>
-          </>
-        )}
-        <div className="flex justify-between">
-          <span className="text-gray-600 dark:text-gray-400">Position Size:</span>
-          <span className="text-gray-900 dark:text-white">${parseFloat(position.position_size).toFixed(2)}</span>
+          )}
         </div>
-        <div className="border-t border-gray-200 dark:border-gray-700 pt-2 mt-2">
-          <div className="flex justify-between items-center">
-            <span className="text-gray-600 dark:text-gray-400">
-              {hasLivePrice ? 'Live P/L:' : 'Unrealized P/L:'}
+
+        <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200 dark:border-gray-700/50">
+          <div className="text-right">
+            <span className={`text-sm font-bold ${pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+              {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
             </span>
-            <div className="text-right">
-              <div className={`font-semibold ${pnl >= 0 ? 'text-green-500 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
-                {pnl >= 0 ? '+' : ''}${Math.abs(pnl).toFixed(2)}
-              </div>
-              <div className={`text-xs ${pnl >= 0 ? 'text-green-500 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
-                ({pnl >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)
-              </div>
-            </div>
+            <span className={`ml-1 text-[10px] ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              ({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%)
+            </span>
+          </div>
+          <div className="flex items-center text-[10px] text-gray-500">
+            <Clock className="w-3 h-3 mr-0.5" />
+            {new Date(position.entry_time).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}
           </div>
         </div>
-      </div>
-
-      <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs">
-        <div className="flex items-center text-gray-500">
-          <Clock className="w-3 h-3 mr-1" />
-          {new Date(position.entry_time).toLocaleDateString()} {new Date(position.entry_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </div>
-        {hasLivePrice && (
-          <span className="text-green-500 dark:text-green-400 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 bg-green-500 dark:bg-green-400 rounded-full animate-pulse"></span>
-            LIVE
-          </span>
-        )}
       </div>
     </div>
   );
