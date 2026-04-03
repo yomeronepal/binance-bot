@@ -93,6 +93,17 @@ BREATHING_ROOM_CONFIGS = {
         sl_atr_multiplier=2.5,
         tp_atr_multiplier=7.5
     ),
+    '30m': SignalConfig(
+        min_confidence=0.65,
+        long_adx_min=18.0,
+        short_adx_min=18.0,
+        long_rsi_min=20.0,
+        long_rsi_max=40.0,
+        short_rsi_min=60.0,
+        short_rsi_max=80.0,
+        sl_atr_multiplier=2.4,
+        tp_atr_multiplier=4.9
+    ),
     '15m': SignalConfig(
         min_confidence=0.65,
         long_adx_min=18.0,
@@ -101,18 +112,19 @@ BREATHING_ROOM_CONFIGS = {
         long_rsi_max=40.0,
         short_rsi_min=60.0,
         short_rsi_max=80.0,
-        sl_atr_multiplier=2.0,
-        tp_atr_multiplier=6.0
+        sl_atr_multiplier=2.4,
+        tp_atr_multiplier=3.9
     )
 }
 
 
 # Timeframe priority ranking (higher value = higher priority)
 TIMEFRAME_PRIORITY = {
-    '1d': 4,   # Highest priority
-    '4h': 3,
-    '1h': 2,
-    '15m': 1   # Lowest priority
+    '1d': 5,
+    '4h': 4,
+    '1h': 3,
+    '30m': 2,
+    '15m': 1,
 }
 
 
@@ -345,7 +357,17 @@ async def scan_timeframe(
                 f"(Universal Config: {'ON' if use_universal_config else 'OFF'})...")
 
     try:
-        # Fetch klines for all pairs
+        from signals.models_strategy_config import StrategyConfig
+        db_config = None
+        cached_config = None
+        try:
+            db_config = StrategyConfig.get_config(timeframe)
+            if db_config:
+                cached_config = db_config.to_signal_config()
+                logger.info(f"Loaded StrategyConfig for {timeframe}: SL={db_config.sl_percentage}% TP={db_config.tp_percentage}%")
+        except Exception as cfg_err:
+            logger.debug(f"StrategyConfig fallback for {timeframe}: {cfg_err}")
+
         klines_data = await client.batch_get_klines(
             top_pairs,
             interval=timeframe,
@@ -353,34 +375,19 @@ async def scan_timeframe(
             batch_size=20
         )
 
-        # Process each symbol
         for symbol, klines in klines_data.items():
             try:
-                # Get market-specific configuration
-                if use_universal_config:
+                if cached_config:
+                    config = cached_config
+                elif use_universal_config:
                     config = get_signal_config_for_symbol(symbol)
                     if config is None:
-                        logger.warning(f"⚠️ No config for {symbol}, skipping")
                         counts['skipped_no_config'] += 1
                         continue
-
-                    market_type = detect_market_type(symbol)
-                    logger.debug(f"📋 Using {market_type.value} config for {symbol}")
                 else:
-                    # Fallback to breathing room config
                     config = BREATHING_ROOM_CONFIGS.get(timeframe)
                     if not config:
-                        logger.warning(f"⚠️ No breathing room config for {timeframe}")
                         continue
-
-                from signals.models_strategy_config import StrategyConfig
-                db_config = None
-                try:
-                    db_config = StrategyConfig.get_config(timeframe)
-                    if db_config:
-                        config = db_config.to_signal_config()
-                except Exception as cfg_err:
-                    logger.debug(f"StrategyConfig fallback for {timeframe}: {cfg_err}")
 
                 engine = SignalDetectionEngine(
                     config=config,
@@ -467,20 +474,14 @@ async def _scan_multi_timeframe_async():
         top_pairs = await _get_top_pairs_by_volume(client, usdt_pairs, top_n=len(usdt_pairs))
         logger.info(f"📊 Scanning ALL {len(top_pairs)} Binance USDT pairs with UNIVERSAL CONFIG")
 
-        timeframes = ['1d', '4h', '1h', '15m']
+        timeframes = ['1d', '4h', '1h', '30m', '15m']
+        limit_map = {'15m': 300, '30m': 300, '1h': 250, '4h': 200, '1d': 100}
 
         total_counts = {'created': 0, 'updated': 0, 'invalidated': 0, 'skipped_no_config': 0}
 
         for timeframe in timeframes:
             try:
-                if timeframe == '15m':
-                    limit = 300
-                elif timeframe == '1h':
-                    limit = 250
-                elif timeframe == '4h':
-                    limit = 200
-                else:
-                    limit = 100
+                limit = limit_map.get(timeframe, 200)
 
                 counts = await scan_timeframe(
                     client=client,
@@ -581,12 +582,8 @@ def scan_1h_timeframe(self):
     max_retries=3
 )
 def scan_15m_timeframe(self):
-    """
-    Scan 15-minute timeframe only (for separate scheduling)
-    Scalping and active trading signals
-    """
-    logger.info("🔍 Starting 15-minute timeframe scan...")
-
+    """Scan 15-minute timeframe only."""
+    logger.info("Starting 15-minute timeframe scan...")
     try:
         result = asyncio.run(_scan_single_timeframe_async('15m'))
         return result
@@ -595,12 +592,31 @@ def scan_15m_timeframe(self):
         raise self.retry(exc=e)
 
 
+@shared_task(
+    name='scanner.tasks.multi_timeframe_scanner.scan_30m_timeframe',
+    bind=True,
+    max_retries=3
+)
+def scan_30m_timeframe(self):
+    """Scan 30-minute timeframe only."""
+    logger.info("Starting 30-minute timeframe scan...")
+    try:
+        result = asyncio.run(_scan_single_timeframe_async('30m'))
+        return result
+    except Exception as e:
+        logger.error(f"30m scan failed: {e}", exc_info=True)
+        raise self.retry(exc=e)
+
+
+SINGLE_TF_LIMITS = {'15m': 300, '30m': 300, '1h': 250, '4h': 200, '1d': 100}
+
+
 async def _scan_single_timeframe_async(timeframe: str):
     """
     Scan a single timeframe with universal configuration.
 
     Args:
-        timeframe: Timeframe to scan ('15m', '1h', '4h', '1d')
+        timeframe: Timeframe to scan ('15m', '30m', '1h', '4h', '1d')
 
     Returns:
         Dict with scan results
@@ -610,14 +626,7 @@ async def _scan_single_timeframe_async(timeframe: str):
 
         top_pairs = await _get_top_pairs_by_volume(client, usdt_pairs, top_n=len(usdt_pairs))
 
-        if timeframe == '15m':
-            limit = 300
-        elif timeframe == '1h':
-            limit = 250
-        elif timeframe == '4h':
-            limit = 200
-        else:
-            limit = 100
+        limit = SINGLE_TF_LIMITS.get(timeframe, 200)
 
         counts = await scan_timeframe(
             client=client,

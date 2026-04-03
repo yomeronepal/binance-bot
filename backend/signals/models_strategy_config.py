@@ -250,6 +250,12 @@ class StrategyConfig(models.Model):
                 sl_atr_multiplier=2.5, tp_atr_multiplier=7.0,
                 sl_percentage=Decimal('2.50'), tp_percentage=Decimal('6.00'),
             ),
+            '30m': dict(
+                min_confidence=0.73, long_adx_min=25.0, short_adx_min=25.0,
+                long_rsi_min=25.0, long_rsi_max=35.0, short_rsi_min=65.0, short_rsi_max=75.0,
+                sl_atr_multiplier=2.5, tp_atr_multiplier=7.0,
+                sl_percentage=Decimal('2.50'), tp_percentage=Decimal('6.00'),
+            ),
             '1h': dict(
                 min_confidence=0.73, long_adx_min=26.0, short_adx_min=26.0,
                 long_rsi_min=23.0, long_rsi_max=33.0, short_rsi_min=67.0, short_rsi_max=77.0,

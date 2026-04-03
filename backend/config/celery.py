@@ -47,6 +47,12 @@ app.conf.beat_schedule = {
         'options': {'expires': 1800.0},
     },
 
+    'scan-30m-timeframe': {
+        'task': 'scanner.tasks.multi_timeframe_scanner.scan_30m_timeframe',
+        'schedule': crontab(minute='*/30'),
+        'options': {'expires': 1800.0},
+    },
+
     'scan-15m-timeframe': {
         'task': 'scanner.tasks.multi_timeframe_scanner.scan_15m_timeframe',
         'schedule': crontab(minute='*/15'),
@@ -72,6 +78,12 @@ app.conf.beat_schedule = {
     'scan-futures-1h-timeframe': {
         'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1h',
         'schedule': crontab(minute=15),
+        'options': {'expires': 1800.0},
+    },
+
+    'scan-futures-30m-timeframe': {
+        'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_30m',
+        'schedule': crontab(minute='*/30'),
         'options': {'expires': 1800.0},
     },
 
@@ -206,12 +218,14 @@ app.conf.update(
         'scanner.tasks.multi_timeframe_scanner.scan_1d_timeframe': {'queue': 'scanner'},
         'scanner.tasks.multi_timeframe_scanner.scan_4h_timeframe': {'queue': 'scanner'},
         'scanner.tasks.multi_timeframe_scanner.scan_1h_timeframe': {'queue': 'scanner'},
+        'scanner.tasks.multi_timeframe_scanner.scan_30m_timeframe': {'queue': 'scanner'},
         'scanner.tasks.multi_timeframe_scanner.scan_15m_timeframe': {'queue': 'scanner'},
         'scanner.tasks.multi_timeframe_scanner.scan_multi_timeframe': {'queue': 'scanner'},
         # Futures multi-timeframe scanning tasks
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1d': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_4h': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1h': {'queue': 'scanner'},
+        'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_30m': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_15m': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_5m': {'queue': 'scanner'},
     },

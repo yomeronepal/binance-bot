@@ -90,11 +90,12 @@ FUTURES_TIMEFRAME_CONFIGS = {
 
 # Timeframe priority ranking (higher value = higher priority)
 TIMEFRAME_PRIORITY = {
-    '1d': 5,    # Highest priority
-    '4h': 4,
-    '1h': 3,
+    '1d': 6,
+    '4h': 5,
+    '1h': 4,
+    '30m': 3,
     '15m': 2,
-    '5m': 1     # Lowest priority
+    '5m': 1,
 }
 
 
@@ -471,17 +472,32 @@ def scan_futures_1h(self):
 
 
 @shared_task(
+    name='scanner.tasks.futures_multi_timeframe_scanner.scan_futures_30m',
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60
+)
+def scan_futures_30m(self):
+    """Scan Binance Futures 30-minute timeframe."""
+    logger.info("Starting Futures 30-minute timeframe scan...")
+    try:
+        result = asyncio.run(_scan_futures_single_timeframe('30m'))
+        logger.info(f"Futures 30m scan completed: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Futures 30m scan failed: {e}", exc_info=True)
+        raise self.retry(exc=e)
+
+
+@shared_task(
     name='scanner.tasks.futures_multi_timeframe_scanner.scan_futures_15m',
     bind=True,
     max_retries=3,
     default_retry_delay=60
 )
 def scan_futures_15m(self):
-    """
-    Scan Binance Futures 15-minute timeframe.
-    Scalping signals with leverage.
-    """
-    logger.info("🔍 Starting Futures 15-minute timeframe scan...")
+    """Scan Binance Futures 15-minute timeframe."""
+    logger.info("Starting Futures 15-minute timeframe scan...")
 
     try:
         result = asyncio.run(_scan_futures_single_timeframe('15m'))
