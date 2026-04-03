@@ -17,6 +17,7 @@ class StrategyConfig(models.Model):
     TIMEFRAME_CHOICES = [
         ('5m', '5 Minutes'),
         ('15m', '15 Minutes'),
+        ('30m', '30 Minutes'),
         ('1h', '1 Hour'),
         ('4h', '4 Hours'),
         ('1d', '1 Day'),
