@@ -357,16 +357,17 @@ async def scan_timeframe(
                 f"(Universal Config: {'ON' if use_universal_config else 'OFF'})...")
 
     try:
+        from asgiref.sync import sync_to_async
         from signals.models_strategy_config import StrategyConfig
         db_config = None
         cached_config = None
         try:
-            db_config = StrategyConfig.get_config(timeframe)
+            db_config = await sync_to_async(StrategyConfig.get_config)(timeframe)
             if db_config:
-                cached_config = db_config.to_signal_config()
+                cached_config = await sync_to_async(db_config.to_signal_config)()
                 logger.info(f"Loaded StrategyConfig for {timeframe}: SL={db_config.sl_percentage}% TP={db_config.tp_percentage}%")
         except Exception as cfg_err:
-            logger.debug(f"StrategyConfig fallback for {timeframe}: {cfg_err}")
+            logger.warning(f"StrategyConfig fallback for {timeframe}: {cfg_err}")
 
         klines_data = await client.batch_get_klines(
             top_pairs,
