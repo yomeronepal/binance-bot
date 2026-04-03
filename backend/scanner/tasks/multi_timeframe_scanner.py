@@ -373,13 +373,21 @@ async def scan_timeframe(
                         logger.warning(f"⚠️ No breathing room config for {timeframe}")
                         continue
 
-                # Create engine with symbol-specific config
+                from signals.models_strategy_config import StrategyConfig
+                db_config = None
+                try:
+                    db_config = StrategyConfig.get_config(timeframe)
+                    if db_config:
+                        config = db_config.to_signal_config()
+                except Exception as cfg_err:
+                    logger.debug(f"StrategyConfig fallback for {timeframe}: {cfg_err}")
+
                 engine = SignalDetectionEngine(
                     config=config,
-                    use_volatility_aware=False  # Use fixed universal params
+                    use_volatility_aware=False,
+                    db_config=db_config
                 )
 
-                # Update engine cache
                 engine.update_candles(symbol, klines)
 
                 # Process symbol
