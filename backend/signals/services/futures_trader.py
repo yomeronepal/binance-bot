@@ -137,8 +137,9 @@ class BinanceFuturesTrader:
         """
         Make API request to Binance Futures.
 
-        For signed requests, builds the full URL manually to avoid double-encoding
-        (aiohttp's params encoder differs from urlencode for JSON/special chars).
+        Signed POST requests send params as form-encoded body (not URL query string)
+        to avoid aiohttp's yarl re-encoding the JSON in batchOrders.
+        This matches how python-binance and the requests library handle Binance signing.
 
         Args:
             method: HTTP method (GET, POST, DELETE)
@@ -157,25 +158,37 @@ class BinanceFuturesTrader:
         params = params or {}
 
         try:
-            if signed:
-                await self._sync_server_time()
-                params['timestamp'] = self._get_timestamp()
-                params['recvWindow'] = 60000
-                query_string = urlencode(params)
-                signature = self._generate_signature(query_string)
-                url = f"{self.base_url}{endpoint}?{query_string}&signature={signature}"
-                async with session.request(method, url, headers=headers) as resp:
-                    data = await resp.json()
-                    if resp.status != 200:
-                        raise Exception(f"Binance API error: {data.get('msg', str(data))}")
-                    return data
-            else:
+            if not signed:
                 url = f"{self.base_url}{endpoint}"
                 async with session.request(method, url, params=params, headers=headers) as resp:
                     data = await resp.json()
                     if resp.status != 200:
                         raise Exception(f"Binance API error: {data.get('msg', str(data))}")
                     return data
+
+            await self._sync_server_time()
+            params['timestamp'] = self._get_timestamp()
+            params['recvWindow'] = 60000
+            query_string = urlencode(params)
+            signature = self._generate_signature(query_string)
+            signed_payload = f"{query_string}&signature={signature}"
+            url = f"{self.base_url}{endpoint}"
+
+            if method == 'POST':
+                headers['Content-Type'] = 'application/x-www-form-urlencoded'
+                async with session.post(url, data=signed_payload, headers=headers) as resp:
+                    data = await resp.json()
+                    if resp.status != 200:
+                        raise Exception(f"Binance API error: {data.get('msg', str(data))}")
+                    return data
+            else:
+                full_url = f"{url}?{signed_payload}"
+                async with session.request(method, full_url, headers=headers) as resp:
+                    data = await resp.json()
+                    if resp.status != 200:
+                        raise Exception(f"Binance API error: {data.get('msg', str(data))}")
+                    return data
+
         except aiohttp.ClientError as e:
             logger.error(f"Network error: {e}")
             raise
@@ -388,13 +401,29 @@ class BinanceFuturesTrader:
         if price:
             result = await self._place_limit_ioc(symbol, side, quantity, price)
             if result and self._order_filled(result):
+                logger.info(f"Entry filled via LIMIT IOC: {side} {quantity} {symbol} @ {price}")
                 return result
-            if result:
-                logger.warning(f"LIMIT IOC not filled at {price}, falling back to MARKET")
-            else:
-                logger.warning(f"LIMIT IOC failed at {price}, falling back to MARKET")
+            logger.warning(
+                f"LIMIT IOC {'not filled' if result else 'failed'} at {price}, "
+                f"falling back to MARKET (status={result.get('status', 'N/A') if result else 'None'})"
+            )
 
-        return await self._place_market_entry(symbol, side, quantity)
+        logger.info(f"Placing MARKET entry: {side} {quantity} {symbol}")
+        try:
+            params = {
+                'symbol': symbol, 'side': side, 'type': 'MARKET',
+                'quantity': str(quantity),
+            }
+            result = await self._request('POST', '/fapi/v1/order', params, signed=True)
+            logger.info(
+                f"MARKET entry result: {side} {quantity} {symbol} | "
+                f"status={result.get('status')} avgPrice={result.get('avgPrice')} "
+                f"executedQty={result.get('executedQty')}"
+            )
+            return result
+        except Exception as e:
+            logger.error(f"MARKET entry FAILED: {side} {quantity} {symbol} | {e}")
+            return None
 
     async def _place_limit_ioc(self, symbol, side, quantity, price):
         """Place LIMIT IOC order — fills immediately at signal price or cancels."""
@@ -404,28 +433,19 @@ class BinanceFuturesTrader:
         }
         try:
             result = await self._request('POST', '/fapi/v1/order', params, signed=True)
-            logger.info(f"LIMIT IOC placed: {side} {quantity} {symbol} @ {price}")
+            logger.info(
+                f"LIMIT IOC response: {side} {symbol} @ {price} | "
+                f"status={result.get('status')} executedQty={result.get('executedQty')}"
+            )
             return result
         except Exception as e:
             logger.warning(f"LIMIT IOC failed: {e}")
             return None
 
-    async def _place_market_entry(self, symbol, side, quantity):
-        """Place MARKET entry order."""
-        params = {
-            'symbol': symbol, 'side': side, 'type': 'MARKET',
-            'quantity': str(quantity),
-        }
-        try:
-            result = await self._request('POST', '/fapi/v1/order', params, signed=True)
-            logger.info(f"MARKET entry placed: {side} {quantity} {symbol}")
-            return result
-        except Exception as e:
-            logger.error(f"Failed to place MARKET entry: {e}")
-            return None
-
     def _order_filled(self, result):
         """Check if an order result indicates a fill (full or partial)."""
+        if not result:
+            return False
         status = result.get('status', '')
         executed_qty = float(result.get('executedQty', 0))
         return status == 'FILLED' or executed_qty > 0
@@ -748,10 +768,13 @@ class BinanceFuturesTrader:
             {**sl_tp_base, 'type': 'TAKE_PROFIT_MARKET', 'stopPrice': str(tp_price)},
         ]
 
+        batch_json = json.dumps(orders, separators=(',', ':'))
+        logger.info(f"[BATCH] Payload: {batch_json[:200]}...")
+
         try:
             results = await self._request(
                 'POST', '/fapi/v1/batchOrders',
-                {'batchOrders': json.dumps(orders)}, signed=True
+                {'batchOrders': batch_json}, signed=True
             )
             return self._parse_batch_response(results, direction, quantity, symbol)
         except Exception as e:
@@ -1015,17 +1038,24 @@ class BinanceFuturesTrader:
         entry_side, close_side = self._sides(direction)
 
         entry_result = await self.place_entry_order(symbol, entry_side, quantity, entry_price)
-        if not entry_result or not self._order_filled(entry_result):
-            raise Exception("Entry order failed or not filled — no position opened")
 
-        filled_qty = Decimal(entry_result.get('executedQty', str(quantity)))
+        if not entry_result:
+            raise Exception("Entry order failed — Binance returned no result")
+
+        status = entry_result.get('status', 'UNKNOWN')
+        exec_qty = entry_result.get('executedQty', '0')
+        logger.info(f"Entry response [SEPARATE]: status={status} executedQty={exec_qty} orderId={entry_result.get('orderId')}")
+
+        if not self._order_filled(entry_result):
+            raise Exception(f"Entry not filled — status={status}, executedQty={exec_qty}")
+
         avg_price = Decimal(
             entry_result.get('avgPrice') or entry_result.get('price') or str(fallback_price)
         )
         if avg_price <= 0:
             avg_price = fallback_price
 
-        logger.info(f"Entry filled [SEPARATE]: {direction} {filled_qty} {symbol} @ {avg_price}")
+        logger.info(f"Entry filled [SEPARATE]: {direction} {exec_qty} {symbol} @ {avg_price}")
 
         warnings = []
 

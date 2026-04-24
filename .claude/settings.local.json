@@ -86,7 +86,11 @@
       "Bash(pip3 install:*)",
       "Bash(md5 /Users/gunsnrojeshprajapati/Desktop/project/binance-bot/client/public/icon-192x192.png)",
       "Bash(osascript -e 'display notification \"\"macOS notification test\"\" with title \"\"Test\"\"')",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "WebFetch(domain:developers.binance.com)",
+      "WebSearch",
+      "WebFetch(domain:dev.binance.vision)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
     "ask": []
