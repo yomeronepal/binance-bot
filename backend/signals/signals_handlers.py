@@ -409,13 +409,14 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
         )
 
 
-_futures_signal_lock = set()
-
 @receiver(post_save, sender=Signal)
 def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
     """
     Execute a real futures trade on Binance when a new signal is created.
-    Uses in-memory lock to prevent duplicate execution from multiple handlers.
+
+    Uses a Redis-backed distributed lock so duplicate handler fires across
+    multiple Celery workers / API processes cannot open two positions for
+    the same Signal.
 
     Args:
         sender: Signal model class
@@ -433,12 +434,28 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
         logger.debug(f"Signal {instance.id} is {instance.market_type}, skipping futures trade (FUTURES only)")
         return
 
-    lock_key = f"futures_{instance.id}"
-    if lock_key in _futures_signal_lock:
-        logger.debug(f"Signal {instance.id} already being processed for futures, skipping duplicate")
-        return
-    _futures_signal_lock.add(lock_key)
+    from .services.distributed_lock import signal_execution_lock
 
+    with signal_execution_lock(instance.id) as acquired:
+        if not acquired:
+            logger.info(
+                f"Signal {instance.id} already being processed by another worker, "
+                "skipping duplicate futures execution"
+            )
+            return
+        _execute_futures_trade(instance)
+
+
+def _execute_futures_trade(instance):
+    """
+    Run the trading-window / blacklist checks and dispatch to the trader.
+
+    Extracted from the post_save handler so the lock context stays narrow
+    and the trade logic is testable without going through Django signals.
+
+    Args:
+        instance: Signal instance to execute.
+    """
     try:
         in_window = is_within_trading_window()
         current_time = get_nepal_time_str()
@@ -492,7 +509,5 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
     except Exception as e:
         logger.error(
             f"Failed to execute futures trade for signal {instance.id}: {e}",
-            exc_info=True
+            exc_info=True,
         )
-    finally:
-        _futures_signal_lock.discard(lock_key)

@@ -15,6 +15,7 @@ from celery import shared_task
 from scanner.services.binance_client import BinanceClient
 from scanner.strategies.signal_engine import SignalDetectionEngine, SignalConfig
 from scanner.config import get_signal_config_for_symbol, detect_market_type, MarketType
+from scanner.tasks._scan_common import TIMEFRAME_PRIORITY, run_timeframe_scan_task
 from signals.models import Signal
 
 logger = logging.getLogger(__name__)
@@ -115,16 +116,6 @@ BREATHING_ROOM_CONFIGS = {
         sl_atr_multiplier=2.4,
         tp_atr_multiplier=3.9
     )
-}
-
-
-# Timeframe priority ranking (higher value = higher priority)
-TIMEFRAME_PRIORITY = {
-    '1d': 5,
-    '4h': 4,
-    '1h': 3,
-    '30m': 2,
-    '15m': 1,
 }
 
 
@@ -517,96 +508,57 @@ async def _scan_multi_timeframe_async():
         }
 
 
+SPOT_SCAN_LABEL = 'Spot multi-TF'
+
+
 @shared_task(
     name='scanner.tasks.multi_timeframe_scanner.scan_1d_timeframe',
     bind=True,
-    max_retries=3
+    max_retries=3,
 )
 def scan_1d_timeframe(self):
-    """
-    Scan 1-day timeframe only (for separate scheduling)
-    Best for swing trading signals
-    """
-    logger.info("🔍 Starting 1-day timeframe scan...")
-
-    try:
-        result = asyncio.run(_scan_single_timeframe_async('1d'))
-        return result
-    except Exception as e:
-        logger.error(f"1d scan failed: {e}", exc_info=True)
-        raise self.retry(exc=e)
+    """Scan 1-day timeframe (swing trading signals)."""
+    return run_timeframe_scan_task(self, '1d', _scan_single_timeframe_async, SPOT_SCAN_LABEL)
 
 
 @shared_task(
     name='scanner.tasks.multi_timeframe_scanner.scan_4h_timeframe',
     bind=True,
-    max_retries=3
+    max_retries=3,
 )
 def scan_4h_timeframe(self):
-    """
-    Scan 4-hour timeframe only (for separate scheduling)
-    Good balance between signal quality and frequency
-    """
-    logger.info("🔍 Starting 4-hour timeframe scan...")
-
-    try:
-        result = asyncio.run(_scan_single_timeframe_async('4h'))
-        return result
-    except Exception as e:
-        logger.error(f"4h scan failed: {e}", exc_info=True)
-        raise self.retry(exc=e)
+    """Scan 4-hour timeframe (balanced day-trading signals)."""
+    return run_timeframe_scan_task(self, '4h', _scan_single_timeframe_async, SPOT_SCAN_LABEL)
 
 
 @shared_task(
     name='scanner.tasks.multi_timeframe_scanner.scan_1h_timeframe',
     bind=True,
-    max_retries=3
+    max_retries=3,
 )
 def scan_1h_timeframe(self):
-    """
-    Scan 1-hour timeframe only (for separate scheduling)
-    Active intraday trading signals
-    """
-    logger.info("🔍 Starting 1-hour timeframe scan...")
-
-    try:
-        result = asyncio.run(_scan_single_timeframe_async('1h'))
-        return result
-    except Exception as e:
-        logger.error(f"1h scan failed: {e}", exc_info=True)
-        raise self.retry(exc=e)
+    """Scan 1-hour timeframe (active intraday signals)."""
+    return run_timeframe_scan_task(self, '1h', _scan_single_timeframe_async, SPOT_SCAN_LABEL)
 
 
 @shared_task(
     name='scanner.tasks.multi_timeframe_scanner.scan_15m_timeframe',
     bind=True,
-    max_retries=3
+    max_retries=3,
 )
 def scan_15m_timeframe(self):
-    """Scan 15-minute timeframe only."""
-    logger.info("Starting 15-minute timeframe scan...")
-    try:
-        result = asyncio.run(_scan_single_timeframe_async('15m'))
-        return result
-    except Exception as e:
-        logger.error(f"15m scan failed: {e}", exc_info=True)
-        raise self.retry(exc=e)
+    """Scan 15-minute timeframe."""
+    return run_timeframe_scan_task(self, '15m', _scan_single_timeframe_async, SPOT_SCAN_LABEL)
 
 
 @shared_task(
     name='scanner.tasks.multi_timeframe_scanner.scan_30m_timeframe',
     bind=True,
-    max_retries=3
+    max_retries=3,
 )
 def scan_30m_timeframe(self):
-    """Scan 30-minute timeframe only."""
-    logger.info("Starting 30-minute timeframe scan...")
-    try:
-        result = asyncio.run(_scan_single_timeframe_async('30m'))
-        return result
-    except Exception as e:
-        logger.error(f"30m scan failed: {e}", exc_info=True)
-        raise self.retry(exc=e)
+    """Scan 30-minute timeframe."""
+    return run_timeframe_scan_task(self, '30m', _scan_single_timeframe_async, SPOT_SCAN_LABEL)
 
 
 SINGLE_TF_LIMITS = {'15m': 300, '30m': 300, '1h': 250, '4h': 200, '1d': 100}

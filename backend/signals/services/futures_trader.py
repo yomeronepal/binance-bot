@@ -68,6 +68,36 @@ def _run_in_thread(async_fn, timeout=60):
     return container['result']
 
 
+class OrphanedPositionError(Exception):
+    """
+    Raised when an entry filled on Binance but both SL placement and the
+    subsequent auto-close retries failed.
+
+    The position is still live on the exchange and will ride to TP, SL
+    (if any), or liquidation unless an operator closes it manually.
+    Carries the context needed to persist a ``status='FAILED'`` /
+    ``error_message='ORPHANED: ...'`` :class:`FuturesTrade` and fire a
+    push alert.
+
+    Attributes:
+        symbol: Trading pair (e.g. ``"BTCUSDT"``).
+        direction: ``"LONG"`` or ``"SHORT"``.
+        quantity: Position size, in base asset units.
+        entry_price: Fill price of the entry leg.
+        reason: Short human-readable explanation.
+    """
+
+    def __init__(self, symbol, direction, quantity, entry_price, reason):
+        self.symbol = symbol
+        self.direction = direction
+        self.quantity = quantity
+        self.entry_price = entry_price
+        self.reason = reason
+        super().__init__(
+            f"ORPHANED POSITION on {symbol}: {direction} qty={quantity} @ {entry_price} — {reason}"
+        )
+
+
 class BinanceFuturesTrader:
     """Low-level async client for Binance Futures API."""
 
@@ -601,7 +631,8 @@ class BinanceFuturesTrader:
     async def place_stop_loss_order(self, symbol, side, quantity, stop_price,
                                      current_price=None, symbol_info=None):
         """
-        Place a stop loss order via Algo API (Binance deprecated STOP_MARKET on /fapi/v1/order).
+        Place a stop loss order with 3-level fallback: closePosition -> quantity -> algo.
+        Uses /fapi/v1/order STOP_MARKET (closePosition=true is most reliable).
         Signal's SL value is used directly (no recalculation).
 
         Args:
@@ -614,12 +645,16 @@ class BinanceFuturesTrader:
         """
         if symbol_info:
             stop_price = self._round_price(stop_price, symbol_info)
-        return await self._place_algo_conditional(symbol, side, stop_price, 'STOP_MARKET', 'SL')
+        return await self._place_conditional_with_fallback(
+            symbol, side, quantity, stop_price, 'STOP_MARKET', 'SL',
+            ['close_position', 'quantity', 'algo']
+        )
 
     async def place_take_profit_order(self, symbol, side, quantity, take_profit_price,
                                        current_price=None, symbol_info=None):
         """
-        Place a take profit order via Algo API (Binance deprecated TAKE_PROFIT_MARKET on /fapi/v1/order).
+        Place a take profit order with 3-level fallback: closePosition -> quantity -> algo.
+        Uses /fapi/v1/order TAKE_PROFIT_MARKET (closePosition=true is most reliable).
         Signal's TP value is used directly (no recalculation).
 
         Args:
@@ -632,7 +667,10 @@ class BinanceFuturesTrader:
         """
         if symbol_info:
             take_profit_price = self._round_price(take_profit_price, symbol_info)
-        return await self._place_algo_conditional(symbol, side, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP')
+        return await self._place_conditional_with_fallback(
+            symbol, side, quantity, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP',
+            ['close_position', 'quantity', 'algo']
+        )
 
     async def place_trailing_stop_order(self, symbol, side, quantity, callback_rate,
                                          activation_price=None):
@@ -703,6 +741,50 @@ class BinanceFuturesTrader:
         """Close an open position with a reduce-only market order."""
         side = 'SELL' if direction == 'LONG' else 'BUY'
         return await self.place_market_order(symbol, side, quantity, reduce_only=True)
+
+    async def close_position_with_retry(self, symbol, direction, quantity, attempts=3):
+        """
+        Close a position with bounded retries and exponential backoff.
+
+        Used on the SL-failure rescue path: a single close attempt is too
+        fragile because the rescue only fires when something is already
+        going wrong (API hiccup, position-mode mismatch, transient rate
+        limit). Backoff pattern: 0.5s, 1s, 2s between attempts.
+
+        Args:
+            symbol: Trading pair.
+            direction: ``"LONG"`` or ``"SHORT"``.
+            quantity: Position size to close.
+            attempts: Maximum close attempts (default 3).
+
+        Returns:
+            bool: True if at least one attempt returned a result object
+            (treated as "order accepted"); False if every attempt failed.
+        """
+        delay = 0.5
+        for attempt in range(1, attempts + 1):
+            try:
+                result = await self.close_position(symbol, direction, quantity)
+            except Exception as exc:
+                logger.warning(
+                    f"close_position attempt {attempt}/{attempts} raised for {symbol}: {exc}"
+                )
+                result = None
+
+            if result:
+                logger.info(
+                    f"close_position succeeded for {symbol} on attempt {attempt}/{attempts}"
+                )
+                return True
+
+            if attempt < attempts:
+                await asyncio.sleep(delay)
+                delay *= 2
+
+        logger.error(
+            f"close_position FAILED all {attempts} attempts for {symbol} {direction} qty={quantity}"
+        )
+        return False
 
     async def _fetch_market_data(self, signal_id, symbol_name):
         """
@@ -936,18 +1018,93 @@ class BinanceFuturesTrader:
             'warnings': warnings,
         }
 
+    async def _rescue_or_orphan(self, symbol, direction, quantity, entry_price, reason):
+        """
+        Try to close a position that lost its SL; raise on total failure.
+
+        Called when SL placement or post-placement verification cannot be
+        repaired. A successful rescue raises a plain :class:`Exception`
+        (entry reversed, matches the original behaviour so upstream keeps
+        treating it as a normal failed trade). A failed rescue raises
+        :class:`OrphanedPositionError` so ``execute_signal`` can persist a
+        FAILED/ORPHANED ``FuturesTrade`` row and push-alert the operator.
+
+        Args:
+            symbol: Trading pair.
+            direction: ``"LONG"`` or ``"SHORT"``.
+            quantity: Position size to close.
+            entry_price: Actual entry fill price (for the orphan record).
+            reason: Short explanation of why the rescue was triggered.
+
+        Raises:
+            OrphanedPositionError: If every close attempt failed — live
+                position remains on Binance and needs manual intervention.
+            Exception: If the rescue succeeded — entry reversed, same
+                semantics as the pre-retry behaviour.
+        """
+        logger.error(f"CRITICAL: {reason} for {symbol}! Attempting rescue close.")
+        closed = await self.close_position_with_retry(symbol, direction, quantity)
+        if closed:
+            raise Exception(f"{reason} on {symbol}. Entry reversed by rescue close.")
+        raise OrphanedPositionError(symbol, direction, quantity, entry_price, reason)
+
+    async def _check_sl_tp_on_exchange(self, symbol):
+        """
+        Query Binance openOrders and report which conditional types are present.
+
+        Used as a post-placement safety net: even if ``place_stop_loss_order``
+        returned a success dict, the order may have been rejected post-hoc
+        (margin rules, price bands, position-mode mismatch). A direct query
+        is the only source of truth.
+
+        Args:
+            symbol: Trading pair to check.
+
+        Returns:
+            Tuple[bool, bool]: ``(sl_present, tp_present)``. On API error
+            both are reported True (fail-open) so a transient query failure
+            does not trigger a needless position-close.
+        """
+        try:
+            orders = await self.get_all_open_orders(symbol)
+        except Exception as exc:
+            logger.warning(
+                f"openOrders query failed for {symbol}: {exc} — "
+                "treating SL/TP as present (fail-open)"
+            )
+            return True, True
+
+        types_present = {o.get('type') for o in (orders or [])}
+        return 'STOP_MARKET' in types_present, 'TAKE_PROFIT_MARKET' in types_present
+
+    async def _place_tp_with_retry(self, symbol, close_side, quantity, tp_rounded):
+        """
+        Place a TP order with a single automatic retry.
+
+        TP failure used to be only a warning, which meant a silently naked
+        upside on winning trades. Retry once before giving up.
+        """
+        result = await self.place_take_profit_order(symbol, close_side, quantity, tp_rounded)
+        if result:
+            return result
+        logger.warning(f"TP first attempt failed for {symbol}, retrying once")
+        await asyncio.sleep(0.5)
+        return await self.place_take_profit_order(symbol, close_side, quantity, tp_rounded)
+
     async def place_trade_orders(self, symbol, direction, leverage, position_size,
                                   sl, tp, symbol_info, current_price, signal_entry=None):
         """
         Place entry + SL + TP on Binance using signal's exact prices.
 
         Flow:
-            1. Entry: LIMIT IOC at signal price -> MARKET fallback (via /fapi/v1/order)
-            2. SL: Algo conditional order (via /fapi/v1/algoOrder)
-            3. TP: Algo conditional order (via /fapi/v1/algoOrder)
-
-        Binance deprecated STOP_MARKET/TAKE_PROFIT_MARKET on the regular and batch
-        order endpoints. Only the Algo API supports them now.
+            1. Entry: LIMIT IOC at signal price -> MARKET fallback (/fapi/v1/order).
+            2. SL: conditional order with fallback chain
+               (close_position -> quantity -> algo).
+            3. TP: same conditional fallback chain, with one auto-retry.
+            4. Verification: query /fapi/v1/openOrders and confirm both
+               STOP_MARKET and TAKE_PROFIT_MARKET are actually present.
+               If SL is missing, position is auto-closed; if TP is missing,
+               a CRITICAL warning is appended but the trade continues.
 
         Args:
             symbol: Trading pair
@@ -995,13 +1152,20 @@ class BinanceFuturesTrader:
 
             sl_result = await self.place_stop_loss_order(symbol, close_side, quantity, sl_rounded)
             if not sl_result:
-                logger.error(f"CRITICAL: SL failed for {symbol}! Closing position.")
-                await self.close_position(symbol, direction, quantity)
-                raise Exception(f"SL could not be placed on {symbol}. Entry reversed.")
+                await self._rescue_or_orphan(
+                    symbol, direction, quantity, avg_price,
+                    reason=f"SL placement failed at {sl_rounded}",
+                )
 
-            tp_result = await self.place_take_profit_order(symbol, close_side, quantity, tp_rounded)
+            tp_result = await self._place_tp_with_retry(symbol, close_side, quantity, tp_rounded)
             if not tp_result:
-                warnings.append(f"TP failed — only SL active at {sl_rounded}")
+                warnings.append(f"TP failed after retry — only SL active at {sl_rounded}")
+
+            sl_result, tp_result, verify_warnings = await self._verify_and_repair_sl_tp(
+                symbol, direction, close_side, quantity, sl_rounded, tp_rounded,
+                sl_result, tp_result, avg_price,
+            )
+            warnings.extend(verify_warnings)
 
             logger.info(
                 f"Trade opened: {direction} {quantity} {symbol} @ {avg_price} "
@@ -1018,6 +1182,72 @@ class BinanceFuturesTrader:
         except Exception as e:
             logger.error(f"Failed to place orders for {symbol}: {e}")
             raise
+
+    async def _verify_and_repair_sl_tp(self, symbol, direction, close_side, quantity,
+                                         sl_rounded, tp_rounded, sl_result, tp_result,
+                                         avg_price):
+        """
+        Confirm SL and TP are live on Binance; repair or close on mismatch.
+
+        Runs ~300ms after placement to let the exchange index the orders.
+        If SL is missing: one retry; still missing => rescue-close the
+        position (3-attempt backoff), raising :class:`OrphanedPositionError`
+        if even that fails. If TP is missing: one retry; still missing =>
+        append a critical warning and continue (SL still protects downside).
+
+        Args:
+            symbol: Trading pair.
+            direction: LONG or SHORT (for close on SL failure).
+            close_side: BUY or SELL side for the SL/TP closing orders.
+            quantity: Position size.
+            sl_rounded: Tick-size-rounded SL trigger price.
+            tp_rounded: Tick-size-rounded TP trigger price.
+            sl_result: Result dict from initial SL placement.
+            tp_result: Result dict from initial TP placement (may be None).
+            avg_price: Actual entry fill price, propagated for orphan alerts.
+
+        Returns:
+            Tuple[dict, Optional[dict], List[str]]:
+            (final_sl_result, final_tp_result, warnings_to_append).
+
+        Raises:
+            OrphanedPositionError: If SL cannot be repaired AND the rescue
+                close also fails across all retries.
+            Exception: If SL cannot be repaired but the rescue close
+                succeeded (entry-reversed path).
+        """
+        await asyncio.sleep(0.3)
+        sl_on_exchange, tp_on_exchange = await self._check_sl_tp_on_exchange(symbol)
+        extra_warnings = []
+
+        if not sl_on_exchange:
+            logger.error(
+                f"CRITICAL: SL reported placed but missing from openOrders for {symbol}, retrying"
+            )
+            sl_retry = await self.place_stop_loss_order(symbol, close_side, quantity, sl_rounded)
+            if not sl_retry:
+                await self._rescue_or_orphan(
+                    symbol, direction, quantity, avg_price,
+                    reason=f"SL missing after placement + repair retry at {sl_rounded}",
+                )
+            sl_result = sl_retry
+            extra_warnings.append("SL required retry after post-placement verification")
+
+        if tp_result and not tp_on_exchange:
+            logger.error(
+                f"CRITICAL: TP reported placed but missing from openOrders for {symbol}, retrying"
+            )
+            tp_retry = await self.place_take_profit_order(symbol, close_side, quantity, tp_rounded)
+            if tp_retry:
+                tp_result = tp_retry
+                extra_warnings.append("TP required retry after post-placement verification")
+            else:
+                extra_warnings.append(
+                    f"TP verification failed even after retry — only SL active at {sl_rounded}"
+                )
+                tp_result = None
+
+        return sl_result, tp_result, extra_warnings
 
     async def _handle_batch_result(self, batch_result, quantity, fallback_price,
                                      sl_rounded, tp_rounded, symbol, direction, symbol_info):
@@ -1311,6 +1541,107 @@ class FuturesTradingService:
             error_message=f"Warnings: {warnings_text}" if warnings_text else '',
         )
 
+    def _handle_orphaned_position(self, signal, orphan, trade_settings, log_ctx):
+        """
+        Persist an orphan FuturesTrade row and fire a push alert.
+
+        Called when ``place_trade_orders`` raised
+        :class:`OrphanedPositionError` — entry filled but SL could not be
+        attached and the rescue close also failed. The position is live on
+        Binance and will run to liquidation without manual intervention.
+
+        The FuturesTrade is written with ``status='FAILED'`` (no schema
+        change required) and ``error_message`` prefixed ``ORPHANED:`` so
+        operators can filter in the admin. ``sl_order_id`` / ``tp_order_id``
+        are left blank — the alert is the source of truth, not the DB.
+
+        Args:
+            signal: Originating Signal instance.
+            orphan: The :class:`OrphanedPositionError` carrying context.
+            trade_settings: Snapshot of ``FuturesTradingSettings`` used for
+                this trade (for leverage / position_size_usdt).
+            log_ctx: Logging context dict for ``_log``.
+        """
+        logger.critical(
+            f"ORPHANED POSITION: signal {signal.id} {orphan.symbol} {orphan.direction} "
+            f"qty={orphan.quantity} @ {orphan.entry_price} — {orphan.reason} — "
+            "MANUAL CLOSE REQUIRED"
+        )
+
+        trade = self._persist_orphan_trade(signal, orphan, trade_settings)
+        self._broadcast_orphan_alert(signal, orphan, trade)
+
+        self._log('TRADE_FAILED', 'CRITICAL',
+                  f"ORPHANED position on {orphan.symbol}: {orphan.reason}",
+                  signal=signal, trade=trade,
+                  details={
+                      'symbol': orphan.symbol,
+                      'direction': orphan.direction,
+                      'quantity': str(orphan.quantity),
+                      'entry_price': str(orphan.entry_price),
+                      'reason': orphan.reason,
+                  },
+                  **{k: v for k, v in log_ctx.items() if k not in ('signal',)})
+
+    def _persist_orphan_trade(self, signal, orphan, trade_settings):
+        """
+        Write a FuturesTrade row marking the position as ORPHANED.
+
+        Returns:
+            FuturesTrade: The persisted row, or None if DB write also
+            failed (logged but non-fatal — the push alert is the backup).
+        """
+        try:
+            return FuturesTrade.objects.create(
+                signal=signal,
+                symbol=orphan.symbol,
+                direction=orphan.direction,
+                leverage=trade_settings.leverage,
+                quantity=orphan.quantity,
+                entry_price=orphan.entry_price,
+                stop_loss=signal.sl,
+                take_profit=signal.tp,
+                position_size_usdt=trade_settings.trade_amount,
+                binance_order_id='',
+                sl_order_id=None,
+                tp_order_id=None,
+                entry_time=dj_timezone.now(),
+                status='FAILED',
+                error_message=f"ORPHANED: {orphan.reason}",
+            )
+        except Exception as exc:
+            logger.error(
+                f"Failed to persist ORPHANED FuturesTrade for signal {signal.id}: {exc}",
+                exc_info=True,
+            )
+            return None
+
+    def _broadcast_orphan_alert(self, signal, orphan, trade):
+        """Send a CRITICAL push notification to every subscriber."""
+        try:
+            from .push_notification import broadcast
+            broadcast(
+                title=f"CRITICAL: Orphan {orphan.symbol}",
+                body=(
+                    f"{orphan.direction} {orphan.quantity} {orphan.symbol} "
+                    f"@ {orphan.entry_price} lost its SL and auto-close failed. "
+                    "Close MANUALLY on Binance NOW."
+                ),
+                data={
+                    'type': 'orphaned_position',
+                    'signal_id': str(signal.id),
+                    'trade_id': str(trade.id) if trade else '',
+                    'symbol': orphan.symbol,
+                    'direction': orphan.direction,
+                    'quantity': str(orphan.quantity),
+                    'entry_price': str(orphan.entry_price),
+                    'reason': orphan.reason,
+                },
+                signal_obj=signal,
+            )
+        except Exception as exc:
+            logger.error(f"Failed to broadcast orphan alert for signal {signal.id}: {exc}")
+
     def execute_signal(self, signal, force_execute=False):
         """
         Execute a futures trade from a signal.
@@ -1375,6 +1706,9 @@ class FuturesTradingService:
 
         try:
             result = _run_in_thread(_execute)
+        except OrphanedPositionError as orphan:
+            self._handle_orphaned_position(signal, orphan, trade_settings, log_ctx)
+            return None
         except Exception as e:
             logger.error(f"Futures API failed for signal {signal.id}: {e}")
             self._log('TRADE_FAILED', 'ERROR', f"Binance API error: {e}",

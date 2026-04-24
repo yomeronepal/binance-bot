@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from scanner.services.binance_futures_client import BinanceFuturesClient
 from scanner.strategies.signal_engine import SignalDetectionEngine, SignalConfig
+from scanner.tasks._scan_common import TIMEFRAME_PRIORITY, run_timeframe_scan_task
 from signals.models import Signal, Symbol
 
 logger = logging.getLogger(__name__)
@@ -88,14 +89,13 @@ FUTURES_TIMEFRAME_CONFIGS = {
 }
 
 
-# Timeframe priority ranking (higher value = higher priority)
-TIMEFRAME_PRIORITY = {
-    '1d': 6,
-    '4h': 5,
-    '1h': 4,
-    '30m': 3,
-    '15m': 2,
-    '5m': 1,
+FUTURES_CANDLE_LIMITS = {
+    '5m': 300,
+    '15m': 200,
+    '30m': 200,
+    '1h': 200,
+    '4h': 150,
+    '1d': 100,
 }
 
 
@@ -401,133 +401,73 @@ async def scan_futures_timeframe(
     return counts
 
 
-# ============================================================================
-# CELERY TASKS - Individual Timeframe Scanners
-# ============================================================================
+FUTURES_SCAN_LABEL = 'Futures'
+
 
 @shared_task(
     name='scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1d',
     bind=True,
     max_retries=3,
-    default_retry_delay=60
+    default_retry_delay=60,
 )
 def scan_futures_1d(self):
-    """
-    Scan Binance Futures 1-day timeframe.
-    Best for swing trading signals with leverage.
-    """
-    logger.info("🔍 Starting Futures 1-day timeframe scan...")
-
-    try:
-        result = asyncio.run(_scan_futures_single_timeframe('1d'))
-        logger.info(f"✅ Futures 1d scan completed: {result}")
-        return result
-    except Exception as e:
-        logger.error(f"Futures 1d scan failed: {e}", exc_info=True)
-        raise self.retry(exc=e)
+    """Scan Binance Futures 1-day timeframe (swing trading with leverage)."""
+    return run_timeframe_scan_task(self, '1d', _scan_futures_single_timeframe, FUTURES_SCAN_LABEL)
 
 
 @shared_task(
     name='scanner.tasks.futures_multi_timeframe_scanner.scan_futures_4h',
     bind=True,
     max_retries=3,
-    default_retry_delay=60
+    default_retry_delay=60,
 )
 def scan_futures_4h(self):
-    """
-    Scan Binance Futures 4-hour timeframe.
-    Good balance between signal quality and frequency.
-    """
-    logger.info("🔍 Starting Futures 4-hour timeframe scan...")
-
-    try:
-        result = asyncio.run(_scan_futures_single_timeframe('4h'))
-        logger.info(f"✅ Futures 4h scan completed: {result}")
-        return result
-    except Exception as e:
-        logger.error(f"Futures 4h scan failed: {e}", exc_info=True)
-        raise self.retry(exc=e)
+    """Scan Binance Futures 4-hour timeframe (balanced day trading)."""
+    return run_timeframe_scan_task(self, '4h', _scan_futures_single_timeframe, FUTURES_SCAN_LABEL)
 
 
 @shared_task(
     name='scanner.tasks.futures_multi_timeframe_scanner.scan_futures_1h',
     bind=True,
     max_retries=3,
-    default_retry_delay=60
+    default_retry_delay=60,
 )
 def scan_futures_1h(self):
-    """
-    Scan Binance Futures 1-hour timeframe.
-    Active intraday trading signals with leverage.
-    """
-    logger.info("🔍 Starting Futures 1-hour timeframe scan...")
-
-    try:
-        result = asyncio.run(_scan_futures_single_timeframe('1h'))
-        logger.info(f"✅ Futures 1h scan completed: {result}")
-        return result
-    except Exception as e:
-        logger.error(f"Futures 1h scan failed: {e}", exc_info=True)
-        raise self.retry(exc=e)
+    """Scan Binance Futures 1-hour timeframe (active intraday)."""
+    return run_timeframe_scan_task(self, '1h', _scan_futures_single_timeframe, FUTURES_SCAN_LABEL)
 
 
 @shared_task(
     name='scanner.tasks.futures_multi_timeframe_scanner.scan_futures_30m',
     bind=True,
     max_retries=3,
-    default_retry_delay=60
+    default_retry_delay=60,
 )
 def scan_futures_30m(self):
     """Scan Binance Futures 30-minute timeframe."""
-    logger.info("Starting Futures 30-minute timeframe scan...")
-    try:
-        result = asyncio.run(_scan_futures_single_timeframe('30m'))
-        logger.info(f"Futures 30m scan completed: {result}")
-        return result
-    except Exception as e:
-        logger.error(f"Futures 30m scan failed: {e}", exc_info=True)
-        raise self.retry(exc=e)
+    return run_timeframe_scan_task(self, '30m', _scan_futures_single_timeframe, FUTURES_SCAN_LABEL)
 
 
 @shared_task(
     name='scanner.tasks.futures_multi_timeframe_scanner.scan_futures_15m',
     bind=True,
     max_retries=3,
-    default_retry_delay=60
+    default_retry_delay=60,
 )
 def scan_futures_15m(self):
     """Scan Binance Futures 15-minute timeframe."""
-    logger.info("Starting Futures 15-minute timeframe scan...")
-
-    try:
-        result = asyncio.run(_scan_futures_single_timeframe('15m'))
-        logger.info(f"✅ Futures 15m scan completed: {result}")
-        return result
-    except Exception as e:
-        logger.error(f"Futures 15m scan failed: {e}", exc_info=True)
-        raise self.retry(exc=e)
+    return run_timeframe_scan_task(self, '15m', _scan_futures_single_timeframe, FUTURES_SCAN_LABEL)
 
 
 @shared_task(
     name='scanner.tasks.futures_multi_timeframe_scanner.scan_futures_5m',
     bind=True,
     max_retries=3,
-    default_retry_delay=60
+    default_retry_delay=60,
 )
 def scan_futures_5m(self):
-    """
-    Scan Binance Futures 5-minute timeframe.
-    Ultra-scalping signals with leverage (optional - high frequency).
-    """
-    logger.info("🔍 Starting Futures 5-minute timeframe scan...")
-
-    try:
-        result = asyncio.run(_scan_futures_single_timeframe('5m'))
-        logger.info(f"✅ Futures 5m scan completed: {result}")
-        return result
-    except Exception as e:
-        logger.error(f"Futures 5m scan failed: {e}", exc_info=True)
-        raise self.retry(exc=e)
+    """Scan Binance Futures 5-minute timeframe (ultra-scalping)."""
+    return run_timeframe_scan_task(self, '5m', _scan_futures_single_timeframe, FUTURES_SCAN_LABEL)
 
 
 async def _scan_futures_single_timeframe(timeframe: str) -> Dict:
@@ -552,21 +492,8 @@ async def _scan_futures_single_timeframe(timeframe: str) -> Dict:
 
         logger.info(f"📊 Scanning {len(top_pairs)} futures pairs on {timeframe}")
 
-        # Determine candle limit based on timeframe
-        if timeframe == '5m':
-            limit = 300  # ~25 hours of 5m data
-        elif timeframe == '15m':
-            limit = 200  # ~2 days of 15m data
-        elif timeframe == '1h':
-            limit = 200  # ~8 days of 1h data
-        elif timeframe == '4h':
-            limit = 150  # ~25 days of 4h data
-        elif timeframe == '1d':
-            limit = 100  # ~3 months of daily data
-        else:
-            limit = 200
+        limit = FUTURES_CANDLE_LIMITS.get(timeframe, 200)
 
-        # Run scan
         counts = await scan_futures_timeframe(client, timeframe, top_pairs, limit)
 
         return {
