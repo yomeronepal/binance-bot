@@ -5,14 +5,12 @@ Runs the REAL signal engine against live Binance candle data, then optionally
 places the generated signal as a futures order — the exact same flow as production.
 
 Usage:
-    python manage.py test_signal_to_order                                  # Scan, show signals (no order)
-    python manage.py test_signal_to_order --execute                        # Scan + place real order
-    python manage.py test_signal_to_order --execute --force                # Bypass window/F&G checks
-    python manage.py test_signal_to_order --symbol ETHUSDT                 # Scan single symbol
-    python manage.py test_signal_to_order --symbol ETHUSDT --timeframe 4h  # Specific pair + timeframe
-    python manage.py test_signal_to_order --scan-all                       # Scan top 20 pairs
-    python manage.py test_signal_to_order --timeframe 15m,1h,4h            # Multiple timeframes
-    python manage.py test_signal_to_order --lower-confidence 0.50          # Relax confidence for testing
+    python manage.py test_signal_to_order                                    # Scan BTCUSDT 1h
+    python manage.py test_signal_to_order --scan-all --timeframe 15m,1h,4h   # Scan top 20 pairs
+    python manage.py test_signal_to_order --debug                            # Show indicator values
+    python manage.py test_signal_to_order --force-signal LONG                # Skip engine, use live price
+    python manage.py test_signal_to_order --force-signal LONG --execute      # Force signal + real order
+    python manage.py test_signal_to_order --execute --force                  # Engine signal + bypass checks
 """
 import asyncio
 import logging
@@ -42,16 +40,25 @@ class Command(BaseCommand):
         parser.add_argument('--lower-confidence', type=float, default=None,
                             help='Override min_confidence for testing (e.g. 0.50)')
         parser.add_argument('--candles', type=int, default=200, help='Number of candles to fetch')
+        parser.add_argument('--debug', action='store_true',
+                            help='Show live indicator values to see why no signal generated')
+        parser.add_argument('--force-signal', choices=['LONG', 'SHORT'], default=None,
+                            help='Skip signal engine, create signal from live price with SL/TP from config')
 
     def handle(self, *args, **options):
         self.execute_order = options['execute']
         self.force = options['force']
         self.lower_confidence = options['lower_confidence']
+        self.debug = options['debug']
+        self.force_signal = options['force_signal']
 
         nepal_now = datetime.now(timezone.utc) + NEPAL_TZ_OFFSET
         self._header("SIGNAL-TO-ORDER END-TO-END TEST")
         self._info(f"Nepal Time: {nepal_now.strftime('%Y-%m-%d %H:%M:%S %A')} NPT")
-        self._info(f"Mode: {'FORCE EXECUTE' if self.force else 'EXECUTE' if self.execute_order else 'SCAN ONLY'}")
+        mode = 'FORCE EXECUTE' if self.force else 'EXECUTE' if self.execute_order else 'SCAN ONLY'
+        if self.force_signal:
+            mode = f"FORCE {self.force_signal} SIGNAL + {mode}"
+        self._info(f"Mode: {mode}")
 
         timeframes = [tf.strip() for tf in options['timeframe'].split(',')]
         candle_limit = options['candles']
@@ -62,15 +69,25 @@ class Command(BaseCommand):
 
         self._step_show_settings()
 
-        all_signals = []
-        for tf in timeframes:
-            signals = self._step_scan_timeframe(symbols, tf, candle_limit)
-            all_signals.extend(signals)
+        if self.force_signal:
+            sig = self._step_force_signal(symbols[0], timeframes[0])
+            if not sig:
+                return
+            all_signals = [sig]
+        else:
+            all_signals = []
+            for tf in timeframes:
+                signals = self._step_scan_timeframe(symbols, tf, candle_limit)
+                all_signals.extend(signals)
 
         if not all_signals:
             self._header("NO SIGNALS GENERATED")
             self._info("The signal engine found no setups meeting the criteria.")
-            self._info("Try: --lower-confidence 0.50 or --timeframe 15m,1h,4h or --scan-all")
+            self._info("Suggestions:")
+            self._info("  --debug                  Show indicator values")
+            self._info("  --force-signal LONG      Create signal from live price (skip engine)")
+            self._info("  --scan-all               Scan top 20 pairs")
+            self._info("  --timeframe 15m,1h,4h    Try multiple timeframes")
             return
 
         self._header(f"GENERATED {len(all_signals)} SIGNAL(S)")
@@ -95,7 +112,7 @@ class Command(BaseCommand):
     def _resolve_symbols(self, options):
         """Get list of symbols to scan."""
         if options['scan_all']:
-            self._header("STEP 1: FETCHING TOP FUTURES PAIRS")
+            self._header("FETCHING TOP FUTURES PAIRS")
             symbols = self._fetch_top_pairs(20)
             if symbols:
                 self._ok(f"Top {len(symbols)} pairs by 24h volume")
@@ -154,6 +171,73 @@ class Command(BaseCommand):
         open_count = FuturesTrade.objects.filter(status='OPEN').count()
         self._info(f"Open trades: {open_count}/{settings.max_concurrent_trades}")
 
+    def _step_force_signal(self, symbol, timeframe):
+        """Create a signal from live price + config SL/TP, bypassing the signal engine."""
+        self._header(f"FORCE {self.force_signal} SIGNAL FROM LIVE PRICE")
+
+        price = self._fetch_live_price(symbol)
+        if not price:
+            return None
+
+        sl_pct, tp_pct = self._get_sl_tp_pct(timeframe)
+        entry = price
+        risk = Decimal(str(sl_pct)) / Decimal('100')
+        profit = Decimal(str(tp_pct)) / Decimal('100')
+
+        if self.force_signal == 'LONG':
+            sl = entry * (1 - risk)
+            tp = entry * (1 + profit)
+        else:
+            sl = entry * (1 + risk)
+            tp = entry * (1 - profit)
+
+        self._ok(f"Live price: ${price}")
+        self._ok(f"Direction: {self.force_signal}")
+        self._ok(f"Entry: ${entry}")
+        self._ok(f"SL: ${sl} ({sl_pct}%)")
+        self._ok(f"TP: ${tp} ({tp_pct}%)")
+        rr = float(tp_pct) / float(sl_pct) if sl_pct else 0
+        self._info(f"R/R: 1:{rr:.1f}")
+
+        return {
+            'symbol': symbol,
+            'direction': self.force_signal,
+            'entry': str(entry),
+            'sl': str(sl),
+            'tp': str(tp),
+            'confidence': 0.80,
+            'timeframe': timeframe,
+            'market_type': 'FUTURES',
+            'leverage': 10,
+            '_forced': True,
+        }
+
+    def _fetch_live_price(self, symbol):
+        """Fetch current price from Binance."""
+        async def _fetch():
+            trader = BinanceFuturesTrader(use_testnet=False)
+            try:
+                return await trader.get_current_price(symbol)
+            finally:
+                await trader.close()
+
+        try:
+            return _run_in_thread(_fetch)
+        except Exception as e:
+            self._fail(f"Failed to fetch price: {e}")
+            return None
+
+    def _get_sl_tp_pct(self, timeframe):
+        """Get SL/TP percentages from DB config or defaults."""
+        try:
+            from signals.models_strategy_config import StrategyConfig
+            db_config = StrategyConfig.get_config(timeframe)
+            if db_config and db_config.is_active:
+                return float(db_config.sl_percentage), float(db_config.tp_percentage)
+        except Exception:
+            pass
+        return 2.5, 6.0
+
     def _step_scan_timeframe(self, symbols, timeframe, candle_limit):
         """Run the real signal engine on live candle data for one timeframe."""
         self._header(f"SCANNING {timeframe.upper()} TIMEFRAME ({len(symbols)} symbol(s))")
@@ -170,6 +254,9 @@ class Command(BaseCommand):
         klines_data = self._fetch_klines(symbols, timeframe, candle_limit)
         if not klines_data:
             return []
+
+        if self.debug:
+            self._show_debug_indicators(klines_data, config, timeframe)
 
         return self._run_signal_engine(klines_data, config, timeframe)
 
@@ -216,6 +303,86 @@ class Command(BaseCommand):
         except Exception as e:
             self._fail(f"Failed to fetch klines: {e}")
             return {}
+
+    def _show_debug_indicators(self, klines_data, config, timeframe):
+        """Show current indicator values for each symbol to diagnose why no signal fires."""
+        from scanner.indicators.indicator_utils import klines_to_dataframe, calculate_all_indicators
+
+        try:
+            from signals.models_strategy_config import StrategyConfig
+            db_config = StrategyConfig.get_config(timeframe)
+        except Exception:
+            db_config = None
+
+        self._header("INDICATOR DEBUG")
+        self._info(f"Config thresholds: RSI {config.long_rsi_min}-{config.long_rsi_max} (LONG), "
+                    f"ADX >= {config.long_adx_min}, Conf >= {config.min_confidence}")
+
+        for symbol, klines in klines_data.items():
+            try:
+                df = klines_to_dataframe(klines)
+                df = calculate_all_indicators(df, config=db_config)
+                cur = df.iloc[-1]
+                prev = df.iloc[-2]
+
+                price = cur['close']
+                rsi = cur['rsi']
+                adx = cur['adx']
+                macd_h = cur['macd_hist']
+                plus_di = cur['plus_di']
+                minus_di = cur['minus_di']
+                ema9 = cur['ema_9']
+                ema21 = cur['ema_21']
+                ema50 = cur['ema_50']
+                vol = cur.get('volume_trend', 0)
+                ha_bull = cur.get('ha_bullish', False)
+                supertrend = cur.get('supertrend_direction', 0)
+                mfi = cur.get('mfi', 0)
+                psar_bull = cur.get('psar_bullish', False)
+                bb_upper = cur.get('bb_upper', 0)
+                bb_lower = cur.get('bb_lower', 0)
+
+                rsi_long_ok = config.long_rsi_min < rsi < config.long_rsi_max
+                rsi_short_ok = config.short_rsi_min < rsi < config.short_rsi_max
+                adx_ok = adx > config.long_adx_min
+                ema_aligned_bull = ema9 > ema21 > ema50
+                ema_aligned_bear = ema9 < ema21 < ema50
+
+                bb_range = bb_upper - bb_lower
+                bb_pos = ((price - bb_lower) / bb_range * 100) if bb_range > 0 else 50
+
+                self.stdout.write(f"\n  --- {symbol} @ ${price:.2f} ---")
+                self._indicator("RSI", f"{rsi:.1f}", f"LONG zone {config.long_rsi_min}-{config.long_rsi_max}", rsi_long_ok)
+                self._indicator("RSI", f"{rsi:.1f}", f"SHORT zone {config.short_rsi_min}-{config.short_rsi_max}", rsi_short_ok)
+                self._indicator("ADX", f"{adx:.1f}", f">= {config.long_adx_min}", adx_ok)
+                self._indicator("MACD hist", f"{macd_h:.4f}", "rising" if macd_h > prev['macd_hist'] else "falling", macd_h > 0)
+                self._indicator("+DI/-DI", f"{plus_di:.1f}/{minus_di:.1f}", "+DI > -DI", plus_di > minus_di)
+                self._indicator("EMA align", f"9>{ema9:.0f} 21>{ema21:.0f} 50>{ema50:.0f}",
+                                "bullish" if ema_aligned_bull else ("bearish" if ema_aligned_bear else "mixed"),
+                                ema_aligned_bull or ema_aligned_bear)
+                self._indicator("SuperTrend", "BULL" if supertrend == 1 else "BEAR", "", supertrend == 1)
+                self._indicator("Heikin Ashi", "BULL" if ha_bull else "BEAR", "", ha_bull)
+                self._indicator("PSAR", "BULL" if psar_bull else "BEAR", "", psar_bull)
+                self._indicator("MFI", f"{mfi:.1f}", "20-50 = LONG zone", 20 < mfi < 50)
+                self._indicator("Volume", f"{vol:.2f}x", "> 1.0x avg", vol > 1.0)
+                self._indicator("BB pos", f"{bb_pos:.0f}%", "< 25% = LONG zone", bb_pos < 25)
+
+                bullish_count = sum([
+                    supertrend == 1, plus_di > minus_di, ema_aligned_bull, ha_bull, psar_bull
+                ])
+                bearish_count = sum([
+                    supertrend != 1, minus_di > plus_di, ema_aligned_bear, not ha_bull, not psar_bull
+                ])
+                self._info(f"  Bullish confirmations: {bullish_count}/5 (need 3+)")
+                self._info(f"  Bearish confirmations: {bearish_count}/5 (need 3+)")
+
+            except Exception as e:
+                self._fail(f"  {symbol}: Debug error - {e}")
+
+    def _indicator(self, name, value, condition, passed):
+        """Print a single indicator with pass/fail."""
+        mark = self.style.SUCCESS("PASS") if passed else self.style.ERROR("FAIL")
+        self.stdout.write(f"  {mark}  {name:15s} = {value:20s}  ({condition})")
 
     def _run_signal_engine(self, klines_data, config, timeframe):
         """Run SignalDetectionEngine on fetched candle data."""
@@ -264,8 +431,9 @@ class Command(BaseCommand):
         tp = sig.get('tp', sig.get('take_profit', '?'))
         conf = sig.get('confidence', 0)
         tf = sig.get('timeframe', '?')
+        forced = " [FORCED]" if sig.get('_forced') else ""
 
-        self._ok(f"  #{index} {direction} {symbol} ({tf})")
+        self._ok(f"  #{index} {direction} {symbol} ({tf}){forced}")
         self._info(f"     Entry: ${entry}")
         self._info(f"     SL:    ${sl}")
         self._info(f"     TP:    ${tp}")
