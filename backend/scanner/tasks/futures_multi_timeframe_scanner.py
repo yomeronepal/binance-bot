@@ -322,12 +322,13 @@ async def scan_futures_timeframe(
     logger.info(f"🔍 Scanning {len(top_pairs)} futures pairs on {timeframe} timeframe...")
 
     try:
+        from asgiref.sync import sync_to_async
         from signals.models_strategy_config import StrategyConfig
-        db_config = StrategyConfig.get_config(timeframe)
+        db_config = await sync_to_async(StrategyConfig.get_config)(timeframe)
         if not db_config.is_active:
             logger.info(f"Timeframe {timeframe} is disabled in StrategyConfig, skipping")
             return counts
-        config = db_config.to_signal_config()
+        config = await sync_to_async(db_config.to_signal_config)()
 
         # Fetch klines for all pairs with rate limiting
         klines_data = await client.batch_get_klines(
