@@ -85,7 +85,8 @@
       "Bash(npx vite:*)",
       "Bash(pip3 install:*)",
       "Bash(md5 /Users/gunsnrojeshprajapati/Desktop/project/binance-bot/client/public/icon-192x192.png)",
-      "Bash(osascript -e 'display notification \"\"macOS notification test\"\" with title \"\"Test\"\"')"
+      "Bash(osascript -e 'display notification \"\"macOS notification test\"\" with title \"\"Test\"\"')",
+      "Read(//tmp/**)"
     ],
     "deny": [],
     "ask": []
