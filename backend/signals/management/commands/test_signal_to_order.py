@@ -105,9 +105,9 @@ class Command(BaseCommand):
 
         self._confirm_execution(best)
 
-        trade = self._step_execute_signal(best)
-        if trade:
-            self._step_verify_prices(trade, best)
+        trade, db_signal = self._step_execute_signal(best)
+        if trade and db_signal:
+            self._step_verify_prices(trade, db_signal)
 
     def _resolve_symbols(self, options):
         """Get list of symbols to scan."""
@@ -518,13 +518,13 @@ class Command(BaseCommand):
                 self._fail("execute_signal returned None — check logs for reason")
                 self._info(f"  Signal ID: {signal.id}")
 
-            return trade
+            return trade, signal
 
         except Exception as e:
             self._fail(f"Execution error: {e}")
             import traceback
             traceback.print_exc()
-            return None
+            return None, None
 
         finally:
             post_save.connect(execute_futures_trade_on_signal, sender=Signal)
@@ -558,15 +558,15 @@ class Command(BaseCommand):
         if trade.error_message:
             self._fail(f"  Warnings: {trade.error_message}")
 
-    def _step_verify_prices(self, trade, original_signal):
-        """Verify Binance order used the signal's exact EP/SL/TP."""
+    def _step_verify_prices(self, trade, db_signal):
+        """Verify Binance order used the signal's exact EP/SL/TP (after neutral reversal)."""
         self._header("PRICE VERIFICATION")
 
-        expected_entry = Decimal(str(original_signal.get('entry', original_signal.get('entry_price'))))
-        expected_sl = Decimal(str(original_signal.get('sl', original_signal.get('stop_loss'))))
-        expected_tp = Decimal(str(original_signal.get('tp', original_signal.get('take_profit'))))
+        expected_entry = Decimal(str(db_signal.entry))
+        expected_sl = Decimal(str(db_signal.sl))
+        expected_tp = Decimal(str(db_signal.tp))
 
-        self._info("Signal generated:")
+        self._info("Signal in DB (after neutral reversal):")
         self._info(f"  Entry: ${expected_entry} | SL: ${expected_sl} | TP: ${expected_tp}")
         self._info("Binance order:")
         self._info(f"  Entry: ${trade.entry_price} | SL: ${trade.stop_loss} | TP: ${trade.take_profit}")

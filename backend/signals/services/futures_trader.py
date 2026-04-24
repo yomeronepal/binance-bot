@@ -526,29 +526,40 @@ class BinanceFuturesTrader:
             logger.warning(f"[CLOSE_POS] {label} failed for {symbol}: {e}")
             return None
 
-    async def _place_with_algo(self, symbol, side, stop_price, order_type, label):
+    async def _place_algo_conditional(self, symbol, side, trigger_price, order_type, label):
         """
-        Place conditional order via algo endpoint (last resort).
+        Place SL/TP via Binance Algo API (the only endpoint that supports STOP_MARKET/TAKE_PROFIT_MARKET).
 
         Args:
             symbol: Trading pair
             side: BUY or SELL
-            stop_price: Trigger price
+            trigger_price: Trigger price for SL or TP
             order_type: STOP_MARKET or TAKE_PROFIT_MARKET
             label: SL or TP for logging
+
+        Returns:
+            Dict with orderId or None
         """
+        if trigger_price <= 0:
+            logger.error(f"{label} price is {trigger_price}, cannot place order")
+            return None
+
         params = {
             'symbol': symbol, 'side': side, 'algoType': 'CONDITIONAL',
-            'type': order_type, 'closePosition': 'true', 'triggerPrice': str(stop_price),
+            'type': order_type, 'closePosition': 'true', 'triggerPrice': str(trigger_price),
         }
         try:
             result = await self._request('POST', '/fapi/v1/algoOrder', params, signed=True)
             algo_id = result.get('algoId')
-            logger.info(f"[ALGO] {label} placed: {side} {symbol} @ {stop_price} | AlgoID: {algo_id}")
+            logger.info(f"[ALGO] {label} placed: {side} {symbol} @ {trigger_price} | AlgoID: {algo_id}")
             return {'orderId': str(algo_id), 'algoId': algo_id, 'method': 'algo', **result}
         except Exception as e:
-            logger.error(f"[ALGO] {label} ALSO failed for {symbol}: {e}")
+            logger.error(f"[ALGO] {label} failed for {symbol}: {e}")
             return None
+
+    async def _place_with_algo(self, symbol, side, stop_price, order_type, label):
+        """Backward-compatible alias for _place_algo_conditional."""
+        return await self._place_algo_conditional(symbol, side, stop_price, order_type, label)
 
     async def _place_conditional_with_fallback(self, symbol, side, quantity, trigger_price,
                                                 order_type, label, methods):
@@ -590,7 +601,7 @@ class BinanceFuturesTrader:
     async def place_stop_loss_order(self, symbol, side, quantity, stop_price,
                                      current_price=None, symbol_info=None):
         """
-        Place a stop loss order with 3-level fallback: algo -> quantity -> closePosition.
+        Place a stop loss order via Algo API (Binance deprecated STOP_MARKET on /fapi/v1/order).
         Signal's SL value is used directly (no recalculation).
 
         Args:
@@ -603,15 +614,12 @@ class BinanceFuturesTrader:
         """
         if symbol_info:
             stop_price = self._round_price(stop_price, symbol_info)
-        return await self._place_conditional_with_fallback(
-            symbol, side, quantity, stop_price, 'STOP_MARKET', 'SL',
-            ['algo', 'quantity', 'close_position']
-        )
+        return await self._place_algo_conditional(symbol, side, stop_price, 'STOP_MARKET', 'SL')
 
     async def place_take_profit_order(self, symbol, side, quantity, take_profit_price,
                                        current_price=None, symbol_info=None):
         """
-        Place a take profit order with 3-level fallback: quantity -> closePosition -> algo.
+        Place a take profit order via Algo API (Binance deprecated TAKE_PROFIT_MARKET on /fapi/v1/order).
         Signal's TP value is used directly (no recalculation).
 
         Args:
@@ -624,10 +632,7 @@ class BinanceFuturesTrader:
         """
         if symbol_info:
             take_profit_price = self._round_price(take_profit_price, symbol_info)
-        return await self._place_conditional_with_fallback(
-            symbol, side, quantity, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP',
-            ['quantity', 'close_position', 'algo']
-        )
+        return await self._place_algo_conditional(symbol, side, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP')
 
     async def place_trailing_stop_order(self, symbol, side, quantity, callback_rate,
                                          activation_price=None):
@@ -936,8 +941,13 @@ class BinanceFuturesTrader:
         """
         Place entry + SL + TP on Binance using signal's exact prices.
 
-        Uses LIMIT at signal entry when provided, else MARKET.
-        SL/TP from signal are only rounded to tick size, never recalculated.
+        Flow:
+            1. Entry: LIMIT IOC at signal price -> MARKET fallback (via /fapi/v1/order)
+            2. SL: Algo conditional order (via /fapi/v1/algoOrder)
+            3. TP: Algo conditional order (via /fapi/v1/algoOrder)
+
+        Binance deprecated STOP_MARKET/TAKE_PROFIT_MARKET on the regular and batch
+        order endpoints. Only the Algo API supports them now.
 
         Args:
             symbol: Trading pair
@@ -951,6 +961,8 @@ class BinanceFuturesTrader:
             signal_entry: Signal's entry price for LIMIT order (optional)
         """
         entry_price = signal_entry or current_price
+        entry_side, close_side = self._sides(direction)
+
         logger.info(
             f"TRADE START: {symbol} {direction} | Margin: ${position_size} | Leverage: {leverage}x | "
             f"Signal Entry: ${entry_price} | Market: ${current_price} | SL: ${sl} | TP: ${tp}"
@@ -968,20 +980,39 @@ class BinanceFuturesTrader:
             entry_rounded = self._round_price(entry_price, symbol_info) if signal_entry else None
             logger.info(f"Rounded — Entry={entry_rounded}, SL={sl_rounded}, TP={tp_rounded}")
 
-            batch_result = await self.place_batch_orders(
-                symbol, direction, quantity, sl_rounded, tp_rounded, entry_price=entry_rounded
+            entry_result = await self.place_entry_order(symbol, entry_side, quantity, entry_rounded)
+            if not entry_result:
+                raise Exception("Entry order failed — Binance returned no result")
+
+            if not self._order_filled(entry_result):
+                status = entry_result.get('status', 'UNKNOWN')
+                raise Exception(f"Entry not filled — status={status}")
+
+            avg_price = await self._resolve_entry_price(entry_result, symbol, entry_price)
+            logger.info(f"Entry filled: {direction} {quantity} {symbol} @ {avg_price}")
+
+            warnings = []
+
+            sl_result = await self.place_stop_loss_order(symbol, close_side, quantity, sl_rounded)
+            if not sl_result:
+                logger.error(f"CRITICAL: SL failed for {symbol}! Closing position.")
+                await self.close_position(symbol, direction, quantity)
+                raise Exception(f"SL could not be placed on {symbol}. Entry reversed.")
+
+            tp_result = await self.place_take_profit_order(symbol, close_side, quantity, tp_rounded)
+            if not tp_result:
+                warnings.append(f"TP failed — only SL active at {sl_rounded}")
+
+            logger.info(
+                f"Trade opened: {direction} {quantity} {symbol} @ {avg_price} "
+                f"(SL: {sl_rounded}, TP: {tp_rounded})"
             )
 
-            if batch_result and batch_result.get('entry'):
-                return await self._handle_batch_result(
-                    batch_result, quantity, entry_price, sl_rounded, tp_rounded,
-                    symbol, direction, symbol_info
-                )
-
-            logger.warning(f"Batch failed for {symbol}, falling back to separate orders...")
-            return await self._place_separate_orders(
-                symbol, direction, quantity, sl_rounded, tp_rounded,
-                entry_price, symbol_info, entry_rounded
+            return self._build_trade_result(
+                quantity, avg_price, entry_result.get('orderId', ''),
+                str(sl_result.get('orderId', '')) if sl_result else None,
+                str(tp_result.get('orderId', '')) if tp_result else None,
+                sl_rounded, tp_rounded, warnings
             )
 
         except Exception as e:
