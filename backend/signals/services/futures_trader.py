@@ -135,7 +135,10 @@ class BinanceFuturesTrader:
 
     async def _request(self, method, endpoint, params=None, signed=False):
         """
-        Make authenticated API request to Binance Futures.
+        Make API request to Binance Futures.
+
+        For signed requests, builds the full URL manually to avoid double-encoding
+        (aiohttp's params encoder differs from urlencode for JSON/special chars).
 
         Args:
             method: HTTP method (GET, POST, DELETE)
@@ -150,23 +153,29 @@ class BinanceFuturesTrader:
             Exception on API error or network failure
         """
         session = await self._get_session()
-        url = f"{self.base_url}{endpoint}"
-        params = params or {}
         headers = {'X-MBX-APIKEY': self.api_key}
-
-        if signed:
-            await self._sync_server_time()
-            params['timestamp'] = self._get_timestamp()
-            params['recvWindow'] = 60000
-            query_string = urlencode(params)
-            params['signature'] = self._generate_signature(query_string)
+        params = params or {}
 
         try:
-            async with session.request(method, url, params=params, headers=headers) as resp:
-                data = await resp.json()
-                if resp.status != 200:
-                    raise Exception(f"Binance API error: {data.get('msg', str(data))}")
-                return data
+            if signed:
+                await self._sync_server_time()
+                params['timestamp'] = self._get_timestamp()
+                params['recvWindow'] = 60000
+                query_string = urlencode(params)
+                signature = self._generate_signature(query_string)
+                url = f"{self.base_url}{endpoint}?{query_string}&signature={signature}"
+                async with session.request(method, url, headers=headers) as resp:
+                    data = await resp.json()
+                    if resp.status != 200:
+                        raise Exception(f"Binance API error: {data.get('msg', str(data))}")
+                    return data
+            else:
+                url = f"{self.base_url}{endpoint}"
+                async with session.request(method, url, params=params, headers=headers) as resp:
+                    data = await resp.json()
+                    if resp.status != 200:
+                        raise Exception(f"Binance API error: {data.get('msg', str(data))}")
+                    return data
         except aiohttp.ClientError as e:
             logger.error(f"Network error: {e}")
             raise
@@ -365,7 +374,10 @@ class BinanceFuturesTrader:
 
     async def place_entry_order(self, symbol, side, quantity, price=None):
         """
-        Place entry order — LIMIT at signal price if provided, else MARKET.
+        Place entry order using signal's price.
+
+        Strategy: LIMIT IOC at signal price (fills immediately or cancels),
+        falls back to MARKET if IOC doesn't fill.
 
         Args:
             symbol: Trading pair
@@ -373,22 +385,50 @@ class BinanceFuturesTrader:
             quantity: Order quantity
             price: Signal entry price for LIMIT order, None for MARKET
         """
-        params = {'symbol': symbol, 'side': side, 'quantity': str(quantity)}
-
         if price:
-            params.update({'type': 'LIMIT', 'price': str(price), 'timeInForce': 'GTC'})
-        else:
-            params['type'] = 'MARKET'
+            result = await self._place_limit_ioc(symbol, side, quantity, price)
+            if result and self._order_filled(result):
+                return result
+            if result:
+                logger.warning(f"LIMIT IOC not filled at {price}, falling back to MARKET")
+            else:
+                logger.warning(f"LIMIT IOC failed at {price}, falling back to MARKET")
 
+        return await self._place_market_entry(symbol, side, quantity)
+
+    async def _place_limit_ioc(self, symbol, side, quantity, price):
+        """Place LIMIT IOC order — fills immediately at signal price or cancels."""
+        params = {
+            'symbol': symbol, 'side': side, 'type': 'LIMIT',
+            'price': str(price), 'quantity': str(quantity), 'timeInForce': 'IOC',
+        }
         try:
             result = await self._request('POST', '/fapi/v1/order', params, signed=True)
-            order_type = 'LIMIT' if price else 'MARKET'
-            price_str = f" @ {price}" if price else ""
-            logger.info(f"{order_type} entry placed: {side} {quantity} {symbol}{price_str}")
+            logger.info(f"LIMIT IOC placed: {side} {quantity} {symbol} @ {price}")
             return result
         except Exception as e:
-            logger.error(f"Failed to place entry order: {e}")
+            logger.warning(f"LIMIT IOC failed: {e}")
             return None
+
+    async def _place_market_entry(self, symbol, side, quantity):
+        """Place MARKET entry order."""
+        params = {
+            'symbol': symbol, 'side': side, 'type': 'MARKET',
+            'quantity': str(quantity),
+        }
+        try:
+            result = await self._request('POST', '/fapi/v1/order', params, signed=True)
+            logger.info(f"MARKET entry placed: {side} {quantity} {symbol}")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to place MARKET entry: {e}")
+            return None
+
+    def _order_filled(self, result):
+        """Check if an order result indicates a fill (full or partial)."""
+        status = result.get('status', '')
+        executed_qty = float(result.get('executedQty', 0))
+        return status == 'FILLED' or executed_qty > 0
 
     async def place_market_order(self, symbol, side, quantity, reduce_only=False):
         """
@@ -694,6 +734,9 @@ class BinanceFuturesTrader:
                 'quantity': str(quantity),
             }
 
+        logger.info(f"[BATCH] Entry: {entry_order['type']} {entry_side} {quantity} {symbol}"
+                     + (f" @ {entry_price}" if entry_price else ""))
+
         sl_tp_base = {
             'symbol': symbol, 'side': close_side, 'quantity': str(quantity),
             'reduceOnly': 'true', 'workingType': 'MARK_PRICE', 'priceProtect': 'true',
@@ -957,8 +1000,7 @@ class BinanceFuturesTrader:
     async def _place_separate_orders(self, symbol, direction, quantity, sl_rounded, tp_rounded,
                                       fallback_price, symbol_info, entry_price=None):
         """
-        Fallback: Place entry first, then SL/TP separately.
-        Uses LIMIT at signal entry when provided, else MARKET.
+        Fallback: Place entry first (IOC LIMIT -> MARKET), then SL/TP after confirmed fill.
 
         Args:
             symbol: Trading pair
@@ -973,13 +1015,17 @@ class BinanceFuturesTrader:
         entry_side, close_side = self._sides(direction)
 
         entry_result = await self.place_entry_order(symbol, entry_side, quantity, entry_price)
-        if not entry_result:
-            raise Exception("Entry order failed - insufficient balance or invalid parameters")
+        if not entry_result or not self._order_filled(entry_result):
+            raise Exception("Entry order failed or not filled — no position opened")
 
+        filled_qty = Decimal(entry_result.get('executedQty', str(quantity)))
         avg_price = Decimal(
             entry_result.get('avgPrice') or entry_result.get('price') or str(fallback_price)
         )
-        logger.info(f"Entry filled [SEPARATE]: {direction} {quantity} {symbol} @ {avg_price}")
+        if avg_price <= 0:
+            avg_price = fallback_price
+
+        logger.info(f"Entry filled [SEPARATE]: {direction} {filled_qty} {symbol} @ {avg_price}")
 
         warnings = []
 
