@@ -1209,10 +1209,13 @@ class BinanceFuturesTrader:
         (margin rules, price bands, position-mode mismatch). A direct query
         is the only source of truth.
 
-        Algo orders (``/fapi/v1/algoOrder``) live on a separate endpoint
-        from ``/fapi/v1/openOrders``. Without checking both, a successful
-        algo fallback would be falsely reported as missing — triggering a
-        wasteful retry that double-places the SL/TP.
+        Algo orders (listed via ``/fapi/v1/allAlgoOrders``) live on a
+        separate endpoint from ``/fapi/v1/openOrders``. Without checking
+        both, a successful algo fallback would be falsely reported as
+        missing — triggering a wasteful retry that collides with the
+        already-placed algo order ("An open stop or take profit order
+        with GTE and closePosition in the direction is existing") and
+        cascades into the rescue close.
 
         Args:
             symbol: Trading pair to check.
@@ -1238,15 +1241,23 @@ class BinanceFuturesTrader:
 
         try:
             algo_resp = await self._request(
-                'GET', '/fapi/v1/algoOrder',
+                'GET', '/fapi/v1/allAlgoOrders',
                 {'symbol': symbol, 'algoStatus': 'NEW'}, signed=True,
             )
             algo_list = algo_resp if isinstance(algo_resp, list) else algo_resp.get('rows', [])
-            algo_types = {(o.get('type') or '').upper() for o in (algo_list or [])}
-            sl_present = sl_present or 'STOP_MARKET' in algo_types
-            tp_present = tp_present or 'TAKE_PROFIT_MARKET' in algo_types
+            for o in algo_list or []:
+                otype = (
+                    o.get('type')
+                    or o.get('orderType')
+                    or o.get('algoOrderType')
+                    or ''
+                ).upper()
+                if otype == 'STOP_MARKET':
+                    sl_present = True
+                elif otype == 'TAKE_PROFIT_MARKET':
+                    tp_present = True
         except Exception as exc:
-            logger.warning(f"algoOrder query failed for {symbol}: {exc}")
+            logger.warning(f"allAlgoOrders query failed for {symbol}: {exc}")
             algo_failed = True
 
         if regular_failed and algo_failed:
