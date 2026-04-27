@@ -409,8 +409,22 @@ class BinanceFuturesTrader:
     def _round_price(self, price, symbol_info):
         """Round price down to symbol's tick size precision."""
         tick_size, precision = self._get_price_precision(symbol_info)
-        steps = (price / tick_size).quantize(Decimal('1'), rounding=ROUND_DOWN)
+        steps = (Decimal(price) / tick_size).quantize(Decimal('1'), rounding=ROUND_DOWN)
         return (steps * tick_size).quantize(Decimal(10) ** -precision)
+
+    @staticmethod
+    def _fmt(value):
+        """
+        Format a Decimal/number as a fixed-point string for Binance API.
+
+        ``str(Decimal('1E-7'))`` returns ``'1E-7'``, which Binance rejects.
+        Sub-microcent tokens (1MBABYDOGE, SHIB, etc.) routinely produce
+        tick-aligned trigger prices that normalise to that form, silently
+        breaking SL/TP placement on those symbols. ``format(d, 'f')``
+        always emits fixed-point, regardless of the Decimal's internal
+        exponent.
+        """
+        return format(Decimal(value), 'f')
 
     def _round_sl_tp(self, sl, tp, symbol_info):
         """
@@ -554,7 +568,7 @@ class BinanceFuturesTrader:
         try:
             params = {
                 'symbol': symbol, 'side': side, 'type': 'MARKET',
-                'quantity': str(quantity),
+                'quantity': self._fmt(quantity),
             }
             params = await self._adapt_order_params(params, direction)
             result = await self._request('POST', '/fapi/v1/order', params, signed=True)
@@ -618,7 +632,7 @@ class BinanceFuturesTrader:
         """
         params = {
             'symbol': symbol, 'side': side, 'type': 'MARKET',
-            'quantity': str(quantity),
+            'quantity': self._fmt(quantity),
         }
         if reduce_only:
             params['reduceOnly'] = 'true'
@@ -648,7 +662,7 @@ class BinanceFuturesTrader:
         """
         params = {
             'symbol': symbol, 'side': side, 'type': order_type,
-            'quantity': str(quantity), 'stopPrice': str(stop_price),
+            'quantity': self._fmt(quantity), 'stopPrice': self._fmt(stop_price),
             'reduceOnly': 'true', 'workingType': 'MARK_PRICE', 'priceProtect': 'true',
         }
         params = await self._adapt_order_params(params, direction)
@@ -675,7 +689,7 @@ class BinanceFuturesTrader:
         """
         params = {
             'symbol': symbol, 'side': side, 'type': order_type,
-            'closePosition': 'true', 'stopPrice': str(stop_price),
+            'closePosition': 'true', 'stopPrice': self._fmt(stop_price),
             'workingType': 'MARK_PRICE', 'priceProtect': 'true',
         }
         params = await self._adapt_order_params(params, direction)
@@ -709,7 +723,7 @@ class BinanceFuturesTrader:
 
         params = {
             'symbol': symbol, 'side': side, 'algoType': 'CONDITIONAL',
-            'type': order_type, 'closePosition': 'true', 'triggerPrice': str(trigger_price),
+            'type': order_type, 'closePosition': 'true', 'triggerPrice': self._fmt(trigger_price),
         }
         params = await self._adapt_order_params(params, direction)
         try:
@@ -824,11 +838,11 @@ class BinanceFuturesTrader:
         """
         params = {
             'symbol': symbol, 'side': side, 'type': 'TRAILING_STOP_MARKET',
-            'quantity': str(quantity), 'callbackRate': str(callback_rate),
+            'quantity': self._fmt(quantity), 'callbackRate': self._fmt(callback_rate),
             'reduceOnly': 'true',
         }
         if activation_price:
-            params['activationPrice'] = str(activation_price)
+            params['activationPrice'] = self._fmt(activation_price)
         params = await self._adapt_order_params(params, direction)
 
         try:
@@ -976,12 +990,13 @@ class BinanceFuturesTrader:
         if entry_price:
             entry_order = {
                 'symbol': symbol, 'side': entry_side, 'type': 'LIMIT',
-                'price': str(entry_price), 'quantity': str(quantity), 'timeInForce': 'GTC',
+                'price': self._fmt(entry_price), 'quantity': self._fmt(quantity),
+                'timeInForce': 'GTC',
             }
         else:
             entry_order = {
                 'symbol': symbol, 'side': entry_side, 'type': 'MARKET',
-                'quantity': str(quantity),
+                'quantity': self._fmt(quantity),
             }
         if position_side:
             entry_order['positionSide'] = position_side
@@ -990,7 +1005,7 @@ class BinanceFuturesTrader:
                      + (f" @ {entry_price}" if entry_price else ""))
 
         sl_tp_base = {
-            'symbol': symbol, 'side': close_side, 'quantity': str(quantity),
+            'symbol': symbol, 'side': close_side, 'quantity': self._fmt(quantity),
             'workingType': 'MARK_PRICE', 'priceProtect': 'true',
         }
         if position_side:
@@ -1000,8 +1015,8 @@ class BinanceFuturesTrader:
 
         orders = [
             entry_order,
-            {**sl_tp_base, 'type': 'STOP_MARKET', 'stopPrice': str(sl_price)},
-            {**sl_tp_base, 'type': 'TAKE_PROFIT_MARKET', 'stopPrice': str(tp_price)},
+            {**sl_tp_base, 'type': 'STOP_MARKET', 'stopPrice': self._fmt(sl_price)},
+            {**sl_tp_base, 'type': 'TAKE_PROFIT_MARKET', 'stopPrice': self._fmt(tp_price)},
         ]
 
         batch_json = json.dumps(orders, separators=(',', ':'))
