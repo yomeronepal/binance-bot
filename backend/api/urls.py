@@ -62,12 +62,20 @@ from signals.views_futures import (
     futures_summary,
     futures_trade_detail,
     fear_greed_status,
-    futures_report
+    futures_report,
+    futures_users_overview,
 )
 from signals.views_market import get_order_book
 from signals.views_chart import chart_annotations, delete_annotation, fibonacci_setup
 from signals.views_blacklist import BlacklistedSymbolViewSet
 from signals.views_push import subscribe_push, unsubscribe_push, push_status, subscribe_push_public
+from signals.views_user_connection import (
+    server_ip as binance_server_ip,
+    get_connection as binance_get_connection,
+    connect as binance_connect,
+    revalidate as binance_revalidate,
+    disconnect as binance_disconnect,
+)
 
 app_name = 'api'
 
@@ -150,6 +158,7 @@ urlpatterns = [
     path('futures/summary/', futures_summary, name='futures-summary'),
     path('futures/fear-greed/', fear_greed_status, name='fear-greed-status'),
     path('futures/report/', futures_report, name='futures-report'),
+    path('futures/users/', futures_users_overview, name='futures-users-overview'),
 
     # Market Data endpoints
     path('market/orderbook/<str:symbol>/', get_order_book, name='orderbook'),
@@ -165,6 +174,13 @@ urlpatterns = [
     path('push/unsubscribe/', unsubscribe_push, name='push-unsubscribe'),
     path('push/status/', push_status, name='push-status'),
     path('public/push/subscribe/', subscribe_push_public, name='push-subscribe-public'),
+
+    # Per-user Binance API key connection (slice 1: read-only validation)
+    path('binance/server-ip/', binance_server_ip, name='binance-server-ip'),
+    path('binance/connection/', binance_get_connection, name='binance-connection-get'),
+    path('binance/connect/', binance_connect, name='binance-connect'),
+    path('binance/revalidate/', binance_revalidate, name='binance-revalidate'),
+    path('binance/disconnect/', binance_disconnect, name='binance-disconnect'),
 
     # Router URLs (includes user-specific paper-trades)
     path('', include(router.urls)),

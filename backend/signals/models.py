@@ -1206,3 +1206,8 @@ from .models_futures import (
 from .models_blacklist import (
     BlacklistedSymbol,
 )
+
+# Import per-user Binance connection model
+from .models_user_connection import (
+    UserBinanceConnection,
+)

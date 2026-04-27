@@ -5,7 +5,7 @@ import useThemeStore from '../../store/useThemeStore';
 import {
   LayoutDashboard, Signal, TrendingUp, FileText, Bot,
   Calendar, BarChart3, Sun, Moon, LogOut, LogIn, Menu,
-  X, ChevronLeft, ChevronRight, User, FlaskConical
+  X, ChevronLeft, ChevronRight, User, FlaskConical, Link2
 } from 'lucide-react';
 import PushNotificationBanner from '../common/PushNotificationBanner';
 
@@ -44,6 +44,7 @@ const Layout = () => {
     { to: '/bot-performance', label: 'Bot Performance', icon: Bot },
     { to: '/trading-sessions', label: 'Trading Sessions', icon: Calendar },
     { to: '/backtesting', label: 'Backtesting', icon: FlaskConical },
+    { to: '/connect-binance', label: 'Connect Binance', icon: Link2 },
     ...(user?.is_superuser ? [
       { to: '/futures-performance', label: 'Futures Trade', icon: BarChart3 }
     ] : [])

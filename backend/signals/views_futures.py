@@ -1,5 +1,15 @@
 """
 API views for Futures Trading management.
+
+Trade-listing endpoints are scoped per requester:
+- Superusers see ALL trades (central bot account + every user's trades).
+- Regular authenticated users see ONLY their own trades (rows where
+  ``FuturesTrade.user == request.user``).
+
+Settings endpoints (``futures_settings``, ``toggle_futures_trading``)
+remain admin-only because they configure the central bot account that
+governs every fan-out trade — slice 2 will introduce per-user trading
+settings as a separate surface.
 """
 import logging
 from decimal import Decimal
@@ -18,6 +28,52 @@ from .serializers_futures import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_scope_filter(request):
+    """
+    Decide which trades the requester should see and return filter kwargs
+    suitable for ``.filter(**kwargs)`` (or ``None`` meaning "no filter").
+
+    Rules:
+    - Regular user: forced to their own trades; the ``user_id`` query
+      param is ignored (cannot be used to look at central or other-user
+      trades).
+    - Superuser, no ``user_id``: sees everything.
+    - Superuser, ``?user_id=N``: sees only that user's trades.
+    - Superuser, ``?user_id=central``: sees only central-account trades
+      (``user`` FK is NULL).
+    - Superuser, malformed ``user_id``: silently falls back to "all" —
+      the admin gets useful data instead of a 400.
+    """
+    user = request.user
+    if not user.is_superuser:
+        return {'user': user}
+
+    raw = request.query_params.get('user_id')
+    if not raw:
+        return None
+    if raw == 'central':
+        return {'user__isnull': True}
+    try:
+        return {'user_id': int(raw)}
+    except (TypeError, ValueError):
+        return None
+
+
+def _scope_trades(queryset, request):
+    """
+    Restrict a FuturesTrade queryset to what ``request.user`` may see.
+
+    Superusers see every row by default and may narrow with
+    ``?user_id=N`` or ``?user_id=central``. Regular users always see
+    only the rows tagged with their own ``user`` FK; the central
+    account's trades are never visible to them.
+    """
+    f = _resolve_scope_filter(request)
+    if f is None:
+        return queryset
+    return queryset.filter(**f)
 
 
 @api_view(['GET', 'PUT', 'PATCH'])
@@ -89,17 +145,24 @@ def toggle_futures_trading(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAuthenticated])
 def futures_trades_list(request):
     """
-    List all futures trades with optional filtering.
+    List futures trades with optional filtering.
+
+    Scope:
+    - Superuser: every trade (central + all users).
+    - Regular user: only their own trades.
 
     Query params:
     - status: OPEN, CLOSED_TP, CLOSED_SL, CLOSED_MANUAL, FAILED
     - symbol: Filter by symbol (e.g., BTCUSDT)
     - limit: Number of records (default 50)
     """
-    trades = FuturesTrade.objects.select_related('signal').all()
+    trades = _scope_trades(
+        FuturesTrade.objects.select_related('signal', 'user').all(),
+        request,
+    )
 
     status_filter = request.query_params.get('status')
     if status_filter:
@@ -128,25 +191,43 @@ def futures_trades_list(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAuthenticated])
 def futures_open_positions(request):
-    """Get all open futures positions."""
-    open_trades = FuturesTrade.objects.select_related('signal').filter(status='OPEN').order_by('-entry_time')
+    """
+    Open futures positions.
+
+    Scope: superuser sees all; regular user sees only their own.
+    """
+    open_trades = _scope_trades(
+        FuturesTrade.objects.select_related('signal', 'user').filter(status='OPEN'),
+        request,
+    ).order_by('-entry_time')
     serializer = FuturesTradeSerializer(open_trades, many=True)
     return Response(serializer.data)
 
 
 @api_view(['POST'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAuthenticated])
 def close_futures_trade(request, trade_id):
     """
     Manually close a futures trade.
+
+    Authorisation:
+    - Superuser may close any trade (central or any user's).
+    - Regular user may only close trades on their own connected account.
 
     POST /api/futures/trades/{trade_id}/close/
     """
     try:
         trade = FuturesTrade.objects.get(id=trade_id)
     except FuturesTrade.DoesNotExist:
+        return Response(
+            {'error': 'Trade not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    if not request.user.is_superuser and trade.user_id != request.user.id:
+        # Hide existence of central / other-users' trades from non-admins.
         return Response(
             {'error': 'Trade not found'},
             status=status.HTTP_404_NOT_FOUND
@@ -186,10 +267,17 @@ def close_futures_trade(request, trade_id):
 
 
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAuthenticated])
 def futures_summary(request):
     """
     Get futures trading summary statistics.
+
+    Scope: superuser sees aggregate over all trades; regular user sees
+    aggregate over only their own trades. The ``settings`` block is the
+    central configuration that governs every fan-out trade — it's
+    read-only here so users can see the trade size that will be applied
+    to their connected account; mutation of settings is admin-only via
+    ``PUT /api/futures/settings/``.
 
     Returns:
     - Total trades
@@ -200,7 +288,10 @@ def futures_summary(request):
     """
     settings_obj = FuturesTradingSettings.get_settings()
 
-    all_trades = FuturesTrade.objects.select_related('signal').all()
+    all_trades = _scope_trades(
+        FuturesTrade.objects.select_related('signal', 'user').all(),
+        request,
+    )
     closed_trades = all_trades.filter(status__startswith='CLOSED')
     open_trades = all_trades.filter(status='OPEN')
 
@@ -279,18 +370,35 @@ def futures_summary(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAuthenticated])
 def futures_trade_detail(request, trade_id):
-    """Get details of a specific futures trade."""
+    """
+    Get details of a specific futures trade.
+
+    Scope: superuser may fetch any trade; regular user may fetch only
+    trades that belong to them. Non-matching IDs return 404 (not 403)
+    so the existence of central / other-user trades is not leaked.
+    """
     try:
-        trade = FuturesTrade.objects.select_related('signal').get(id=trade_id)
-        serializer = FuturesTradeSerializer(trade)
-        return Response(serializer.data)
+        trade = (
+            FuturesTrade.objects
+            .select_related('signal', 'user')
+            .get(id=trade_id)
+        )
     except FuturesTrade.DoesNotExist:
         return Response(
             {'error': 'Trade not found'},
             status=status.HTTP_404_NOT_FOUND
         )
+
+    if not request.user.is_superuser and trade.user_id != request.user.id:
+        return Response(
+            {'error': 'Trade not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    serializer = FuturesTradeSerializer(trade)
+    return Response(serializer.data)
 
 
 @api_view(['GET'])
@@ -345,15 +453,22 @@ def fear_greed_status(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAuthenticated])
 def futures_report(request):
     """
     Futures trading report with breakdowns.
 
+    Scope: superuser sees a report computed over every trade;
+    regular user sees a report over only their own trades.
+
     GET /api/futures/report/
     """
-    closed = FuturesTrade.objects.select_related('signal').filter(status__startswith='CLOSED')
-    all_trades = FuturesTrade.objects.all()
+    base_qs = _scope_trades(
+        FuturesTrade.objects.select_related('signal', 'user'),
+        request,
+    )
+    closed = base_qs.filter(status__startswith='CLOSED')
+    all_trades = base_qs
 
     total_closed = closed.count()
     winners = closed.filter(profit_loss__gt=0).count()
@@ -447,3 +562,105 @@ def futures_report(request):
         'top_losers': _top(closed, asc=True),
         'streaks': {'current': streak, 'max_win': max_win, 'max_loss': max_lose},
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def futures_users_overview(request):
+    """
+    Admin view: per-user summary of futures trading activity.
+
+    Returns one row per relevant account so an operator can see at a
+    glance which users are trading, how their connection is doing, and
+    their basic PnL — then drill into any specific user via the
+    existing endpoints with ``?user_id=N``.
+
+    The first row in the response is always the **central account**
+    (``user_id=null``, ``label='central'``) so admin can compare its
+    performance side-by-side with users without a separate tab.
+    """
+    from django.contrib.auth import get_user_model
+    from .models_user_connection import UserBinanceConnection
+
+    User = get_user_model()
+
+    def _row_for(qs, label, user_id, username, email,
+                  connection=None):
+        closed = qs.filter(status__startswith='CLOSED')
+        open_trades = qs.filter(status='OPEN')
+        total_closed = closed.count()
+        wins = closed.filter(profit_loss__gt=0).count()
+        losses = closed.filter(profit_loss__lt=0).count()
+        realized = closed.aggregate(total=Sum('profit_loss'))['total'] or Decimal('0')
+        unrealized = open_trades.aggregate(total=Sum('unrealized_pnl'))['total'] or Decimal('0')
+        return {
+            'label': label,
+            'user_id': user_id,
+            'username': username,
+            'email': email,
+            'connection': {
+                'status': connection.status if connection else None,
+                'api_key_hint': connection.api_key_hint if connection else '',
+                'ip_check_passed': connection.ip_check_passed if connection else None,
+                'last_check_at': (
+                    connection.last_check_at.isoformat()
+                    if connection and connection.last_check_at else None
+                ),
+                'last_error': connection.last_error if connection else '',
+            },
+            'stats': {
+                'total_trades': qs.count(),
+                'closed_trades': total_closed,
+                'open_positions': open_trades.count(),
+                'wins': wins,
+                'losses': losses,
+                'win_rate': round((wins / total_closed) * 100, 1) if total_closed > 0 else 0,
+                'realized_pnl': float(realized),
+                'unrealized_pnl': float(unrealized),
+                'total_pnl': float(realized + unrealized),
+            },
+        }
+
+    rows = []
+
+    # Central account row (always first).
+    rows.append(_row_for(
+        FuturesTrade.objects.filter(user__isnull=True),
+        label='central', user_id=None, username='central',
+        email='', connection=None,
+    ))
+
+    # One row per user that either has a Binance connection on file or
+    # has any FuturesTrade rows tagged to them. Users with neither do
+    # not appear — the page is about trading activity, not auth records.
+    user_ids_with_trades = set(
+        FuturesTrade.objects
+        .filter(user__isnull=False)
+        .values_list('user_id', flat=True)
+    )
+    user_ids_with_connections = set(
+        UserBinanceConnection.objects.values_list('user_id', flat=True)
+    )
+    relevant_user_ids = user_ids_with_trades | user_ids_with_connections
+
+    if relevant_user_ids:
+        users = User.objects.filter(id__in=relevant_user_ids)
+        connections = {
+            c.user_id: c for c in UserBinanceConnection.objects.filter(
+                user_id__in=relevant_user_ids
+            )
+        }
+        for u in users:
+            rows.append(_row_for(
+                FuturesTrade.objects.filter(user=u),
+                label='user',
+                user_id=u.id,
+                username=u.username,
+                email=u.email,
+                connection=connections.get(u.id),
+            ))
+
+    # Sort users (after central) by realized+unrealized PnL desc.
+    central, *user_rows = rows
+    user_rows.sort(key=lambda r: r['stats']['total_pnl'], reverse=True)
+    return Response([central, *user_rows])

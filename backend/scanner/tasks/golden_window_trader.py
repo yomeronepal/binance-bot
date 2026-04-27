@@ -369,14 +369,18 @@ def get_prioritized_signals(settings: FuturesTradingSettings, limit: int) -> Lis
     # Filter by minimum confidence
     queryset = queryset.filter(confidence__gte=float(settings.min_signal_confidence))
 
+    # Both filters are scoped to central-account trades (user__isnull=True)
+    # so user-side activity never reduces the central account's eligible
+    # signal pool — that would be a regression in central behaviour.
     open_or_pending_symbols = FuturesTrade.objects.filter(
-        status__in=['OPEN', 'PENDING']
+        user__isnull=True,
+        status__in=['OPEN', 'PENDING'],
     ).values_list('symbol', flat=True)
     queryset = queryset.exclude(symbol__symbol__in=open_or_pending_symbols)
 
-    already_traded_signal_ids = FuturesTrade.objects.exclude(
-        status='FAILED'
-    ).values_list('signal_id', flat=True)
+    already_traded_signal_ids = FuturesTrade.objects.filter(
+        user__isnull=True,
+    ).exclude(status='FAILED').values_list('signal_id', flat=True)
     queryset = queryset.exclude(id__in=already_traded_signal_ids)
 
     # Add priority scoring for ordering
@@ -435,26 +439,34 @@ def execute_futures_trade(
     direction = signal.direction
 
     with transaction.atomic():
-        signal_already_traded = FuturesTrade.objects.select_for_update().filter(
+        # Both gates are scoped to central-account rows (user__isnull=True);
+        # otherwise a user's prior trade on this signal/symbol would block
+        # the central account from trading, which is a regression.
+        central_qs = FuturesTrade.objects.select_for_update().filter(user__isnull=True)
+
+        signal_already_traded = central_qs.filter(
             signal=signal
         ).exclude(status='FAILED').exists()
 
         if signal_already_traded:
-            logger.info(f"Signal {signal.id} already has a futures trade, skipping")
+            logger.info(f"Signal {signal.id} already has a central futures trade, skipping")
             return None
 
-        existing = FuturesTrade.objects.select_for_update().filter(
+        existing = central_qs.filter(
             symbol=symbol_name,
             direction=direction,
             status__in=['OPEN', 'PENDING']
         ).exists()
 
         if existing:
-            logger.info(f"Already have open/pending {direction} on {symbol_name}, skipping")
+            logger.info(
+                f"Already have central open/pending {direction} on {symbol_name}, skipping"
+            )
             return None
 
         futures_trade = FuturesTrade.objects.create(
             signal=signal,
+            user=None,    # central account marker
             symbol=symbol_name,
             direction=direction,
             leverage=leverage,
@@ -510,17 +522,25 @@ def execute_futures_trade(
     thread.start()
     thread.join(timeout=60)
 
+    # User fan-out is independent of the central trade outcome — defined
+    # at the top so every return path below also fires it. Per-user dedup
+    # inside the dispatcher prevents double-trading if post_save already
+    # ran the same signal.
+    from signals.services.user_trade_dispatcher import safe_dispatch
+
     if api_exception[0]:
         futures_trade.status = 'FAILED'
         futures_trade.error_message = str(api_exception[0])
         futures_trade.save()
         logger.error(f"Trade failed for signal {signal.id}: {api_exception[0]}")
+        safe_dispatch(signal, source='gw_central_exception')
         return None
 
     if not api_result[0]:
         futures_trade.status = 'FAILED'
         futures_trade.error_message = "API call returned no result"
         futures_trade.save()
+        safe_dispatch(signal, source='gw_central_no_result')
         return None
 
     # Update trade record with results
@@ -536,6 +556,8 @@ def execute_futures_trade(
         f"GW Trade opened: {direction} {result['quantity']} {symbol_name} "
         f"@ {result['entry_price']} (Trade ID: {futures_trade.id})"
     )
+
+    safe_dispatch(signal, source='gw_central_success')
 
     return futures_trade
 
@@ -670,9 +692,13 @@ def check_gw_trades_status(self):
     """
     Supplementary task to monitor and log GW trade status.
     Can be used for debugging and monitoring.
+
+    Scoped to central-account trades only — per-user position monitoring
+    is a separate concern (slice 5) because each user's positions live
+    behind a different API key.
     """
     try:
-        open_trades = FuturesTrade.objects.filter(status='OPEN')
+        open_trades = FuturesTrade.objects.filter(status='OPEN', user__isnull=True)
 
         if not open_trades.exists():
             return {"status": "no_open_trades"}
@@ -777,8 +803,13 @@ def sync_futures_trades_with_binance(self):
                     'liquidation_price': Decimal(pos.get('liquidationPrice', '0')),
                 }
 
-        # Get all local OPEN trades
-        local_open_trades = FuturesTrade.objects.filter(status='OPEN')
+        # Get all local OPEN trades for the CENTRAL account only.
+        # The position fetch above used the central API key, so it only
+        # returns central positions; reconciling user trades against it
+        # would falsely mark them closed and pull bogus PnL from the
+        # central account's income history. Per-user position sync is a
+        # separate task that needs each user's key (slice 5).
+        local_open_trades = FuturesTrade.objects.filter(status='OPEN', user__isnull=True)
 
         synced_trades = []
         closed_trades = []

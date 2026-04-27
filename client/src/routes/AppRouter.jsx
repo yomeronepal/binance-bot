@@ -24,6 +24,7 @@ import FuturesPerformance from '../pages/FuturesPerformance';
 import Backtesting from '../pages/Backtesting';
 import StrategyDashboard from '../pages/StrategyDashboard';
 import TradingSessions from '../pages/TradingSessions';
+import ConnectBinance from '../pages/ConnectBinance';
 
 const RootRedirect = () => {
   const { isAuthenticated } = useAuthStore();
@@ -92,6 +93,11 @@ const AppRouter = () => {
           <Route path="trading-sessions" element={
             <ErrorBoundary>
               <TradingSessions />
+            </ErrorBoundary>
+          } />
+          <Route path="connect-binance" element={
+            <ErrorBoundary>
+              <ConnectBinance />
             </ErrorBoundary>
           } />
         </Route>

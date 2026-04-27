@@ -20,6 +20,27 @@ from .models_futures import (
 from .models_blacklist import BlacklistedSymbol
 from .models_push import PushSubscription, NotificationLog
 from .models_backtest import BacktestRun, BacktestTrade, BacktestMetric
+from .models_user_connection import UserBinanceConnection
+
+
+@admin.register(UserBinanceConnection)
+class UserBinanceConnectionAdmin(admin.ModelAdmin):
+    """Admin view of per-user Binance connections (no key material)."""
+    list_display = ('user', 'status', 'api_key_hint', 'ip_check_passed',
+                    'last_check_at', 'updated_at')
+    list_filter = ('status', 'ip_check_passed')
+    search_fields = ('user__email', 'user__username', 'api_key_hint')
+    readonly_fields = ('api_key_hint', 'permissions', 'ip_check_passed',
+                        'last_check_at', 'last_error', 'created_at', 'updated_at')
+    fieldsets = (
+        (None, {'fields': ('user', 'status')}),
+        ('Validation', {'fields': ('api_key_hint', 'permissions', 'ip_check_passed',
+                                     'last_check_at', 'last_error')}),
+        ('Timestamps', {'fields': ('created_at', 'updated_at')}),
+    )
+
+    def has_add_permission(self, request):
+        return False  # Created only via the user-facing wizard
 
 
 class BaseModelAdmin(admin.ModelAdmin):

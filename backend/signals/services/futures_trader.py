@@ -1,6 +1,28 @@
 """
 Binance Futures Trading Service for real trade execution.
 Handles placing, monitoring, and closing futures positions.
+
+CENTRAL-ACCOUNT CONTRACT (do not break):
+
+    The central bot account is configured via the env vars
+    ``BINANCE_API_KEY`` / ``BINANCE_API_SECRET`` and is the historical
+    sole user of this module. All public callables MUST preserve the
+    behaviour they had before the per-user fan-out feature:
+
+      * ``BinanceFuturesTrader()``      — no args = central account.
+      * ``execute_signal(signal)``      — no user kwarg = central account.
+      * ``close_trade(trade)``          — central trade has user_id=None.
+
+    The per-user trade flow is purely additive and routes through the
+    optional ``user`` / ``api_key`` / ``api_secret`` kwargs introduced
+    on these callables. A user trade can fail, raise, or be skipped and
+    the central flow MUST be unaffected.
+
+    Two acceptance checks for any future change here:
+      1. With ``api_key`` and ``api_secret`` omitted, every API call hits
+         ``settings.BINANCE_API_KEY`` / ``settings.BINANCE_API_SECRET``.
+      2. With ``user`` omitted, every DB row written has ``user=None``
+         and pre-trade checks scope to ``user__isnull=True``.
 """
 import json
 import logging
@@ -105,12 +127,24 @@ class BinanceFuturesTrader:
     TESTNET_URL = "https://testnet.binancefuture.com"
     _server_time_offset = 0
     _last_time_sync = 0
-    _hedge_mode: Optional[bool] = None
-    _hedge_mode_checked_at = 0
+    # Hedge-mode cache keyed by api_key fingerprint so per-user accounts
+    # do not collide with the central account's setting. Each entry is
+    # (hedge_mode_bool, checked_at_unix). Class-level dict shared across
+    # short-lived instances within the same process.
+    _hedge_mode_cache: dict = {}
 
-    def __init__(self, use_testnet=False):
-        self.api_key = settings.BINANCE_API_KEY
-        self.api_secret = settings.BINANCE_API_SECRET
+    def __init__(self, use_testnet=False, api_key=None, api_secret=None):
+        """
+        Build a Binance Futures REST client.
+
+        ``api_key``/``api_secret`` default to the central bot account's
+        credentials in ``settings.BINANCE_API_KEY``/``BINANCE_API_SECRET``.
+        Pass them explicitly to drive a per-user account using credentials
+        decrypted from ``UserBinanceConnection``. The central-account flow
+        is unchanged when the args are omitted.
+        """
+        self.api_key = api_key if api_key is not None else settings.BINANCE_API_KEY
+        self.api_secret = api_secret if api_secret is not None else settings.BINANCE_API_SECRET
         self.base_url = self.TESTNET_URL if use_testnet else self.BASE_URL
         self.session: Optional[aiohttp.ClientSession] = None
 
@@ -127,31 +161,34 @@ class BinanceFuturesTrader:
         """
         return ('BUY', 'SELL') if direction == 'LONG' else ('SELL', 'BUY')
 
+    def _hedge_cache_key(self):
+        """Stable fingerprint of the current credentials for the hedge-mode cache."""
+        return hashlib.sha256((self.api_key or '').encode('utf-8')).hexdigest()[:16]
+
     async def is_hedge_mode(self):
         """
-        Detect whether the account uses Hedge (dualSidePosition) mode.
+        Detect whether *this trader's account* uses Hedge (dualSidePosition) mode.
 
-        Cached for 5 minutes. In Hedge Mode every order must carry
-        positionSide and reduceOnly is rejected; in One-Way mode
-        positionSide must be omitted (or "BOTH"). Detecting this once
-        prevents silent SL/TP placement failures when the account is in
-        Hedge Mode.
+        Cached for 5 minutes per api_key fingerprint so a Hedge user and
+        the One-Way central account do not contaminate each other's cache.
+        In Hedge Mode every order must carry positionSide and reduceOnly
+        is rejected; in One-Way mode positionSide must be omitted.
         """
+        cache = BinanceFuturesTrader._hedge_mode_cache
+        key = self._hedge_cache_key()
         now = time.time()
-        if (BinanceFuturesTrader._hedge_mode is not None
-                and now - BinanceFuturesTrader._hedge_mode_checked_at < 300):
-            return BinanceFuturesTrader._hedge_mode
+        cached = cache.get(key)
+        if cached is not None and now - cached[1] < 300:
+            return cached[0]
         try:
             data = await self._request('GET', '/fapi/v1/positionSide/dual', signed=True)
             hedge = bool(data.get('dualSidePosition'))
-            BinanceFuturesTrader._hedge_mode = hedge
-            BinanceFuturesTrader._hedge_mode_checked_at = now
+            cache[key] = (hedge, now)
             logger.info(f"Position mode detected: {'HEDGE' if hedge else 'ONE_WAY'}")
             return hedge
         except Exception as e:
             logger.warning(f"Could not detect position mode, assuming ONE_WAY: {e}")
-            BinanceFuturesTrader._hedge_mode = False
-            BinanceFuturesTrader._hedge_mode_checked_at = now
+            cache[key] = (False, now)
             return False
 
     @staticmethod
@@ -1571,28 +1608,38 @@ class FuturesTradingService:
                   details={'fg_value': fg_value}, **log_ctx)
         return True
 
-    def _check_duplicates(self, signal, symbol_name, direction, log_ctx):
+    def _check_duplicates(self, signal, symbol_name, direction, log_ctx, user=None):
         """
-        Check for duplicate trades or existing open positions.
+        Check for duplicate trades or existing open positions on *this account*.
+
+        Scope is per-account: when ``user`` is None we look at central-account
+        trades only (``user__isnull=True``); when ``user`` is given we look at
+        that user's trades only. Without scoping, central-account trades would
+        incorrectly block user trades and vice versa.
 
         Returns:
             True if no duplicates, False if blocked
         """
-        if FuturesTrade.objects.filter(signal=signal).exists():
-            msg = "Duplicate: FuturesTrade already exists for this signal"
+        if user is None:
+            qs = FuturesTrade.objects.filter(user__isnull=True)
+        else:
+            qs = FuturesTrade.objects.filter(user=user)
+
+        if qs.filter(signal=signal).exists():
+            msg = "Duplicate: FuturesTrade already exists for this signal on this account"
             logger.info(f"Signal {signal.id} {msg}")
             self._log('CHECK_FAILED', 'WARNING', msg, **log_ctx)
             return False
 
-        if FuturesTrade.objects.filter(symbol=symbol_name, direction=direction, status='OPEN').exists():
-            msg = f"Already have open {direction} position on {symbol_name}"
+        if qs.filter(symbol=symbol_name, direction=direction, status='OPEN').exists():
+            msg = f"Already have open {direction} position on {symbol_name} on this account"
             logger.info(msg)
             self._log('CHECK_FAILED', 'WARNING', msg, **log_ctx)
             return False
 
         return True
 
-    def _run_pre_trade_checks(self, signal, trade_settings, log_ctx, force_execute):
+    def _run_pre_trade_checks(self, signal, trade_settings, log_ctx, force_execute, user=None):
         """
         Run all pre-trade validation checks.
 
@@ -1601,6 +1648,8 @@ class FuturesTradingService:
             trade_settings: FuturesTradingSettings instance
             log_ctx: Logging context dict
             force_execute: Whether to bypass window checks
+            user: Optional User; None means central account, populated means
+                  per-user trade (only the duplicate check is account-scoped).
 
         Returns:
             True if all checks pass, False otherwise
@@ -1617,11 +1666,17 @@ class FuturesTradingService:
         if not self._check_trading_window(signal, trade_settings, log_ctx, force_execute):
             return False
 
-        can_trade, reason = trade_settings.can_trade(symbol_name, direction, confidence)
-        if not can_trade:
-            logger.warning(f"Cannot trade signal {signal.id}: {reason}")
-            self._log('CHECK_FAILED', 'WARNING', f"can_trade failed: {reason}", **log_ctx)
-            return False
+        # ``can_trade`` is intentionally NOT scoped per-user — central settings
+        # like max_concurrent are evaluated against the central trade history;
+        # for user trades we skip this check (per-user concurrency is bounded
+        # by the user's own duplicate check below). Slice 2 will introduce
+        # per-user trading settings with their own caps.
+        if user is None:
+            can_trade, reason = trade_settings.can_trade(symbol_name, direction, confidence)
+            if not can_trade:
+                logger.warning(f"Cannot trade signal {signal.id}: {reason}")
+                self._log('CHECK_FAILED', 'WARNING', f"can_trade failed: {reason}", **log_ctx)
+                return False
 
         is_neutral_reversal = bool(
             isinstance(getattr(signal, 'meta', None), dict) and
@@ -1631,12 +1686,12 @@ class FuturesTradingService:
         if not self._check_fear_greed(signal, trade_settings, direction, is_neutral_reversal, log_ctx):
             return False
 
-        if not self._check_duplicates(signal, symbol_name, direction, log_ctx):
+        if not self._check_duplicates(signal, symbol_name, direction, log_ctx, user=user):
             return False
 
         return True
 
-    def _create_futures_trade(self, signal, result, trade_settings, trade_sl, trade_tp):
+    def _create_futures_trade(self, signal, result, trade_settings, trade_sl, trade_tp, user=None):
         """
         Create FuturesTrade record from API result.
 
@@ -1646,6 +1701,9 @@ class FuturesTradingService:
             trade_settings: FuturesTradingSettings instance
             trade_sl: Signal SL (fallback)
             trade_tp: Signal TP (fallback)
+            user: Optional User. None = trade executed on the central bot
+                  account; populated = trade executed on this user's connected
+                  Binance account.
 
         Returns:
             FuturesTrade instance
@@ -1653,6 +1711,7 @@ class FuturesTradingService:
         warnings_text = "; ".join(result.get('warnings', []))
         return FuturesTrade.objects.create(
             signal=signal,
+            user=user,
             symbol=signal.symbol.symbol,
             direction=signal.direction,
             leverage=trade_settings.leverage,
@@ -1669,7 +1728,7 @@ class FuturesTradingService:
             error_message=f"Warnings: {warnings_text}" if warnings_text else '',
         )
 
-    def _handle_orphaned_position(self, signal, orphan, trade_settings, log_ctx):
+    def _handle_orphaned_position(self, signal, orphan, trade_settings, log_ctx, user=None):
         """
         Persist an orphan FuturesTrade row and fire a push alert.
 
@@ -1689,6 +1748,8 @@ class FuturesTradingService:
             trade_settings: Snapshot of ``FuturesTradingSettings`` used for
                 this trade (for leverage / position_size_usdt).
             log_ctx: Logging context dict for ``_log``.
+            user: Optional User; central account when None. Tags the orphan
+                row so per-account reporting can find user-side orphans.
         """
         logger.critical(
             f"ORPHANED POSITION: signal {signal.id} {orphan.symbol} {orphan.direction} "
@@ -1696,7 +1757,7 @@ class FuturesTradingService:
             "MANUAL CLOSE REQUIRED"
         )
 
-        trade = self._persist_orphan_trade(signal, orphan, trade_settings)
+        trade = self._persist_orphan_trade(signal, orphan, trade_settings, user=user)
         self._broadcast_orphan_alert(signal, orphan, trade)
 
         self._log('TRADE_FAILED', 'CRITICAL',
@@ -1711,7 +1772,7 @@ class FuturesTradingService:
                   },
                   **{k: v for k, v in log_ctx.items() if k not in ('signal',)})
 
-    def _persist_orphan_trade(self, signal, orphan, trade_settings):
+    def _persist_orphan_trade(self, signal, orphan, trade_settings, user=None):
         """
         Write a FuturesTrade row marking the position as ORPHANED.
 
@@ -1722,6 +1783,7 @@ class FuturesTradingService:
         try:
             return FuturesTrade.objects.create(
                 signal=signal,
+                user=user,
                 symbol=orphan.symbol,
                 direction=orphan.direction,
                 leverage=trade_settings.leverage,
@@ -1770,7 +1832,8 @@ class FuturesTradingService:
         except Exception as exc:
             logger.error(f"Failed to broadcast orphan alert for signal {signal.id}: {exc}")
 
-    def execute_signal(self, signal, force_execute=False):
+    def execute_signal(self, signal, force_execute=False, user=None,
+                        api_key=None, api_secret=None):
         """
         Execute a futures trade from a signal.
         Runs all pre-trade checks (sync), then API calls in a separate thread.
@@ -1778,6 +1841,12 @@ class FuturesTradingService:
         Args:
             signal: Signal instance
             force_execute: If True, bypass trading window checks
+            user: Optional User. None = trade on the central bot account
+                  (env BINANCE_API_KEY); populated = trade on this user's
+                  connected Binance account using ``api_key``/``api_secret``.
+            api_key: Per-user Binance API key (only used when ``user`` given).
+                     Caller is responsible for decryption.
+            api_secret: Per-user Binance API secret.
 
         Returns:
             FuturesTrade if successful, None otherwise
@@ -1789,26 +1858,30 @@ class FuturesTradingService:
         log_ctx = dict(signal=signal, symbol=symbol_name, direction=direction,
                        is_priority=is_priority, force_execute=force_execute)
 
+        account_label = f"user {user.id}" if user else "central"
         self._log('SIGNAL_RECEIVED', 'INFO',
-                  f"Futures trade request: {direction} {symbol_name} conf={signal.confidence}",
-                  details={'confidence': str(signal.confidence), 'sl': str(signal.sl), 'tp': str(signal.tp)},
+                  f"Futures trade request ({account_label}): {direction} {symbol_name} conf={signal.confidence}",
+                  details={'confidence': str(signal.confidence), 'sl': str(signal.sl), 'tp': str(signal.tp),
+                           'account': account_label},
                   **log_ctx)
 
         trade_settings = FuturesTradingSettings.get_settings()
 
-        if not self._run_pre_trade_checks(signal, trade_settings, log_ctx, force_execute):
+        if not self._run_pre_trade_checks(signal, trade_settings, log_ctx, force_execute, user=user):
             return None
 
         trade_sl = signal.sl
         trade_tp = signal.tp
 
         self._log('TRADE_SUBMITTED', 'INFO',
-                  f"All checks passed. Submitting to Binance API",
-                  details={'leverage': trade_settings.leverage, 'trade_amount': str(trade_settings.trade_amount)},
+                  f"All checks passed. Submitting to Binance API ({account_label})",
+                  details={'leverage': trade_settings.leverage,
+                           'trade_amount': str(trade_settings.trade_amount),
+                           'account': account_label},
                   **log_ctx)
 
         logger.info(
-            f"Signal {signal.id}: All checks passed. Executing Binance API call for "
+            f"Signal {signal.id} ({account_label}): All checks passed. Executing Binance API call for "
             f"{direction} {symbol_name} (leverage={trade_settings.leverage}x, amount=${trade_settings.trade_amount})"
         )
 
@@ -1818,7 +1891,10 @@ class FuturesTradingService:
         signal_entry = Decimal(str(signal.entry))
 
         async def _execute():
-            trader = BinanceFuturesTrader(use_testnet=use_testnet)
+            trader = BinanceFuturesTrader(
+                use_testnet=use_testnet,
+                api_key=api_key, api_secret=api_secret,
+            )
             try:
                 market_data = await trader._fetch_market_data(signal.id, symbol_name)
                 if not market_data:
@@ -1835,21 +1911,24 @@ class FuturesTradingService:
         try:
             result = _run_in_thread(_execute)
         except OrphanedPositionError as orphan:
-            self._handle_orphaned_position(signal, orphan, trade_settings, log_ctx)
+            self._handle_orphaned_position(signal, orphan, trade_settings, log_ctx, user=user)
             return None
         except Exception as e:
-            logger.error(f"Futures API failed for signal {signal.id}: {e}")
+            logger.error(f"Futures API failed for signal {signal.id} ({account_label}): {e}")
             self._log('TRADE_FAILED', 'ERROR', f"Binance API error: {e}",
-                      details={'error': str(e)}, **log_ctx)
+                      details={'error': str(e), 'account': account_label}, **log_ctx)
             return None
 
         if not result:
-            logger.error(f"Futures API returned no result for signal {signal.id}")
+            logger.error(f"Futures API returned no result for signal {signal.id} ({account_label})")
             self._log('TRADE_FAILED', 'ERROR',
-                      "Binance API returned no result (market data or order failed)", **log_ctx)
+                      "Binance API returned no result (market data or order failed)",
+                      details={'account': account_label}, **log_ctx)
             return None
 
-        futures_trade = self._create_futures_trade(signal, result, trade_settings, trade_sl, trade_tp)
+        futures_trade = self._create_futures_trade(
+            signal, result, trade_settings, trade_sl, trade_tp, user=user,
+        )
 
         is_neutral_reversal = bool(
             isinstance(getattr(signal, 'meta', None), dict) and
@@ -1857,13 +1936,13 @@ class FuturesTradingService:
         )
 
         logger.info(
-            f"Futures trade created: {direction} {result['quantity']} {symbol_name} "
+            f"Futures trade created ({account_label}): {direction} {result['quantity']} {symbol_name} "
             f"@ {result['entry_price']} | SL: {futures_trade.stop_loss} | TP: {futures_trade.take_profit} "
             f"(Trade ID: {futures_trade.id}, Signal ID: {signal.id})"
         )
 
         self._log('TRADE_EXECUTED', 'SUCCESS',
-                  f"Trade opened: {direction} {result['quantity']} {symbol_name} @ {result['entry_price']}",
+                  f"Trade opened ({account_label}): {direction} {result['quantity']} {symbol_name} @ {result['entry_price']}",
                   signal=signal, trade=futures_trade, symbol=symbol_name, direction=direction,
                   is_priority=is_priority, force_execute=force_execute,
                   details={
@@ -1877,6 +1956,7 @@ class FuturesTradingService:
                       'tp_order_id': result.get('tp_order_id', ''),
                       'warnings': result.get('warnings', []),
                       'is_neutral_reversal': is_neutral_reversal,
+                      'account': account_label,
                   })
 
         return futures_trade
@@ -1885,6 +1965,11 @@ class FuturesTradingService:
         """
         Close an open futures trade (sync wrapper).
         Cancels all orders, closes position, updates trade record.
+
+        Routes to the correct Binance account: trades with ``trade.user``
+        set use the user's stored credentials; central trades use the
+        ``BINANCE_API_KEY`` env. Without this routing, closing a user's
+        position would hit the central account's API key and fail.
 
         Args:
             trade: FuturesTrade instance to close
@@ -1898,8 +1983,33 @@ class FuturesTradingService:
 
         use_testnet = self.use_testnet
 
+        api_key = None
+        api_secret = None
+        if trade.user_id:
+            try:
+                from ..models_user_connection import UserBinanceConnection
+                from .credential_crypto import decrypt
+                conn = UserBinanceConnection.objects.get(user_id=trade.user_id)
+                api_key = decrypt(conn.api_key_enc)
+                api_secret = decrypt(conn.api_secret_enc)
+            except UserBinanceConnection.DoesNotExist:
+                logger.error(
+                    f"close_trade: trade {trade.id} belongs to user {trade.user_id} "
+                    "but no Binance connection is stored — cannot close on exchange."
+                )
+                return False
+            except Exception as exc:
+                logger.error(
+                    f"close_trade: failed to load credentials for trade {trade.id} "
+                    f"(user {trade.user_id}): {exc}"
+                )
+                return False
+
         async def _close():
-            trader = BinanceFuturesTrader(use_testnet=use_testnet)
+            trader = BinanceFuturesTrader(
+                use_testnet=use_testnet,
+                api_key=api_key, api_secret=api_secret,
+            )
             try:
                 await trader.cancel_all_orders(trade.symbol)
                 close_result = await trader.close_position(

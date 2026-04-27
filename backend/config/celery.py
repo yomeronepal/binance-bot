@@ -22,6 +22,7 @@ app.autodiscover_tasks()
 app.autodiscover_tasks(related_name='tasks_strategy_performance')
 app.autodiscover_tasks(related_name='tasks_optimization')
 app.autodiscover_tasks(related_name='tasks_golden_window')
+app.autodiscover_tasks(related_name='tasks_user_connection')
 
 # Celery Beat Schedule (Periodic Tasks)
 app.conf.beat_schedule = {
@@ -167,6 +168,13 @@ app.conf.beat_schedule = {
         'task': 'scanner.tasks.celery_tasks.check_trading_session_activation',
         'schedule': 60.0,
         'options': {'expires': 55.0},
+    },
+
+    # Per-user Binance API connection health check (slice 1)
+    'health-check-user-binance-connections': {
+        'task': 'signals.health_check_user_connections',
+        'schedule': crontab(minute='*/30'),
+        'options': {'expires': 1700.0},
     },
 
 }

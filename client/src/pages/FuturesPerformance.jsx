@@ -8,6 +8,7 @@ import PullToRefresh from '../components/common/PullToRefresh';
 import FearGreedWidget from '../components/common/FearGreedWidget';
 import TradeReport from '../components/common/TradeReport';
 import TradeCharts from '../components/common/TradeCharts';
+import AccountScopeSelector from '../components/common/AccountScopeSelector';
 
 const FuturesPerformance = () => {
     const [loading, setLoading] = useState(true);
@@ -25,6 +26,13 @@ const FuturesPerformance = () => {
     const { user } = useAuthStore();
     const isSuperUser = user?.is_superuser;
 
+    // Admin-only scope: '' (all), 'central', or a numeric user_id as string.
+    // Backend ignores the param entirely for non-admins, so leaving it at ''
+    // for everyone is safe — the dropdown just doesn't render below.
+    const [scope, setScope] = useState('');
+    const scopeQS = scope ? `&user_id=${encodeURIComponent(scope)}` : '';
+    const scopeFirst = scope ? `?user_id=${encodeURIComponent(scope)}` : '';
+
     // Use relative paths since api instance has baseURL configured
     // const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -33,9 +41,9 @@ const FuturesPerformance = () => {
             setLoading(true);
 
             const [summaryRes, positionsRes, tradesRes, fgRes] = await Promise.all([
-                api.get('/futures/summary/'),
-                api.get('/futures/positions/'),
-                api.get('/futures/trades/?limit=50'),
+                api.get(`/futures/summary/${scopeFirst}`),
+                api.get(`/futures/positions/${scopeFirst}`),
+                api.get(`/futures/trades/?limit=50${scopeQS}`),
                 api.get('/futures/fear-greed/').catch(() => ({ data: null })),
             ]);
 
@@ -100,11 +108,15 @@ const FuturesPerformance = () => {
     useEffect(() => {
         if (isSuperUser) {
             fetchData();
-            // Auto-refresh every 30 seconds
+            // Auto-refresh every 30 seconds; the scope is read inside
+            // fetchData via closure on the latest state because the effect
+            // re-subscribes on scope change.
             const interval = setInterval(fetchData, 30000);
             return () => clearInterval(interval);
         }
-    }, [isSuperUser]);
+        // Re-running on scope change reissues the immediate fetch and
+        // resets the auto-refresh interval to use the new scope.
+    }, [isSuperUser, scope]);
 
     if (!isSuperUser) {
         return (
@@ -243,6 +255,15 @@ const FuturesPerformance = () => {
                         </div>
                     </div>
 
+                    {/* Admin: per-account scope selector */}
+                    <div className="mb-4">
+                        <AccountScopeSelector
+                            value={scope}
+                            onChange={setScope}
+                            isAdmin={isSuperUser}
+                        />
+                    </div>
+
                     {/* Status Banner */}
                     <div className={`rounded-lg border p-4 ${settings?.is_enabled
                         ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30'
@@ -363,11 +384,19 @@ const FuturesPerformance = () => {
                 )}
 
                 {activeTab === 'report' && (
-                    <TradeReport apiUrl="/futures/report/" useAuth={true} />
+                    <TradeReport
+                        apiUrl="/futures/report/"
+                        useAuth={true}
+                        filters={scope ? { user_id: scope } : {}}
+                    />
                 )}
 
                 {activeTab === 'graphs' && (
-                    <TradeCharts apiUrl="/futures/report/" useAuth={true} />
+                    <TradeCharts
+                        apiUrl="/futures/report/"
+                        useAuth={true}
+                        filters={scope ? { user_id: scope } : {}}
+                    />
                 )}
 
                 {/* Settings Modal */}

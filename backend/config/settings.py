@@ -251,9 +251,15 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
-# Binance API Configuration (for future use)
+# Binance API Configuration (central bot account)
 BINANCE_API_KEY = os.getenv('BINANCE_API_KEY', '')
 BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET', '')
+
+# Per-user Binance credential encryption (Fernet)
+USER_API_KEY_ENC_KEY = os.getenv('USER_API_KEY_ENC_KEY', '')
+
+# Server IP that users must allowlist on their Binance API key
+BINANCE_SERVER_IP = os.getenv('BINANCE_SERVER_IP', '37.60.248.46')
 
 # Stripe Configuration (for future use)
 STRIPE_PUBLIC_KEY = os.getenv('STRIPE_PUBLIC_KEY', '')
