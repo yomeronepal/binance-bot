@@ -446,8 +446,22 @@ class BinanceFuturesTrader:
     def _round_price(self, price, symbol_info):
         """Round price down to symbol's tick size precision."""
         tick_size, precision = self._get_price_precision(symbol_info)
-        steps = (price / tick_size).quantize(Decimal('1'), rounding=ROUND_DOWN)
+        steps = (Decimal(price) / tick_size).quantize(Decimal('1'), rounding=ROUND_DOWN)
         return (steps * tick_size).quantize(Decimal(10) ** -precision)
+
+    @staticmethod
+    def _fmt(value):
+        """
+        Format a Decimal/number as a fixed-point string for Binance API.
+
+        ``str(Decimal('1E-7'))`` returns ``'1E-7'``, which Binance rejects.
+        Sub-microcent tokens (1MBABYDOGE, SHIB, etc.) routinely produce
+        tick-aligned trigger prices that normalise to that form, silently
+        breaking SL/TP placement on those symbols. ``format(d, 'f')``
+        always emits fixed-point, regardless of the Decimal's internal
+        exponent.
+        """
+        return format(Decimal(value), 'f')
 
     def _round_sl_tp(self, sl, tp, symbol_info):
         """
@@ -504,43 +518,113 @@ class BinanceFuturesTrader:
         quantity = max(steps * step_size, min_qty)
         return quantity.quantize(Decimal(10) ** -quantity_precision)
 
+    async def _poll_order_until_settled(self, symbol, order_id,
+                                          max_attempts=8, delay=0.3):
+        """
+        Poll GET /fapi/v1/order until the order reaches a settled state.
+
+        Binance Futures' POST /fapi/v1/order can return status=NEW with
+        executedQty=0 *even for MARKET orders* — the REST response is
+        emitted before the matching engine settles the trade, especially
+        under load. Trusting that initial response causes us to abandon
+        a position that actually opens a moment later, leaving an orphan
+        with no SL/TP. Polling the order endpoint reads the post-match
+        state and avoids that whole class of bug.
+
+        Args:
+            symbol: Trading pair.
+            order_id: orderId returned by the POST response.
+            max_attempts: Total poll attempts (default 8 ≈ 2.4 s wall).
+            delay: Seconds between polls.
+
+        Returns:
+            The latest order dict once status is FILLED / PARTIALLY_FILLED
+            / CANCELED / EXPIRED / REJECTED, or the last response if
+            polling timed out.
+        """
+        terminal = {'FILLED', 'PARTIALLY_FILLED', 'CANCELED', 'EXPIRED', 'REJECTED'}
+        last = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                order = await self._request(
+                    'GET', '/fapi/v1/order',
+                    {'symbol': symbol, 'orderId': order_id}, signed=True,
+                )
+                last = order
+                status = order.get('status', '')
+                executed_qty = float(order.get('executedQty', 0) or 0)
+                if status in terminal or executed_qty > 0:
+                    logger.info(
+                        f"Order {order_id} settled on attempt {attempt}: "
+                        f"status={status} executedQty={executed_qty}"
+                    )
+                    return order
+                logger.info(
+                    f"Order {order_id} not yet settled (attempt {attempt}/{max_attempts}): "
+                    f"status={status} executedQty={executed_qty}"
+                )
+            except Exception as e:
+                logger.warning(f"Poll order {order_id} attempt {attempt} failed: {e}")
+            if attempt < max_attempts:
+                await asyncio.sleep(delay)
+        logger.error(
+            f"Order {order_id} for {symbol} never settled after {max_attempts} polls"
+        )
+        return last
+
     async def place_entry_order(self, symbol, side, quantity, price=None, direction=None):
         """
-        Place entry order using signal's price.
+        Place entry order as a MARKET order, then poll until Binance
+        reports the actual fill state.
 
-        Strategy: LIMIT IOC at signal price (fills immediately or cancels),
-        falls back to MARKET if IOC doesn't fill.
+        Two production failures shaped this method:
+
+        1. LIMIT IOC entries occasionally returned ``status=NEW`` (the
+           timeInForce hint dropped or processed asynchronously); the
+           order then matched a moment later and we'd never reach SL/TP.
+           LIMIT IOC was removed.
+        2. MARKET entries also occasionally return ``status=NEW`` with
+           ``executedQty=0`` — Binance sends the response before the
+           matching engine settles the trade. Under that race the order
+           still fills, but our code abandons it. The fix is to poll
+           ``GET /fapi/v1/order`` until a terminal state is observed.
 
         Args:
             symbol: Trading pair
             side: BUY or SELL
             quantity: Order quantity
-            price: Signal entry price for LIMIT order, None for MARKET
+            price: Ignored, retained for call-site compatibility
             direction: LONG/SHORT for Hedge Mode positionSide tagging
         """
-        if price:
-            result = await self._place_limit_ioc(symbol, side, quantity, price, direction)
-            if result and self._order_filled(result):
-                logger.info(f"Entry filled via LIMIT IOC: {side} {quantity} {symbol} @ {price}")
-                return result
-            logger.warning(
-                f"LIMIT IOC {'not filled' if result else 'failed'} at {price}, "
-                f"falling back to MARKET (status={result.get('status', 'N/A') if result else 'None'})"
+        if price is not None:
+            logger.debug(
+                f"place_entry_order: ignoring signal price {price} for {symbol}, "
+                "entering MARKET (LIMIT IOC removed to fix double-fill bug)"
             )
-
         logger.info(f"Placing MARKET entry: {side} {quantity} {symbol}")
         try:
             params = {
                 'symbol': symbol, 'side': side, 'type': 'MARKET',
-                'quantity': str(quantity),
+                'quantity': self._fmt(quantity),
             }
             params = await self._adapt_order_params(params, direction)
             result = await self._request('POST', '/fapi/v1/order', params, signed=True)
             logger.info(
-                f"MARKET entry result: {side} {quantity} {symbol} | "
+                f"MARKET entry POST result: {side} {quantity} {symbol} | "
                 f"status={result.get('status')} avgPrice={result.get('avgPrice')} "
                 f"executedQty={result.get('executedQty')}"
             )
+            if not self._order_filled(result):
+                order_id = result.get('orderId')
+                if order_id:
+                    polled = await self._poll_order_until_settled(symbol, order_id)
+                    if polled:
+                        result = polled
+                        logger.info(
+                            f"MARKET entry settled state: {side} {quantity} {symbol} | "
+                            f"status={result.get('status')} avgPrice={result.get('avgPrice')} "
+                            f"executedQty={result.get('executedQty')}"
+                        )
             return result
         except Exception as e:
             logger.error(f"MARKET entry FAILED: {side} {quantity} {symbol} | {e}")
@@ -585,7 +669,7 @@ class BinanceFuturesTrader:
         """
         params = {
             'symbol': symbol, 'side': side, 'type': 'MARKET',
-            'quantity': str(quantity),
+            'quantity': self._fmt(quantity),
         }
         if reduce_only:
             params['reduceOnly'] = 'true'
@@ -615,7 +699,7 @@ class BinanceFuturesTrader:
         """
         params = {
             'symbol': symbol, 'side': side, 'type': order_type,
-            'quantity': str(quantity), 'stopPrice': str(stop_price),
+            'quantity': self._fmt(quantity), 'stopPrice': self._fmt(stop_price),
             'reduceOnly': 'true', 'workingType': 'MARK_PRICE', 'priceProtect': 'true',
         }
         params = await self._adapt_order_params(params, direction)
@@ -642,7 +726,7 @@ class BinanceFuturesTrader:
         """
         params = {
             'symbol': symbol, 'side': side, 'type': order_type,
-            'closePosition': 'true', 'stopPrice': str(stop_price),
+            'closePosition': 'true', 'stopPrice': self._fmt(stop_price),
             'workingType': 'MARK_PRICE', 'priceProtect': 'true',
         }
         params = await self._adapt_order_params(params, direction)
@@ -676,7 +760,7 @@ class BinanceFuturesTrader:
 
         params = {
             'symbol': symbol, 'side': side, 'algoType': 'CONDITIONAL',
-            'type': order_type, 'closePosition': 'true', 'triggerPrice': str(trigger_price),
+            'type': order_type, 'closePosition': 'true', 'triggerPrice': self._fmt(trigger_price),
         }
         params = await self._adapt_order_params(params, direction)
         try:
@@ -791,11 +875,11 @@ class BinanceFuturesTrader:
         """
         params = {
             'symbol': symbol, 'side': side, 'type': 'TRAILING_STOP_MARKET',
-            'quantity': str(quantity), 'callbackRate': str(callback_rate),
+            'quantity': self._fmt(quantity), 'callbackRate': self._fmt(callback_rate),
             'reduceOnly': 'true',
         }
         if activation_price:
-            params['activationPrice'] = str(activation_price)
+            params['activationPrice'] = self._fmt(activation_price)
         params = await self._adapt_order_params(params, direction)
 
         try:
@@ -943,12 +1027,13 @@ class BinanceFuturesTrader:
         if entry_price:
             entry_order = {
                 'symbol': symbol, 'side': entry_side, 'type': 'LIMIT',
-                'price': str(entry_price), 'quantity': str(quantity), 'timeInForce': 'GTC',
+                'price': self._fmt(entry_price), 'quantity': self._fmt(quantity),
+                'timeInForce': 'GTC',
             }
         else:
             entry_order = {
                 'symbol': symbol, 'side': entry_side, 'type': 'MARKET',
-                'quantity': str(quantity),
+                'quantity': self._fmt(quantity),
             }
         if position_side:
             entry_order['positionSide'] = position_side
@@ -957,7 +1042,7 @@ class BinanceFuturesTrader:
                      + (f" @ {entry_price}" if entry_price else ""))
 
         sl_tp_base = {
-            'symbol': symbol, 'side': close_side, 'quantity': str(quantity),
+            'symbol': symbol, 'side': close_side, 'quantity': self._fmt(quantity),
             'workingType': 'MARK_PRICE', 'priceProtect': 'true',
         }
         if position_side:
@@ -967,8 +1052,8 @@ class BinanceFuturesTrader:
 
         orders = [
             entry_order,
-            {**sl_tp_base, 'type': 'STOP_MARKET', 'stopPrice': str(sl_price)},
-            {**sl_tp_base, 'type': 'TAKE_PROFIT_MARKET', 'stopPrice': str(tp_price)},
+            {**sl_tp_base, 'type': 'STOP_MARKET', 'stopPrice': self._fmt(sl_price)},
+            {**sl_tp_base, 'type': 'TAKE_PROFIT_MARKET', 'stopPrice': self._fmt(tp_price)},
         ]
 
         batch_json = json.dumps(orders, separators=(',', ':'))
@@ -1176,10 +1261,13 @@ class BinanceFuturesTrader:
         (margin rules, price bands, position-mode mismatch). A direct query
         is the only source of truth.
 
-        Algo orders (``/fapi/v1/algoOrder``) live on a separate endpoint
-        from ``/fapi/v1/openOrders``. Without checking both, a successful
-        algo fallback would be falsely reported as missing — triggering a
-        wasteful retry that double-places the SL/TP.
+        Algo orders (listed via ``/fapi/v1/allAlgoOrders``) live on a
+        separate endpoint from ``/fapi/v1/openOrders``. Without checking
+        both, a successful algo fallback would be falsely reported as
+        missing — triggering a wasteful retry that collides with the
+        already-placed algo order ("An open stop or take profit order
+        with GTE and closePosition in the direction is existing") and
+        cascades into the rescue close.
 
         Args:
             symbol: Trading pair to check.
@@ -1205,15 +1293,23 @@ class BinanceFuturesTrader:
 
         try:
             algo_resp = await self._request(
-                'GET', '/fapi/v1/algoOrder',
+                'GET', '/fapi/v1/allAlgoOrders',
                 {'symbol': symbol, 'algoStatus': 'NEW'}, signed=True,
             )
             algo_list = algo_resp if isinstance(algo_resp, list) else algo_resp.get('rows', [])
-            algo_types = {(o.get('type') or '').upper() for o in (algo_list or [])}
-            sl_present = sl_present or 'STOP_MARKET' in algo_types
-            tp_present = tp_present or 'TAKE_PROFIT_MARKET' in algo_types
+            for o in algo_list or []:
+                otype = (
+                    o.get('type')
+                    or o.get('orderType')
+                    or o.get('algoOrderType')
+                    or ''
+                ).upper()
+                if otype == 'STOP_MARKET':
+                    sl_present = True
+                elif otype == 'TAKE_PROFIT_MARKET':
+                    tp_present = True
         except Exception as exc:
-            logger.warning(f"algoOrder query failed for {symbol}: {exc}")
+            logger.warning(f"allAlgoOrders query failed for {symbol}: {exc}")
             algo_failed = True
 
         if regular_failed and algo_failed:
