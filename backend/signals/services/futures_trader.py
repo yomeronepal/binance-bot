@@ -105,6 +105,8 @@ class BinanceFuturesTrader:
     TESTNET_URL = "https://testnet.binancefuture.com"
     _server_time_offset = 0
     _last_time_sync = 0
+    _hedge_mode: Optional[bool] = None
+    _hedge_mode_checked_at = 0
 
     def __init__(self, use_testnet=False):
         self.api_key = settings.BINANCE_API_KEY
@@ -124,6 +126,56 @@ class BinanceFuturesTrader:
             Tuple of (entry_side, close_side) e.g. ('BUY', 'SELL')
         """
         return ('BUY', 'SELL') if direction == 'LONG' else ('SELL', 'BUY')
+
+    async def is_hedge_mode(self):
+        """
+        Detect whether the account uses Hedge (dualSidePosition) mode.
+
+        Cached for 5 minutes. In Hedge Mode every order must carry
+        positionSide and reduceOnly is rejected; in One-Way mode
+        positionSide must be omitted (or "BOTH"). Detecting this once
+        prevents silent SL/TP placement failures when the account is in
+        Hedge Mode.
+        """
+        now = time.time()
+        if (BinanceFuturesTrader._hedge_mode is not None
+                and now - BinanceFuturesTrader._hedge_mode_checked_at < 300):
+            return BinanceFuturesTrader._hedge_mode
+        try:
+            data = await self._request('GET', '/fapi/v1/positionSide/dual', signed=True)
+            hedge = bool(data.get('dualSidePosition'))
+            BinanceFuturesTrader._hedge_mode = hedge
+            BinanceFuturesTrader._hedge_mode_checked_at = now
+            logger.info(f"Position mode detected: {'HEDGE' if hedge else 'ONE_WAY'}")
+            return hedge
+        except Exception as e:
+            logger.warning(f"Could not detect position mode, assuming ONE_WAY: {e}")
+            BinanceFuturesTrader._hedge_mode = False
+            BinanceFuturesTrader._hedge_mode_checked_at = now
+            return False
+
+    @staticmethod
+    def _position_side_for(direction):
+        """Return positionSide ('LONG' or 'SHORT') for the trade direction."""
+        return 'LONG' if direction == 'LONG' else 'SHORT'
+
+    async def _adapt_order_params(self, params, direction):
+        """
+        Inject positionSide for Hedge Mode and strip reduceOnly/closePosition
+        flags that Binance rejects in Hedge Mode.
+
+        In Hedge Mode the position is identified by positionSide alone;
+        reduceOnly is rejected (-4046) and closePosition is rejected
+        (-1106) when paired with reduceOnly. Leaving them in is the
+        silent-failure that makes SL/TP never reach the exchange.
+        """
+        if not direction:
+            return params
+        if not await self.is_hedge_mode():
+            return params
+        params['positionSide'] = self._position_side_for(direction)
+        params.pop('reduceOnly', None)
+        return params
 
     def _generate_signature(self, query_string):
         """Generate HMAC SHA256 signature for signed endpoints."""
@@ -415,7 +467,7 @@ class BinanceFuturesTrader:
         quantity = max(steps * step_size, min_qty)
         return quantity.quantize(Decimal(10) ** -quantity_precision)
 
-    async def place_entry_order(self, symbol, side, quantity, price=None):
+    async def place_entry_order(self, symbol, side, quantity, price=None, direction=None):
         """
         Place entry order using signal's price.
 
@@ -427,9 +479,10 @@ class BinanceFuturesTrader:
             side: BUY or SELL
             quantity: Order quantity
             price: Signal entry price for LIMIT order, None for MARKET
+            direction: LONG/SHORT for Hedge Mode positionSide tagging
         """
         if price:
-            result = await self._place_limit_ioc(symbol, side, quantity, price)
+            result = await self._place_limit_ioc(symbol, side, quantity, price, direction)
             if result and self._order_filled(result):
                 logger.info(f"Entry filled via LIMIT IOC: {side} {quantity} {symbol} @ {price}")
                 return result
@@ -444,6 +497,7 @@ class BinanceFuturesTrader:
                 'symbol': symbol, 'side': side, 'type': 'MARKET',
                 'quantity': str(quantity),
             }
+            params = await self._adapt_order_params(params, direction)
             result = await self._request('POST', '/fapi/v1/order', params, signed=True)
             logger.info(
                 f"MARKET entry result: {side} {quantity} {symbol} | "
@@ -455,12 +509,13 @@ class BinanceFuturesTrader:
             logger.error(f"MARKET entry FAILED: {side} {quantity} {symbol} | {e}")
             return None
 
-    async def _place_limit_ioc(self, symbol, side, quantity, price):
+    async def _place_limit_ioc(self, symbol, side, quantity, price, direction=None):
         """Place LIMIT IOC order — fills immediately at signal price or cancels."""
         params = {
             'symbol': symbol, 'side': side, 'type': 'LIMIT',
             'price': str(price), 'quantity': str(quantity), 'timeInForce': 'IOC',
         }
+        params = await self._adapt_order_params(params, direction)
         try:
             result = await self._request('POST', '/fapi/v1/order', params, signed=True)
             logger.info(
@@ -480,7 +535,7 @@ class BinanceFuturesTrader:
         executed_qty = float(result.get('executedQty', 0))
         return status == 'FILLED' or executed_qty > 0
 
-    async def place_market_order(self, symbol, side, quantity, reduce_only=False):
+    async def place_market_order(self, symbol, side, quantity, reduce_only=False, direction=None):
         """
         Place a market order (used for closing positions).
 
@@ -488,7 +543,8 @@ class BinanceFuturesTrader:
             symbol: Trading pair
             side: BUY or SELL
             quantity: Order quantity
-            reduce_only: If True, only reduces existing position
+            reduce_only: If True, only reduces existing position (ignored in Hedge Mode)
+            direction: LONG/SHORT of the position being closed (for Hedge Mode positionSide)
         """
         params = {
             'symbol': symbol, 'side': side, 'type': 'MARKET',
@@ -496,6 +552,7 @@ class BinanceFuturesTrader:
         }
         if reduce_only:
             params['reduceOnly'] = 'true'
+        params = await self._adapt_order_params(params, direction)
 
         try:
             result = await self._request('POST', '/fapi/v1/order', params, signed=True)
@@ -505,9 +562,10 @@ class BinanceFuturesTrader:
             logger.error(f"Failed to place market order: {e}")
             return None
 
-    async def _place_with_quantity(self, symbol, side, quantity, stop_price, order_type, label):
+    async def _place_with_quantity(self, symbol, side, quantity, stop_price, order_type, label, direction=None):
         """
-        Place conditional order with explicit quantity + reduceOnly.
+        Place conditional order with explicit quantity + reduceOnly (One-Way mode)
+        or positionSide (Hedge Mode).
 
         Args:
             symbol: Trading pair
@@ -516,12 +574,14 @@ class BinanceFuturesTrader:
             stop_price: Trigger price
             order_type: STOP_MARKET or TAKE_PROFIT_MARKET
             label: SL or TP for logging
+            direction: LONG/SHORT of the underlying position (for Hedge Mode)
         """
         params = {
             'symbol': symbol, 'side': side, 'type': order_type,
             'quantity': str(quantity), 'stopPrice': str(stop_price),
             'reduceOnly': 'true', 'workingType': 'MARK_PRICE', 'priceProtect': 'true',
         }
+        params = await self._adapt_order_params(params, direction)
         try:
             result = await self._request('POST', '/fapi/v1/order', params, signed=True)
             order_id = result.get('orderId')
@@ -531,7 +591,7 @@ class BinanceFuturesTrader:
             logger.warning(f"[QTY] {label} failed for {symbol}: {e}")
             return None
 
-    async def _place_with_close_position(self, symbol, side, stop_price, order_type, label):
+    async def _place_with_close_position(self, symbol, side, stop_price, order_type, label, direction=None):
         """
         Place conditional order with closePosition=true (no quantity needed).
 
@@ -541,12 +601,14 @@ class BinanceFuturesTrader:
             stop_price: Trigger price
             order_type: STOP_MARKET or TAKE_PROFIT_MARKET
             label: SL or TP for logging
+            direction: LONG/SHORT of the position being protected (for Hedge Mode)
         """
         params = {
             'symbol': symbol, 'side': side, 'type': order_type,
             'closePosition': 'true', 'stopPrice': str(stop_price),
             'workingType': 'MARK_PRICE', 'priceProtect': 'true',
         }
+        params = await self._adapt_order_params(params, direction)
         try:
             result = await self._request('POST', '/fapi/v1/order', params, signed=True)
             order_id = result.get('orderId')
@@ -556,7 +618,7 @@ class BinanceFuturesTrader:
             logger.warning(f"[CLOSE_POS] {label} failed for {symbol}: {e}")
             return None
 
-    async def _place_algo_conditional(self, symbol, side, trigger_price, order_type, label):
+    async def _place_algo_conditional(self, symbol, side, trigger_price, order_type, label, direction=None):
         """
         Place SL/TP via Binance Algo API (the only endpoint that supports STOP_MARKET/TAKE_PROFIT_MARKET).
 
@@ -566,6 +628,7 @@ class BinanceFuturesTrader:
             trigger_price: Trigger price for SL or TP
             order_type: STOP_MARKET or TAKE_PROFIT_MARKET
             label: SL or TP for logging
+            direction: LONG/SHORT of the underlying position (for Hedge Mode)
 
         Returns:
             Dict with orderId or None
@@ -578,6 +641,7 @@ class BinanceFuturesTrader:
             'symbol': symbol, 'side': side, 'algoType': 'CONDITIONAL',
             'type': order_type, 'closePosition': 'true', 'triggerPrice': str(trigger_price),
         }
+        params = await self._adapt_order_params(params, direction)
         try:
             result = await self._request('POST', '/fapi/v1/algoOrder', params, signed=True)
             algo_id = result.get('algoId')
@@ -587,12 +651,12 @@ class BinanceFuturesTrader:
             logger.error(f"[ALGO] {label} failed for {symbol}: {e}")
             return None
 
-    async def _place_with_algo(self, symbol, side, stop_price, order_type, label):
+    async def _place_with_algo(self, symbol, side, stop_price, order_type, label, direction=None):
         """Backward-compatible alias for _place_algo_conditional."""
-        return await self._place_algo_conditional(symbol, side, stop_price, order_type, label)
+        return await self._place_algo_conditional(symbol, side, stop_price, order_type, label, direction)
 
     async def _place_conditional_with_fallback(self, symbol, side, quantity, trigger_price,
-                                                order_type, label, methods):
+                                                order_type, label, methods, direction=None):
         """
         Place a conditional order (SL/TP) trying multiple methods in order.
 
@@ -604,6 +668,7 @@ class BinanceFuturesTrader:
             order_type: STOP_MARKET or TAKE_PROFIT_MARKET
             label: SL or TP for logging
             methods: Ordered list of methods to try ('algo', 'quantity', 'close_position')
+            direction: LONG/SHORT of the underlying position (for Hedge Mode positionSide)
 
         Returns:
             Order result dict or None if all methods fail
@@ -615,9 +680,9 @@ class BinanceFuturesTrader:
         logger.info(f"Placing {label}: {symbol} {side} {order_type} @ {trigger_price}")
 
         dispatch = {
-            'algo': lambda: self._place_with_algo(symbol, side, trigger_price, order_type, label),
-            'quantity': lambda: self._place_with_quantity(symbol, side, quantity, trigger_price, order_type, label),
-            'close_position': lambda: self._place_with_close_position(symbol, side, trigger_price, order_type, label),
+            'algo': lambda: self._place_with_algo(symbol, side, trigger_price, order_type, label, direction),
+            'quantity': lambda: self._place_with_quantity(symbol, side, quantity, trigger_price, order_type, label, direction),
+            'close_position': lambda: self._place_with_close_position(symbol, side, trigger_price, order_type, label, direction),
         }
 
         for method in methods:
@@ -629,7 +694,7 @@ class BinanceFuturesTrader:
         return None
 
     async def place_stop_loss_order(self, symbol, side, quantity, stop_price,
-                                     current_price=None, symbol_info=None):
+                                     current_price=None, symbol_info=None, direction=None):
         """
         Place a stop loss order with 3-level fallback: closePosition -> quantity -> algo.
         Uses /fapi/v1/order STOP_MARKET (closePosition=true is most reliable).
@@ -642,16 +707,17 @@ class BinanceFuturesTrader:
             stop_price: Stop loss trigger price from signal
             current_price: Unused, kept for backward compatibility
             symbol_info: Symbol info for price rounding (optional)
+            direction: LONG/SHORT of the underlying position (for Hedge Mode)
         """
         if symbol_info:
             stop_price = self._round_price(stop_price, symbol_info)
         return await self._place_conditional_with_fallback(
             symbol, side, quantity, stop_price, 'STOP_MARKET', 'SL',
-            ['close_position', 'quantity', 'algo']
+            ['close_position', 'quantity', 'algo'], direction=direction,
         )
 
     async def place_take_profit_order(self, symbol, side, quantity, take_profit_price,
-                                       current_price=None, symbol_info=None):
+                                       current_price=None, symbol_info=None, direction=None):
         """
         Place a take profit order with 3-level fallback: closePosition -> quantity -> algo.
         Uses /fapi/v1/order TAKE_PROFIT_MARKET (closePosition=true is most reliable).
@@ -664,16 +730,17 @@ class BinanceFuturesTrader:
             take_profit_price: Take profit trigger price from signal
             current_price: Unused, kept for backward compatibility
             symbol_info: Symbol info for price rounding (optional)
+            direction: LONG/SHORT of the underlying position (for Hedge Mode)
         """
         if symbol_info:
             take_profit_price = self._round_price(take_profit_price, symbol_info)
         return await self._place_conditional_with_fallback(
             symbol, side, quantity, take_profit_price, 'TAKE_PROFIT_MARKET', 'TP',
-            ['close_position', 'quantity', 'algo']
+            ['close_position', 'quantity', 'algo'], direction=direction,
         )
 
     async def place_trailing_stop_order(self, symbol, side, quantity, callback_rate,
-                                         activation_price=None):
+                                         activation_price=None, direction=None):
         """
         Place a trailing stop market order.
 
@@ -683,6 +750,7 @@ class BinanceFuturesTrader:
             quantity: Position quantity
             callback_rate: Callback rate in percentage (0.1 to 5.0)
             activation_price: Price at which trailing stop activates (optional)
+            direction: LONG/SHORT of the underlying position (for Hedge Mode)
         """
         params = {
             'symbol': symbol, 'side': side, 'type': 'TRAILING_STOP_MARKET',
@@ -691,6 +759,7 @@ class BinanceFuturesTrader:
         }
         if activation_price:
             params['activationPrice'] = str(activation_price)
+        params = await self._adapt_order_params(params, direction)
 
         try:
             result = await self._request('POST', '/fapi/v1/order', params, signed=True)
@@ -740,7 +809,9 @@ class BinanceFuturesTrader:
     async def close_position(self, symbol, direction, quantity):
         """Close an open position with a reduce-only market order."""
         side = 'SELL' if direction == 'LONG' else 'BUY'
-        return await self.place_market_order(symbol, side, quantity, reduce_only=True)
+        return await self.place_market_order(
+            symbol, side, quantity, reduce_only=True, direction=direction,
+        )
 
     async def close_position_with_retry(self, symbol, direction, quantity, attempts=3):
         """
@@ -829,6 +900,8 @@ class BinanceFuturesTrader:
             Dict with entry/sl/tp order results or None
         """
         entry_side, close_side = self._sides(direction)
+        hedge = await self.is_hedge_mode()
+        position_side = self._position_side_for(direction) if hedge else None
 
         if entry_price:
             entry_order = {
@@ -840,14 +913,20 @@ class BinanceFuturesTrader:
                 'symbol': symbol, 'side': entry_side, 'type': 'MARKET',
                 'quantity': str(quantity),
             }
+        if position_side:
+            entry_order['positionSide'] = position_side
 
         logger.info(f"[BATCH] Entry: {entry_order['type']} {entry_side} {quantity} {symbol}"
                      + (f" @ {entry_price}" if entry_price else ""))
 
         sl_tp_base = {
             'symbol': symbol, 'side': close_side, 'quantity': str(quantity),
-            'reduceOnly': 'true', 'workingType': 'MARK_PRICE', 'priceProtect': 'true',
+            'workingType': 'MARK_PRICE', 'priceProtect': 'true',
         }
+        if position_side:
+            sl_tp_base['positionSide'] = position_side
+        else:
+            sl_tp_base['reduceOnly'] = 'true'
 
         orders = [
             entry_order,
@@ -978,7 +1057,8 @@ class BinanceFuturesTrader:
         else:
             logger.warning(f"SL failed in batch for {symbol}, retrying separately...")
             sl_result = await self.place_stop_loss_order(
-                symbol, close_side, quantity, sl_rounded, symbol_info=symbol_info
+                symbol, close_side, quantity, sl_rounded,
+                symbol_info=symbol_info, direction=direction,
             )
             if sl_result:
                 sl_order_id = str(sl_result.get('orderId', ''))
@@ -990,7 +1070,8 @@ class BinanceFuturesTrader:
         else:
             logger.warning(f"TP failed in batch for {symbol}, retrying separately...")
             tp_result = await self.place_take_profit_order(
-                symbol, close_side, quantity, tp_rounded, symbol_info=symbol_info
+                symbol, close_side, quantity, tp_rounded,
+                symbol_info=symbol_info, direction=direction,
             )
             if tp_result:
                 tp_order_id = str(tp_result.get('orderId', ''))
@@ -1050,12 +1131,18 @@ class BinanceFuturesTrader:
 
     async def _check_sl_tp_on_exchange(self, symbol):
         """
-        Query Binance openOrders and report which conditional types are present.
+        Query Binance for both regular and algo orders and report which
+        conditional types are present.
 
         Used as a post-placement safety net: even if ``place_stop_loss_order``
         returned a success dict, the order may have been rejected post-hoc
         (margin rules, price bands, position-mode mismatch). A direct query
         is the only source of truth.
+
+        Algo orders (``/fapi/v1/algoOrder``) live on a separate endpoint
+        from ``/fapi/v1/openOrders``. Without checking both, a successful
+        algo fallback would be falsely reported as missing — triggering a
+        wasteful retry that double-places the SL/TP.
 
         Args:
             symbol: Trading pair to check.
@@ -1065,31 +1152,58 @@ class BinanceFuturesTrader:
             both are reported True (fail-open) so a transient query failure
             does not trigger a needless position-close.
         """
+        sl_present = False
+        tp_present = False
+        regular_failed = False
+        algo_failed = False
+
         try:
             orders = await self.get_all_open_orders(symbol)
+            types_present = {o.get('type') for o in (orders or [])}
+            sl_present = 'STOP_MARKET' in types_present
+            tp_present = 'TAKE_PROFIT_MARKET' in types_present
         except Exception as exc:
+            logger.warning(f"openOrders query failed for {symbol}: {exc}")
+            regular_failed = True
+
+        try:
+            algo_resp = await self._request(
+                'GET', '/fapi/v1/algoOrder',
+                {'symbol': symbol, 'algoStatus': 'NEW'}, signed=True,
+            )
+            algo_list = algo_resp if isinstance(algo_resp, list) else algo_resp.get('rows', [])
+            algo_types = {(o.get('type') or '').upper() for o in (algo_list or [])}
+            sl_present = sl_present or 'STOP_MARKET' in algo_types
+            tp_present = tp_present or 'TAKE_PROFIT_MARKET' in algo_types
+        except Exception as exc:
+            logger.warning(f"algoOrder query failed for {symbol}: {exc}")
+            algo_failed = True
+
+        if regular_failed and algo_failed:
             logger.warning(
-                f"openOrders query failed for {symbol}: {exc} — "
-                "treating SL/TP as present (fail-open)"
+                f"Both order queries failed for {symbol} — treating SL/TP as present (fail-open)"
             )
             return True, True
 
-        types_present = {o.get('type') for o in (orders or [])}
-        return 'STOP_MARKET' in types_present, 'TAKE_PROFIT_MARKET' in types_present
+        return sl_present, tp_present
 
-    async def _place_tp_with_retry(self, symbol, close_side, quantity, tp_rounded):
+    async def _place_tp_with_retry(self, symbol, close_side, quantity, tp_rounded, direction=None):
         """
         Place a TP order with a single automatic retry.
 
         TP failure used to be only a warning, which meant a silently naked
         upside on winning trades. Retry once before giving up.
         """
-        result = await self.place_take_profit_order(symbol, close_side, quantity, tp_rounded)
+        result = await self.place_take_profit_order(
+            symbol, close_side, quantity, tp_rounded, direction=direction,
+        )
         if result:
             return result
         logger.warning(f"TP first attempt failed for {symbol}, retrying once")
         await asyncio.sleep(0.5)
-        return await self.place_take_profit_order(symbol, close_side, quantity, tp_rounded)
+        return await self.place_take_profit_order(
+            symbol, close_side, quantity, tp_rounded, direction=direction,
+        )
 
     async def place_trade_orders(self, symbol, direction, leverage, position_size,
                                   sl, tp, symbol_info, current_price, signal_entry=None):
@@ -1137,7 +1251,9 @@ class BinanceFuturesTrader:
             entry_rounded = self._round_price(entry_price, symbol_info) if signal_entry else None
             logger.info(f"Rounded — Entry={entry_rounded}, SL={sl_rounded}, TP={tp_rounded}")
 
-            entry_result = await self.place_entry_order(symbol, entry_side, quantity, entry_rounded)
+            entry_result = await self.place_entry_order(
+                symbol, entry_side, quantity, entry_rounded, direction=direction,
+            )
             if not entry_result:
                 raise Exception("Entry order failed — Binance returned no result")
 
@@ -1150,14 +1266,18 @@ class BinanceFuturesTrader:
 
             warnings = []
 
-            sl_result = await self.place_stop_loss_order(symbol, close_side, quantity, sl_rounded)
+            sl_result = await self.place_stop_loss_order(
+                symbol, close_side, quantity, sl_rounded, direction=direction,
+            )
             if not sl_result:
                 await self._rescue_or_orphan(
                     symbol, direction, quantity, avg_price,
                     reason=f"SL placement failed at {sl_rounded}",
                 )
 
-            tp_result = await self._place_tp_with_retry(symbol, close_side, quantity, tp_rounded)
+            tp_result = await self._place_tp_with_retry(
+                symbol, close_side, quantity, tp_rounded, direction=direction,
+            )
             if not tp_result:
                 warnings.append(f"TP failed after retry — only SL active at {sl_rounded}")
 
@@ -1222,9 +1342,11 @@ class BinanceFuturesTrader:
 
         if not sl_on_exchange:
             logger.error(
-                f"CRITICAL: SL reported placed but missing from openOrders for {symbol}, retrying"
+                f"CRITICAL: SL reported placed but missing on exchange for {symbol}, retrying"
             )
-            sl_retry = await self.place_stop_loss_order(symbol, close_side, quantity, sl_rounded)
+            sl_retry = await self.place_stop_loss_order(
+                symbol, close_side, quantity, sl_rounded, direction=direction,
+            )
             if not sl_retry:
                 await self._rescue_or_orphan(
                     symbol, direction, quantity, avg_price,
@@ -1235,9 +1357,11 @@ class BinanceFuturesTrader:
 
         if tp_result and not tp_on_exchange:
             logger.error(
-                f"CRITICAL: TP reported placed but missing from openOrders for {symbol}, retrying"
+                f"CRITICAL: TP reported placed but missing on exchange for {symbol}, retrying"
             )
-            tp_retry = await self.place_take_profit_order(symbol, close_side, quantity, tp_rounded)
+            tp_retry = await self.place_take_profit_order(
+                symbol, close_side, quantity, tp_rounded, direction=direction,
+            )
             if tp_retry:
                 tp_result = tp_retry
                 extra_warnings.append("TP required retry after post-placement verification")
@@ -1298,7 +1422,9 @@ class BinanceFuturesTrader:
         """
         entry_side, close_side = self._sides(direction)
 
-        entry_result = await self.place_entry_order(symbol, entry_side, quantity, entry_price)
+        entry_result = await self.place_entry_order(
+            symbol, entry_side, quantity, entry_price, direction=direction,
+        )
 
         if not entry_result:
             raise Exception("Entry order failed — Binance returned no result")
@@ -1321,7 +1447,8 @@ class BinanceFuturesTrader:
         warnings = []
 
         sl_result = await self.place_stop_loss_order(
-            symbol, close_side, quantity, sl_rounded, symbol_info=symbol_info
+            symbol, close_side, quantity, sl_rounded,
+            symbol_info=symbol_info, direction=direction,
         )
         if not sl_result:
             logger.error(f"CRITICAL: SL failed for {symbol}! Closing position.")
@@ -1329,7 +1456,8 @@ class BinanceFuturesTrader:
             raise Exception(f"SL could not be placed on {symbol}. Entry reversed.")
 
         tp_result = await self.place_take_profit_order(
-            symbol, close_side, quantity, tp_rounded, symbol_info=symbol_info
+            symbol, close_side, quantity, tp_rounded,
+            symbol_info=symbol_info, direction=direction,
         )
         if not tp_result:
             warnings.append(f"TP failed - only SL active at {sl_rounded}")
