@@ -45,9 +45,10 @@ const Layout = () => {
     { to: '/trading-sessions', label: 'Trading Sessions', icon: Calendar },
     { to: '/backtesting', label: 'Backtesting', icon: FlaskConical },
     { to: '/connect-binance', label: 'Connect Binance', icon: Link2 },
-    ...(user?.is_superuser ? [
-      { to: '/futures-performance', label: 'Futures Trade', icon: BarChart3 }
-    ] : [])
+    // Visible to everyone: regular users see only their own trades
+    // (backend scopes via FuturesTrade.user FK); superuser sees all
+    // accounts plus per-user breakdown via the AccountScopeSelector.
+    { to: '/futures-performance', label: 'Futures Trade', icon: BarChart3 },
   ];
 
   const isActiveLink = (path) => location.pathname === path;

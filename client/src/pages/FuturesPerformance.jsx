@@ -3,7 +3,6 @@ import React, { useEffect, useState } from 'react';
 import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Activity, X, Settings, Power, Calendar, RefreshCw, AlertTriangle, FileBarChart, LineChart } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
-import { ShieldAlert } from 'lucide-react';
 import PullToRefresh from '../components/common/PullToRefresh';
 import FearGreedWidget from '../components/common/FearGreedWidget';
 import TradeReport from '../components/common/TradeReport';
@@ -106,29 +105,14 @@ const FuturesPerformance = () => {
     };
 
     useEffect(() => {
-        if (isSuperUser) {
-            fetchData();
-            // Auto-refresh every 30 seconds; the scope is read inside
-            // fetchData via closure on the latest state because the effect
-            // re-subscribes on scope change.
-            const interval = setInterval(fetchData, 30000);
-            return () => clearInterval(interval);
-        }
-        // Re-running on scope change reissues the immediate fetch and
-        // resets the auto-refresh interval to use the new scope.
+        // Both admins and regular users fetch — backend scopes the data
+        // (admins see everything, users see only rows where user=request.user).
+        // Auto-refresh every 30 s; effect re-subscribes when ``scope``
+        // changes so the new account is reflected immediately.
+        fetchData();
+        const interval = setInterval(fetchData, 30000);
+        return () => clearInterval(interval);
     }, [isSuperUser, scope]);
-
-    if (!isSuperUser) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-                <div className="text-center p-8 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-red-200 dark:border-red-900">
-                    <ShieldAlert className="w-16 h-16 text-red-500 mx-auto mb-4" />
-                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h2>
-                    <p className="text-gray-600 dark:text-gray-400">This area is restricted to Super Administrators only.</p>
-                </div>
-            </div>
-        );
-    }
 
     if (loading && !summary) {
         return (
@@ -210,7 +194,7 @@ const FuturesPerformance = () => {
     };
 
     return (
-        <PullToRefresh onRefresh={handleRefresh} disabled={!isSuperUser}>
+        <PullToRefresh onRefresh={handleRefresh}>
         <div className="min-h-screen bg-gray-50 dark:bg-gradient-to-br dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-4 sm:p-6">
             <div className="max-w-7xl mx-auto">
                 {/* Header */}
@@ -221,30 +205,39 @@ const FuturesPerformance = () => {
                                 <Bot className="w-8 h-8 text-purple-600 dark:text-purple-400" />
                             </div>
                             <div>
-                                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Futures Trading Performance</h1>
-                                <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base">Real Binance futures trades monitoring</p>
+                                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+                                    {isSuperUser ? 'Futures Trading Performance' : 'My Futures Trades'}
+                                </h1>
+                                <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base">
+                                    {isSuperUser
+                                        ? 'Real Binance futures trades monitoring'
+                                        : 'Trades placed on your connected Binance account'}
+                                </p>
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
-                            {/* Trading Toggle */}
-                            <button
-                                onClick={toggleTrading}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${settings?.is_enabled
-                                    ? 'bg-green-100 dark:bg-green-500/20 border border-green-300 dark:border-green-500/50 text-green-600 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-500/30'
-                                    : 'bg-red-100 dark:bg-red-500/20 border border-red-300 dark:border-red-500/50 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/30'
-                                    }`}
-                            >
-                                <Power className="w-4 h-4" />
-                                {settings?.is_enabled ? 'Trading ON' : 'Trading OFF'}
-                            </button>
-                            {/* Settings Button */}
-                            <button
-                                onClick={() => setShowSettings(true)}
-                                className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                            >
-                                <Settings className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-                            </button>
-                            {/* Refresh */}
+                            {/* Admin-only: Trading Toggle and Settings (control the central account) */}
+                            {isSuperUser && (
+                                <>
+                                    <button
+                                        onClick={toggleTrading}
+                                        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${settings?.is_enabled
+                                            ? 'bg-green-100 dark:bg-green-500/20 border border-green-300 dark:border-green-500/50 text-green-600 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-500/30'
+                                            : 'bg-red-100 dark:bg-red-500/20 border border-red-300 dark:border-red-500/50 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/30'
+                                            }`}
+                                    >
+                                        <Power className="w-4 h-4" />
+                                        {settings?.is_enabled ? 'Trading ON' : 'Trading OFF'}
+                                    </button>
+                                    <button
+                                        onClick={() => setShowSettings(true)}
+                                        className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                                    >
+                                        <Settings className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                                    </button>
+                                </>
+                            )}
+                            {/* Refresh — both roles */}
                             <button
                                 onClick={fetchData}
                                 disabled={loading}
@@ -265,16 +258,26 @@ const FuturesPerformance = () => {
                     </div>
 
                     {/* Status Banner */}
-                    <div className={`rounded-lg border p-4 ${settings?.is_enabled
-                        ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30'
-                        : 'bg-yellow-50 dark:bg-yellow-500/10 border-yellow-200 dark:border-yellow-500/30'
-                        }`}>
-                        <p className={settings?.is_enabled ? 'text-green-700 dark:text-green-300' : 'text-yellow-700 dark:text-yellow-300'}>
-                            {settings?.is_enabled
-                                ? `✅ Auto-trading enabled | $${settings?.trade_amount} × ${settings?.leverage}x = $${settings?.effective_position_size} effective | Symbols: ${settings?.allowed_symbols?.join(', ') || 'All'}`
-                                : '⚠️ Auto-trading is disabled. Enable it to execute trades automatically from signals.'}
-                        </p>
-                    </div>
+                    {isSuperUser ? (
+                        <div className={`rounded-lg border p-4 ${settings?.is_enabled
+                            ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30'
+                            : 'bg-yellow-50 dark:bg-yellow-500/10 border-yellow-200 dark:border-yellow-500/30'
+                            }`}>
+                            <p className={settings?.is_enabled ? 'text-green-700 dark:text-green-300' : 'text-yellow-700 dark:text-yellow-300'}>
+                                {settings?.is_enabled
+                                    ? `✅ Auto-trading enabled | $${settings?.trade_amount} × ${settings?.leverage}x = $${settings?.effective_position_size} effective | Symbols: ${settings?.allowed_symbols?.join(', ') || 'All'}`
+                                    : '⚠️ Auto-trading is disabled. Enable it to execute trades automatically from signals.'}
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="rounded-lg border p-4 bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/30">
+                            <p className="text-blue-800 dark:text-blue-300 text-sm">
+                                {settings?.is_enabled
+                                    ? <>✅ Auto-trading is <span className="font-medium">active</span>. Each Golden Window signal will place a trade on your connected Binance account at the bot's configured size of <span className="font-medium">${settings?.trade_amount} × {settings?.leverage}x</span>.</>
+                                    : <>⏸️ Auto-trading is currently paused by the operator. No new trades will be placed until it's re-enabled.</>}
+                            </p>
+                        </div>
+                    )}
 
                     {fearGreed && fearGreed.available && <FearGreedWidget data={fearGreed} />}
                 </div>
@@ -399,8 +402,11 @@ const FuturesPerformance = () => {
                     />
                 )}
 
-                {/* Settings Modal */}
-                {showSettings && (
+                {/* Settings Modal — admin-only, even if a non-admin somehow flips
+                    showSettings (the opener button is already gated). The modal
+                    mutates the central FuturesTradingSettings which is admin-scoped
+                    on the backend; render-side gate prevents an unwarranted 403. */}
+                {isSuperUser && showSettings && (
                     <SettingsModal
                         settings={settings}
                         onSave={updateSettings}
