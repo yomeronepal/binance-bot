@@ -469,28 +469,29 @@ class BinanceFuturesTrader:
 
     async def place_entry_order(self, symbol, side, quantity, price=None, direction=None):
         """
-        Place entry order using signal's price.
+        Place entry order as a MARKET order.
 
-        Strategy: LIMIT IOC at signal price (fills immediately or cancels),
-        falls back to MARKET if IOC doesn't fill.
+        We deliberately do NOT use LIMIT IOC: in production Binance
+        intermittently returns `status=NEW` for IOC requests (the
+        timeInForce hint is dropped or processed asynchronously), the
+        order then matches against the book a moment later, and the
+        local code — which already saw NEW and bailed — never reaches
+        SL/TP placement. Result: a live position with no protection,
+        later picked up by the position sync as "Auto-imported".
+        MARKET avoids the entire class of failure.
 
         Args:
             symbol: Trading pair
             side: BUY or SELL
             quantity: Order quantity
-            price: Signal entry price for LIMIT order, None for MARKET
+            price: Ignored, retained for call-site compatibility
             direction: LONG/SHORT for Hedge Mode positionSide tagging
         """
-        if price:
-            result = await self._place_limit_ioc(symbol, side, quantity, price, direction)
-            if result and self._order_filled(result):
-                logger.info(f"Entry filled via LIMIT IOC: {side} {quantity} {symbol} @ {price}")
-                return result
-            logger.warning(
-                f"LIMIT IOC {'not filled' if result else 'failed'} at {price}, "
-                f"falling back to MARKET (status={result.get('status', 'N/A') if result else 'None'})"
+        if price is not None:
+            logger.debug(
+                f"place_entry_order: ignoring signal price {price} for {symbol}, "
+                "entering MARKET (LIMIT IOC removed to fix double-fill bug)"
             )
-
         logger.info(f"Placing MARKET entry: {side} {quantity} {symbol}")
         try:
             params = {
