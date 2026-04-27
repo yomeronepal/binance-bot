@@ -307,6 +307,19 @@ class FuturesTrade(models.Model):
         help_text=_("Associated trading signal")
     )
 
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='futures_trades',
+        help_text=_(
+            "User account this trade belongs to. NULL means the central bot "
+            "account (env BINANCE_API_KEY); a user FK means the trade was "
+            "executed on that user's connected Binance account."
+        ),
+    )
+
     symbol = models.CharField(
         max_length=20,
         help_text=_("Trading pair symbol")

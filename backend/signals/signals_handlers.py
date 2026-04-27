@@ -8,7 +8,10 @@ from datetime import datetime, timezone, timedelta
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
 from .models import Signal, TradingSession
+from .models_blacklist import BlacklistedSymbol
 from .services.realtime import realtime_signal_service
+from .services.futures_trader import futures_trading_service
+from .services.user_trade_dispatcher import safe_dispatch
 
 logger = logging.getLogger(__name__)
 
@@ -448,10 +451,19 @@ def execute_futures_trade_on_signal(sender, instance, created, **kwargs):
 
 def _execute_futures_trade(instance):
     """
-    Run the trading-window / blacklist checks and dispatch to the trader.
+    Run the trading-window / blacklist checks and dispatch to the traders.
 
-    Extracted from the post_save handler so the lock context stays narrow
-    and the trade logic is testable without going through Django signals.
+    Two independent legs after the gates pass:
+      1. Central account (env BINANCE_API_KEY / BINANCE_API_SECRET) —
+         existing behaviour, unchanged.
+      2. Per-user fan-out — runs *regardless* of whether leg 1 raised,
+         in a daemon thread, with all errors contained in the dispatcher.
+
+    Pre-trade gates (trading window, blacklist) apply to BOTH legs: if
+    central skips a signal because it's outside the window or the symbol
+    is blacklisted, users skip it too. This matches the principle that
+    the central settings govern fan-out; user-specific settings come in
+    slice 2.
 
     Args:
         instance: Signal instance to execute.
@@ -477,34 +489,47 @@ def _execute_futures_trade(instance):
             )
             return
 
-        from .models_blacklist import BlacklistedSymbol
         if BlacklistedSymbol.is_blacklisted(instance.symbol.symbol):
-            logger.warning(f"Signal {instance.id} ({instance.symbol.symbol}) blacklisted, blocking futures trade")
+            logger.warning(
+                f"Signal {instance.id} ({instance.symbol.symbol}) blacklisted, "
+                "blocking futures trade for ALL accounts"
+            )
             return
 
-        from .services.futures_trader import futures_trading_service
-
-        logger.info(
-            f"Calling futures_trading_service.execute_signal for signal {instance.id} "
-            f"({instance.symbol.symbol} {instance.direction}), "
-            f"force_execute={instance.is_priority}, is_neutral={is_neutral_signal}"
-        )
-
-        trade = futures_trading_service.execute_signal(
-            instance, force_execute=instance.is_priority
-        )
-
-        if trade:
+        # Leg 1: central account. Wrap in its own try/except so any
+        # unexpected exception cannot prevent leg 2 from running.
+        # ``execute_signal`` already returns None on handled failures
+        # (Binance API errors etc.) — this except only catches truly
+        # unexpected ones.
+        try:
             logger.info(
-                f"REAL Futures trade executed at {current_time}: "
-                f"{trade.direction} {trade.quantity} {trade.symbol} @ {trade.entry_price} "
-                f"(Leverage: {trade.leverage}x, Trade ID: {trade.id}, Signal ID: {instance.id})"
+                f"Calling futures_trading_service.execute_signal for signal {instance.id} "
+                f"({instance.symbol.symbol} {instance.direction}), "
+                f"force_execute={instance.is_priority}, is_neutral={is_neutral_signal}"
             )
-        else:
-            logger.warning(
-                f"Futures trade NOT created for signal {instance.id} ({instance.symbol.symbol}). "
-                f"execute_signal returned None. Check service logs for reason."
+            trade = futures_trading_service.execute_signal(
+                instance, force_execute=instance.is_priority
             )
+            if trade:
+                logger.info(
+                    f"REAL Futures trade executed at {current_time}: "
+                    f"{trade.direction} {trade.quantity} {trade.symbol} @ {trade.entry_price} "
+                    f"(Leverage: {trade.leverage}x, Trade ID: {trade.id}, Signal ID: {instance.id})"
+                )
+            else:
+                logger.warning(
+                    f"Futures trade NOT created for signal {instance.id} ({instance.symbol.symbol}). "
+                    f"execute_signal returned None. Check service logs for reason."
+                )
+        except Exception:
+            logger.exception(
+                f"Central-account trade raised unexpectedly for signal {instance.id}; "
+                "user fan-out will still run."
+            )
+
+        # Leg 2: user fan-out. Always runs once gates passed, regardless
+        # of whether the central leg succeeded or raised.
+        safe_dispatch(instance, source='post_save')
 
     except Exception as e:
         logger.error(

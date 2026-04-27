@@ -5,7 +5,7 @@ import useThemeStore from '../../store/useThemeStore';
 import {
   LayoutDashboard, Signal, TrendingUp, FileText, Bot,
   Calendar, BarChart3, Sun, Moon, LogOut, LogIn, Menu,
-  X, ChevronLeft, ChevronRight, User, FlaskConical
+  X, ChevronLeft, ChevronRight, User, FlaskConical, Link2
 } from 'lucide-react';
 import PushNotificationBanner from '../common/PushNotificationBanner';
 
@@ -44,9 +44,11 @@ const Layout = () => {
     { to: '/bot-performance', label: 'Bot Performance', icon: Bot },
     { to: '/trading-sessions', label: 'Trading Sessions', icon: Calendar },
     { to: '/backtesting', label: 'Backtesting', icon: FlaskConical },
-    ...(user?.is_superuser ? [
-      { to: '/futures-performance', label: 'Futures Trade', icon: BarChart3 }
-    ] : [])
+    { to: '/connect-binance', label: 'Connect Binance', icon: Link2 },
+    // Visible to everyone: regular users see only their own trades
+    // (backend scopes via FuturesTrade.user FK); superuser sees all
+    // accounts plus per-user breakdown via the AccountScopeSelector.
+    { to: '/futures-performance', label: 'Futures Trade', icon: BarChart3 },
   ];
 
   const isActiveLink = (path) => location.pathname === path;
