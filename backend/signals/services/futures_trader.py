@@ -467,18 +467,76 @@ class BinanceFuturesTrader:
         quantity = max(steps * step_size, min_qty)
         return quantity.quantize(Decimal(10) ** -quantity_precision)
 
+    async def _poll_order_until_settled(self, symbol, order_id,
+                                          max_attempts=8, delay=0.3):
+        """
+        Poll GET /fapi/v1/order until the order reaches a settled state.
+
+        Binance Futures' POST /fapi/v1/order can return status=NEW with
+        executedQty=0 *even for MARKET orders* — the REST response is
+        emitted before the matching engine settles the trade, especially
+        under load. Trusting that initial response causes us to abandon
+        a position that actually opens a moment later, leaving an orphan
+        with no SL/TP. Polling the order endpoint reads the post-match
+        state and avoids that whole class of bug.
+
+        Args:
+            symbol: Trading pair.
+            order_id: orderId returned by the POST response.
+            max_attempts: Total poll attempts (default 8 ≈ 2.4 s wall).
+            delay: Seconds between polls.
+
+        Returns:
+            The latest order dict once status is FILLED / PARTIALLY_FILLED
+            / CANCELED / EXPIRED / REJECTED, or the last response if
+            polling timed out.
+        """
+        terminal = {'FILLED', 'PARTIALLY_FILLED', 'CANCELED', 'EXPIRED', 'REJECTED'}
+        last = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                order = await self._request(
+                    'GET', '/fapi/v1/order',
+                    {'symbol': symbol, 'orderId': order_id}, signed=True,
+                )
+                last = order
+                status = order.get('status', '')
+                executed_qty = float(order.get('executedQty', 0) or 0)
+                if status in terminal or executed_qty > 0:
+                    logger.info(
+                        f"Order {order_id} settled on attempt {attempt}: "
+                        f"status={status} executedQty={executed_qty}"
+                    )
+                    return order
+                logger.info(
+                    f"Order {order_id} not yet settled (attempt {attempt}/{max_attempts}): "
+                    f"status={status} executedQty={executed_qty}"
+                )
+            except Exception as e:
+                logger.warning(f"Poll order {order_id} attempt {attempt} failed: {e}")
+            if attempt < max_attempts:
+                await asyncio.sleep(delay)
+        logger.error(
+            f"Order {order_id} for {symbol} never settled after {max_attempts} polls"
+        )
+        return last
+
     async def place_entry_order(self, symbol, side, quantity, price=None, direction=None):
         """
-        Place entry order as a MARKET order.
+        Place entry order as a MARKET order, then poll until Binance
+        reports the actual fill state.
 
-        We deliberately do NOT use LIMIT IOC: in production Binance
-        intermittently returns `status=NEW` for IOC requests (the
-        timeInForce hint is dropped or processed asynchronously), the
-        order then matches against the book a moment later, and the
-        local code — which already saw NEW and bailed — never reaches
-        SL/TP placement. Result: a live position with no protection,
-        later picked up by the position sync as "Auto-imported".
-        MARKET avoids the entire class of failure.
+        Two production failures shaped this method:
+
+        1. LIMIT IOC entries occasionally returned ``status=NEW`` (the
+           timeInForce hint dropped or processed asynchronously); the
+           order then matched a moment later and we'd never reach SL/TP.
+           LIMIT IOC was removed.
+        2. MARKET entries also occasionally return ``status=NEW`` with
+           ``executedQty=0`` — Binance sends the response before the
+           matching engine settles the trade. Under that race the order
+           still fills, but our code abandons it. The fix is to poll
+           ``GET /fapi/v1/order`` until a terminal state is observed.
 
         Args:
             symbol: Trading pair
@@ -501,10 +559,21 @@ class BinanceFuturesTrader:
             params = await self._adapt_order_params(params, direction)
             result = await self._request('POST', '/fapi/v1/order', params, signed=True)
             logger.info(
-                f"MARKET entry result: {side} {quantity} {symbol} | "
+                f"MARKET entry POST result: {side} {quantity} {symbol} | "
                 f"status={result.get('status')} avgPrice={result.get('avgPrice')} "
                 f"executedQty={result.get('executedQty')}"
             )
+            if not self._order_filled(result):
+                order_id = result.get('orderId')
+                if order_id:
+                    polled = await self._poll_order_until_settled(symbol, order_id)
+                    if polled:
+                        result = polled
+                        logger.info(
+                            f"MARKET entry settled state: {side} {quantity} {symbol} | "
+                            f"status={result.get('status')} avgPrice={result.get('avgPrice')} "
+                            f"executedQty={result.get('executedQty')}"
+                        )
             return result
         except Exception as e:
             logger.error(f"MARKET entry FAILED: {side} {quantity} {symbol} | {e}")
