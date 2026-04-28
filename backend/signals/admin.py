@@ -20,6 +20,24 @@ from .models_futures import (
 from .models_blacklist import BlacklistedSymbol
 from .models_push import PushSubscription, NotificationLog
 from .models_backtest import BacktestRun, BacktestTrade, BacktestMetric
+from .models_top_performers import TopPerformingSymbol
+
+
+@admin.register(TopPerformingSymbol)
+class TopPerformingSymbolAdmin(admin.ModelAdmin):
+    """Read-only monthly snapshot — managed by the cron, not by hand."""
+    list_display = ('period_start', 'rank', 'symbol', 'total_pnl',
+                    'win_rate', 'total_trades', 'calculated_at')
+    list_filter = ('period_start',)
+    search_fields = ('symbol',)
+    ordering = ('-period_start', 'rank')
+    readonly_fields = ('symbol', 'period_start', 'period_end', 'rank',
+                        'total_trades', 'wins', 'losses', 'win_rate',
+                        'total_pnl', 'total_pnl_pct', 'avg_pnl_pct',
+                        'best_trade_pct', 'worst_trade_pct', 'calculated_at')
+
+    def has_add_permission(self, request):
+        return False  # Created only by the monthly Celery task / backfill.
 
 
 class BaseModelAdmin(admin.ModelAdmin):

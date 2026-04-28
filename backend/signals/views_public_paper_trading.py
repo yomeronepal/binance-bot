@@ -70,9 +70,40 @@ def _apply_common_filters(queryset, params):
     if direction and direction != 'ALL':
         queryset = queryset.filter(direction=direction.upper())
 
+    if str(params.get('top_performer', '')).lower() == 'true':
+        queryset = _apply_top_performer_filter(queryset)
+
     queryset = _apply_golden_window_filter(queryset, params)
     queryset = _apply_time_filters(queryset, params)
 
+    return queryset
+
+
+def _apply_top_performer_filter(queryset):
+    """
+    Restrict the queryset to symbols in the latest TopPerformingSymbol
+    snapshot. Falls back to a 'never matches' filter when no snapshot
+    exists yet — fail closed rather than fail open, so the user sees
+    'no data' instead of every trade unfiltered.
+    """
+    from signals.services.top_performers_calculator import latest_top_performer_symbols
+    symbols = latest_top_performer_symbols(n=10)
+    if not symbols:
+        return queryset.none()
+    return queryset.filter(symbol__in=symbols)
+
+
+def _maybe_apply_top_performer(queryset, params):
+    """
+    Apply the top-performer filter iff the request asked for it.
+
+    Wrapper used by views that don't go through ``_apply_common_filters``
+    (currently ``public_performance`` and ``public_open_positions``) so
+    the toggle works uniformly across every endpoint the Bot Performance
+    page calls — summary, open positions, and the trade list.
+    """
+    if str(params.get('top_performer', '')).lower() == 'true':
+        return _apply_top_performer_filter(queryset)
     return queryset
 
 
@@ -279,7 +310,8 @@ def _get_filter_params(request):
         'status', 'market_type', 'symbol', 'direction',
         'golden_window', 'golden_window_2', 'outside_golden_window',
         'gw1_ai', 'gw2_ai',
-        'weekday', 'hour', 'month', 'year', 'days'
+        'weekday', 'hour', 'month', 'year', 'days',
+        'top_performer',
     ]
     return {k: request.query_params.get(k, '') for k in keys}
 
@@ -505,6 +537,7 @@ def public_performance(request):
             pass
 
     queryset = _apply_golden_window_filter(queryset, params)
+    queryset = _maybe_apply_top_performer(queryset, params)
 
     direction = params.get('direction', 'ALL').upper()
     if direction == 'LONG':
@@ -560,6 +593,7 @@ def public_open_positions(request):
     queryset = PaperTrade.objects.filter(status='OPEN', user__isnull=True)
     queryset = _apply_golden_window_filter(queryset, params)
     queryset = _apply_time_filters(queryset, params)
+    queryset = _maybe_apply_top_performer(queryset, params)
 
     direction = params.get('direction')
     if direction and direction != 'ALL':

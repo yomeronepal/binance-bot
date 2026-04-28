@@ -114,6 +114,7 @@ const BotPerformance = () => {
       if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
       if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
       if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
+      if (activeWindow === 'top') params.append('top_performer', 'true');
       if (direction !== 'ALL') params.append('direction', direction);
       if (weekday !== 'ALL') params.append('weekday', weekday);
       if (hour !== 'ALL') params.append('hour', hour);
@@ -169,6 +170,7 @@ const BotPerformance = () => {
       if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
       if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
       if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
+      if (activeWindow === 'top') params.append('top_performer', 'true');
       if (direction !== 'ALL') params.append('direction', direction);
       if (weekday !== 'ALL') params.append('weekday', weekday);
       if (hour !== 'ALL') params.append('hour', hour);
@@ -441,6 +443,20 @@ const BotPerformance = () => {
                   <Zap className="w-4 h-4" />
                   GW2 AI
                 </button>
+
+                <span className="text-gray-300 dark:text-gray-600">|</span>
+
+                <button
+                  onClick={() => setActiveWindow('top')}
+                  title="Symbols in the latest top-10 performers snapshot"
+                  className={`flex-shrink-0 px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${activeWindow === 'top'
+                    ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                >
+                  <Zap className="w-4 h-4" />
+                  Top Performers
+                </button>
               </div>
 
               {/* Refresh Button */}
@@ -454,7 +470,7 @@ const BotPerformance = () => {
               </button>
             </div>
 
-            {/* Direction Filter */}
+            {/* Direction Filter + Top Performer toggle */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 bg-white dark:bg-gray-800 rounded-xl p-2 shadow-sm border border-gray-100 dark:border-gray-700">
               <div className="flex items-center gap-2 overflow-x-auto no-scrollbar w-full p-1">
                 {[

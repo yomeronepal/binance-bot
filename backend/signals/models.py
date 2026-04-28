@@ -1206,3 +1206,8 @@ from .models_futures import (
 from .models_blacklist import (
     BlacklistedSymbol,
 )
+
+# Import monthly top-performing symbol snapshots
+from .models_top_performers import (
+    TopPerformingSymbol,
+)

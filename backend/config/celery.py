@@ -22,6 +22,7 @@ app.autodiscover_tasks()
 app.autodiscover_tasks(related_name='tasks_strategy_performance')
 app.autodiscover_tasks(related_name='tasks_optimization')
 app.autodiscover_tasks(related_name='tasks_golden_window')
+app.autodiscover_tasks(related_name='tasks_top_performers')
 
 # Celery Beat Schedule (Periodic Tasks)
 app.conf.beat_schedule = {
@@ -160,6 +161,16 @@ app.conf.beat_schedule = {
     'optimize-golden-windows-monthly': {
         'task': 'signals.optimize_golden_windows',
         'schedule': crontab(minute=0, hour=3, day_of_month=1),
+        'options': {'expires': 3600.0},
+    },
+
+    # Snapshot the top-10 performing symbols for the calendar month
+    # that just ended. Reads from PaperTrade (Bot Performance source).
+    # Runs at 03:30 UTC on day 1 to give the optimizer's 03:00 task
+    # room to finish first; both are 1×/month so contention is low.
+    'snapshot-monthly-top-performers': {
+        'task': 'signals.compute_monthly_top_performers',
+        'schedule': crontab(minute=30, hour=3, day_of_month=1),
         'options': {'expires': 3600.0},
     },
 

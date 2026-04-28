@@ -68,6 +68,7 @@ from signals.views_market import get_order_book
 from signals.views_chart import chart_annotations, delete_annotation, fibonacci_setup
 from signals.views_blacklist import BlacklistedSymbolViewSet
 from signals.views_push import subscribe_push, unsubscribe_push, push_status, subscribe_push_public
+from signals.views_top_performers import top_performers, top_performers_periods
 
 app_name = 'api'
 
@@ -165,6 +166,10 @@ urlpatterns = [
     path('push/unsubscribe/', unsubscribe_push, name='push-unsubscribe'),
     path('push/status/', push_status, name='push-status'),
     path('public/push/subscribe/', subscribe_push_public, name='push-subscribe-public'),
+
+    # Top-performing symbols (monthly snapshots from Bot Performance / PaperTrade)
+    path('top-performers/', top_performers, name='top-performers'),
+    path('top-performers/periods/', top_performers_periods, name='top-performers-periods'),
 
     # Router URLs (includes user-specific paper-trades)
     path('', include(router.urls)),

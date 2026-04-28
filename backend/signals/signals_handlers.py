@@ -176,11 +176,55 @@ def signal_post_save_handler(sender, instance, created, **kwargs):
         logger.error(f"Error in signal_post_save_handler: {str(e)}", exc_info=True)
 
 
+def _flag_top_performer_priority(instance):
+    """
+    Mark a *new* FUTURES Signal as ``is_priority=True`` if its symbol is
+    in the most recent ``TopPerformingSymbol`` snapshot.
+
+    Pre-save (not post-save) so the flag is already True when the
+    existing ``execute_futures_trade_on_signal`` post-save handler runs
+    — that handler reads ``instance.is_priority`` to bypass the trading
+    window and force-execute the futures trade. Net effect: top-performer
+    symbols auto-trade regardless of trading window.
+
+    Only fires for new rows (``instance.pk is None``) and never flips a
+    priority flag *off* — if a Signal was already marked priority by
+    another path (e.g., generated during a Golden Window), we leave it.
+    """
+    if instance.pk is not None:
+        return  # Existing row: leave is_priority alone.
+    if getattr(instance, 'market_type', None) != 'FUTURES':
+        return  # Spot signals don't auto-trade futures.
+    if getattr(instance, 'is_priority', False):
+        return  # Already flagged; nothing to do.
+
+    try:
+        symbol = getattr(getattr(instance, 'symbol', None), 'symbol', None)
+        if not symbol:
+            return
+        from .services.top_performers_calculator import is_top_performer
+        if is_top_performer(symbol):
+            instance.is_priority = True
+            instance._priority_reason = 'top_performer'
+            logger.info(
+                "Signal pre-save: %s flagged is_priority=True (top performer); "
+                "futures auto-trade will fire post-save.",
+                symbol,
+            )
+    except Exception as exc:
+        # Never block signal creation on a top-performer lookup failure.
+        logger.warning(
+            "Top-performer pre-save check failed for symbol %s: %s",
+            getattr(getattr(instance, 'symbol', None), 'symbol', '?'), exc,
+        )
+
+
 @receiver(pre_save, sender=Signal)
 def signal_pre_save_handler(sender, instance, **kwargs):
     """
     Handler triggered before a Signal is saved.
-    Used to detect status changes.
+    Used to detect status changes and flag top-performer signals as
+    priority so the futures auto-trader picks them up.
 
     Args:
         sender: The Signal model class
@@ -188,6 +232,10 @@ def signal_pre_save_handler(sender, instance, **kwargs):
         kwargs: Additional keyword arguments
     """
     try:
+        # New-row hook: flip is_priority for top-performer FUTURES signals
+        # *before* the post-save futures-trade receiver fires.
+        _flag_top_performer_priority(instance)
+
         # Only check for status changes on existing instances
         if instance.pk:
             try:
