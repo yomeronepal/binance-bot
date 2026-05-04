@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw, FileBarChart, LineChart, CirclePlay } from 'lucide-react';
+import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw, FileBarChart, LineChart, CirclePlay, Download, ChevronDown, FileText, FileSpreadsheet, FileJson } from 'lucide-react';
 import TradeReport from '../components/common/TradeReport';
 import TradeCharts from '../components/common/TradeCharts';
 import { lazy, Suspense } from 'react';
@@ -48,6 +48,47 @@ const BotPerformance = () => {
     return localStorage.getItem('bot_perf_year') || 'ALL';
   });
   const [totalTradesCount, setTotalTradesCount] = useState(0);
+  const [exportOpen, setExportOpen] = useState(false);
+
+  // Build the export URL with the same filter params the page is using.
+  // Caller picks `format` (csv|json|xlsx). Returns an absolute URL so we can
+  // either window.open() it or assign to <a download> for a clean filename.
+  const buildExportUrl = (format) => {
+    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+    const params = new URLSearchParams();
+    // 'fmt' rather than 'format' — DRF reserves '?format=' for content
+    // negotiation and would short-circuit the request before our view runs.
+    params.append('fmt', format);
+    if (activeWindow === 'gw1') params.append('golden_window', 'true');
+    if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
+    if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
+    if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
+    if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
+    if (activeWindow === 'top') params.append('top_performer', 'true');
+    if (direction !== 'ALL') params.append('direction', direction);
+    if (weekday !== 'ALL') params.append('weekday', weekday);
+    if (hour !== 'ALL') params.append('hour', hour);
+    if (month !== 'ALL') params.append('month', month);
+    if (year !== 'ALL') params.append('year', year);
+    return `${baseURL}/public/paper-trading/export/?${params.toString()}`;
+  };
+
+  const handleExport = (format) => {
+    setExportOpen(false);
+    // window.open in a new tab triggers the browser's download flow because
+    // the backend sets Content-Disposition: attachment.
+    window.open(buildExportUrl(format), '_blank');
+  };
+
+  // Close the export menu on outside click.
+  useEffect(() => {
+    if (!exportOpen) return;
+    const handler = (e) => {
+      if (!e.target.closest('[data-export-menu]')) setExportOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [exportOpen]);
 
   useEffect(() => {
     localStorage.setItem('bot_perf_active_window', activeWindow);
@@ -459,15 +500,60 @@ const BotPerformance = () => {
                 </button>
               </div>
 
-              {/* Refresh Button */}
-              <button
-                onClick={() => { fetchPerformanceData(); fetchTradeHistory(); }}
-                disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors disabled:opacity-50 w-full md:w-auto justify-center"
-              >
-                <Activity className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                {loading ? 'Refreshing...' : 'Refresh Data'}
-              </button>
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                {/* Export dropdown — applies the page's current filters */}
+                <div className="relative w-full md:w-auto" data-export-menu>
+                  <button
+                    type="button"
+                    onClick={() => setExportOpen((v) => !v)}
+                    title="Export the filtered trade history for offline analysis"
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors w-full md:w-auto justify-center"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${exportOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {exportOpen && (
+                    <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 overflow-hidden">
+                      <button
+                        onClick={() => handleExport('csv')}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 text-left"
+                      >
+                        <FileText className="w-4 h-4 text-gray-500" />
+                        Export as CSV
+                      </button>
+                      <button
+                        onClick={() => handleExport('xlsx')}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 text-left"
+                      >
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
+                        Export as Excel
+                      </button>
+                      <button
+                        onClick={() => handleExport('json')}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 text-left"
+                      >
+                        <FileJson className="w-4 h-4 text-amber-500" />
+                        Export as JSON
+                      </button>
+                      <div className="px-3 py-2 text-[10px] text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700">
+                        Uses current filters · max 50,000 rows
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Refresh Button */}
+                <button
+                  onClick={() => { fetchPerformanceData(); fetchTradeHistory(); }}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors disabled:opacity-50 w-full md:w-auto justify-center"
+                >
+                  <Activity className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  {loading ? 'Refreshing...' : 'Refresh Data'}
+                </button>
+              </div>
             </div>
 
             {/* Direction Filter + Top Performer toggle */}

@@ -1317,3 +1317,231 @@ def _invalidate_performance_cache():
         cache.delete_pattern('perf:*')
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Export — Bot Performance trade history as CSV / JSON / XLSX, honouring the
+# same filters the Bot Performance UI uses (window, direction, weekday/hour/
+# month/year, top_performer). Single endpoint dispatches by ?format=.
+# ---------------------------------------------------------------------------
+
+EXPORT_COLUMNS = [
+    'id', 'symbol', 'direction', 'market_type', 'timeframe',
+    'is_priority', 'is_golden_2', 'fear_greed_at_entry',
+    'entry_price', 'exit_price', 'quantity', 'position_size',
+    'stop_loss', 'take_profit',
+    'profit_loss', 'profit_loss_percentage',
+    'duration_hours',
+    'status', 'entry_time', 'exit_time', 'created_at',
+    'confidence', 'signal_id',
+]
+
+
+def _row_for_export(t):
+    """Return a JSON/CSV-safe dict for a PaperTrade row."""
+    duration_hours = ''
+    if t.entry_time and t.exit_time:
+        duration_hours = round(
+            (t.exit_time - t.entry_time).total_seconds() / 3600.0, 3,
+        )
+
+    sig = getattr(t, 'signal', None)
+    timeframe = getattr(sig, 'timeframe', '') if sig else ''
+    confidence = getattr(sig, 'confidence', '') if sig else ''
+
+    def _num(v):
+        if v is None:
+            return ''
+        return float(v) if isinstance(v, Decimal) else v
+
+    def _ts(v):
+        return v.isoformat() if v else ''
+
+    return {
+        'id': t.id,
+        'symbol': t.symbol,
+        'direction': t.direction,
+        'market_type': t.market_type,
+        'timeframe': timeframe,
+        'is_priority': bool(t.is_priority),
+        'is_golden_2': bool(getattr(t, 'is_golden_2', False)),
+        'fear_greed_at_entry': t.fear_greed_at_entry if t.fear_greed_at_entry is not None else '',
+        'entry_price': _num(t.entry_price),
+        'exit_price': _num(t.exit_price),
+        'quantity': _num(t.quantity),
+        'position_size': _num(t.position_size),
+        'stop_loss': _num(t.stop_loss),
+        'take_profit': _num(t.take_profit),
+        'profit_loss': _num(t.profit_loss),
+        'profit_loss_percentage': _num(t.profit_loss_percentage),
+        'duration_hours': duration_hours,
+        'status': t.status,
+        'entry_time': _ts(t.entry_time),
+        'exit_time': _ts(t.exit_time),
+        'created_at': _ts(t.created_at),
+        'confidence': _num(confidence) if confidence != '' else '',
+        'signal_id': getattr(t, 'signal_id', None) or '',
+    }
+
+
+def _filter_label(params):
+    """Short slug describing the active filter set, used in export filenames."""
+    parts = []
+    if str(params.get('top_performer', '')).lower() == 'true':
+        parts.append('top')
+    if str(params.get('golden_window', '')).lower() == 'true':
+        parts.append('gw1')
+    if str(params.get('golden_window_2', '')).lower() == 'true':
+        parts.append('gw2')
+    if str(params.get('outside_golden_window', '')).lower() == 'true':
+        parts.append('outside-gw')
+    if str(params.get('gw1_ai', '')).lower() == 'true':
+        parts.append('gw1-ai')
+    if str(params.get('gw2_ai', '')).lower() == 'true':
+        parts.append('gw2-ai')
+    direction = (params.get('direction') or '').upper()
+    if direction in ('LONG', 'SHORT'):
+        parts.append(direction.lower())
+    for k in ('weekday', 'hour', 'month', 'year'):
+        v = params.get(k)
+        if v and v != 'ALL':
+            parts.append(f'{k}{v}')
+    return '-'.join(parts) or 'all'
+
+
+def _export_filename(params, ext):
+    ts = timezone.now().strftime('%Y%m%d-%H%M%S')
+    return f'bot-performance_{_filter_label(params)}_{ts}.{ext}'
+
+
+def _build_export_queryset(params):
+    """Reuse the page's filter logic so the export matches the UI exactly."""
+    qs = (
+        PaperTrade.objects
+        .filter(user__isnull=True)
+        .select_related('signal')
+    )
+    qs = _apply_common_filters(qs, params)
+    return qs.order_by('-entry_time')
+
+
+def _stream_csv(params, queryset):
+    """Yield CSV rows lazily so multi-thousand-row exports don't OOM."""
+    import csv
+    import io
+
+    class _Echo:
+        """File-like that returns the value written by csv.writer (Django docs pattern)."""
+        def write(self, value):
+            return value
+
+    writer = csv.writer(_Echo())
+
+    def _generator():
+        yield writer.writerow(EXPORT_COLUMNS)
+        for row in queryset.iterator(chunk_size=500):
+            payload = _row_for_export(row)
+            yield writer.writerow([payload.get(c, '') for c in EXPORT_COLUMNS])
+
+    from django.http import StreamingHttpResponse
+    response = StreamingHttpResponse(_generator(), content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="{_export_filename(params, "csv")}"'
+    return response
+
+
+def _build_json_response(params, queryset):
+    """JSON exports are always materialised — small enough to fit in memory and
+    callers benefit from a single well-formed array. ``iterator`` keeps the
+    queryset itself stream-friendly even though we collect the dict result."""
+    from django.http import JsonResponse
+    rows = [_row_for_export(t) for t in queryset.iterator(chunk_size=500)]
+    response = JsonResponse(
+        {'count': len(rows), 'filters': params, 'results': rows},
+        json_dumps_params={'indent': 2},
+    )
+    response['Content-Disposition'] = f'attachment; filename="{_export_filename(params, "json")}"'
+    return response
+
+
+def _build_xlsx_response(params, queryset):
+    """Materialise then write through pandas → openpyxl. ``ExcelWriter`` doesn't
+    support streaming so the whole result lives in memory; cap is enforced by
+    the caller when ?max= is supplied."""
+    import io
+    import pandas as pd
+    from django.http import HttpResponse
+
+    rows = [_row_for_export(t) for t in queryset.iterator(chunk_size=500)]
+    df = pd.DataFrame(rows, columns=EXPORT_COLUMNS)
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Trades', index=False)
+        # Auto-fit-ish column widths (cap to keep the file svelte)
+        ws = writer.sheets['Trades']
+        for col_idx, col in enumerate(df.columns, start=1):
+            sample = df[col].astype(str).head(200)
+            width = min(max(len(col), int(sample.str.len().max() or 0)) + 2, 32)
+            ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = width
+    buf.seek(0)
+
+    response = HttpResponse(
+        buf.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{_export_filename(params, "xlsx")}"'
+    return response
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def public_export(request):
+    """
+    Export the Bot Performance trade history as CSV / JSON / XLSX.
+
+    Same filter surface as the Bot Performance page — passes through to
+    ``_apply_common_filters`` so what you download is what you see.
+
+    Query params:
+      ?fmt=csv|json|xlsx          Required. Default ``csv``.
+                                  (We use ``fmt`` rather than ``format``
+                                  because DRF reserves ``format`` for
+                                  content-negotiation and would 404 the
+                                  request before our view runs.)
+      ?max=NNNN                   Hard cap on row count (default 50000,
+                                  set 0 for unlimited).
+
+    Plus every filter the page already accepts: ``direction``,
+    ``status``, ``market_type``, ``symbol``, ``golden_window``,
+    ``golden_window_2``, ``outside_golden_window``, ``gw1_ai``,
+    ``gw2_ai``, ``top_performer``, ``weekday``, ``hour``, ``month``,
+    ``year``, ``days``.
+    """
+    # Accept either ``fmt`` (preferred) or ``format`` (legacy) — DRF
+    # only intercepts the request when ``format`` resolves to an unknown
+    # renderer, so a known value like ``json`` would actually route to
+    # the JSON renderer instead of our handler. ``fmt`` is unambiguous.
+    fmt = (request.query_params.get('fmt')
+           or request.query_params.get('format')
+           or 'csv').lower()
+    if fmt not in ('csv', 'json', 'xlsx'):
+        return Response(
+            {'error': "fmt must be one of 'csv', 'json', 'xlsx'"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        max_rows = int(request.query_params.get('max', 50000))
+    except (ValueError, TypeError):
+        max_rows = 50000
+
+    params = _get_filter_params(request)
+    qs = _build_export_queryset(params)
+    if max_rows and max_rows > 0:
+        qs = qs[:max_rows]
+
+    if fmt == 'csv':
+        return _stream_csv(params, qs)
+    if fmt == 'json':
+        return _build_json_response(params, qs)
+    return _build_xlsx_response(params, qs)
