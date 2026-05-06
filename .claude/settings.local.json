@@ -90,7 +90,8 @@
       "WebFetch(domain:developers.binance.com)",
       "WebSearch",
       "WebFetch(domain:dev.binance.vision)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(DJANGO_SETTINGS_MODULE=config.settings python -m pytest scanner/tests/test_macro_filter.py -v)"
     ],
     "deny": [],
     "ask": []
