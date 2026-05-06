@@ -1727,9 +1727,46 @@ class FuturesTradingService:
         if not self._check_fear_greed(signal, trade_settings, direction, is_neutral_reversal, log_ctx):
             return False
 
+        # Macro filter — re-evaluate against a *fresh* BTC snapshot.
+        # The signal's stored macro_at_signal stamp is for analytics
+        # (what the regime looked like when we detected the setup);
+        # this gate uses the regime *now* because BTC may have moved
+        # in the seconds-to-minutes between detection and trade.
+        if not self._check_macro_filter(signal, direction, log_ctx):
+            return False
+
         if not self._check_duplicates(signal, symbol_name, direction, log_ctx):
             return False
 
+        return True
+
+    def _check_macro_filter(self, signal, direction, log_ctx):
+        """
+        Block trades that fight BTC's daily regime.
+
+        Pure check — no side effects beyond a ``CHECK_FAILED`` log row.
+        Snapshot-fetch failures fail open (allow) so a transient network
+        issue doesn't pause the bot; the underlying ``evaluate_macro_filter``
+        returns ``ALLOW_SNAPSHOT_UNAVAILABLE`` in that case.
+        """
+        try:
+            from scanner.services.macro_filter import evaluate_macro_filter
+            decision, reason = evaluate_macro_filter(direction)
+        except Exception as exc:
+            logger.warning(
+                "Macro filter raised (allowing trade): signal=%s err=%s",
+                signal.id, exc,
+            )
+            return True
+
+        if decision == 'BLOCK':
+            self._log(
+                'CHECK_FAILED', 'WARNING',
+                f"Macro filter blocked: {reason}",
+                details={'macro_reason': reason, 'direction': direction},
+                **log_ctx,
+            )
+            return False
         return True
 
     def _create_futures_trade(self, signal, result, trade_settings, trade_sl, trade_tp):

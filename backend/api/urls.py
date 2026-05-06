@@ -28,6 +28,7 @@ from signals.views_public_paper_trading import (
     trade_replay,
     signal_chart,
     public_export,
+    public_macro_status,
 )
 from signals.views_backtest import (
     BacktestViewSet,
@@ -115,6 +116,7 @@ urlpatterns = [
     path('public/paper-trading/<int:trade_id>/close/', public_close_trade, name='public-close-trade'),
     path('public/paper-trading/report/', public_report, name='public-report'),
     path('public/paper-trading/export/', public_export, name='public-paper-trading-export'),
+    path('public/macro-status/', public_macro_status, name='public-macro-status'),
     path('public/paper-trading/<int:trade_id>/replay/', trade_replay, name='trade-replay'),
     path('public/signal/<int:signal_id>/chart/', signal_chart, name='signal-chart'),
     path('public/paper-trading/dashboard/', public_paper_trading_dashboard, name='public-dashboard'),

@@ -11,6 +11,7 @@ import SignalCard from '../../components/common/SignalCard';
 import FuturesSignalCard from '../../components/signals/FuturesSignalCard';
 import { Activity } from 'lucide-react';
 import FearGreedWidget from '../../components/common/FearGreedWidget';
+import MacroFilterWidget from '../../components/common/MacroFilterWidget';
 
 // Mock signals data for development
 const mockSignals = [
@@ -264,53 +265,9 @@ const Dashboard = () => {
 
       {fearGreed && fearGreed.available && <FearGreedWidget data={fearGreed} />}
 
-      {/* Backtesting Promo Card */}
-      <Link
-        to="/backtesting"
-        className="block bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-700 dark:to-purple-700 rounded-xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02]"
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-2xl">🎯</span>
-              <h3 className="text-xl font-bold text-white">
-                Test Your Strategy with Backtesting
-              </h3>
-              <span className="bg-yellow-400 text-yellow-900 text-xs px-2 py-1 rounded-full font-bold">
-                NEW
-              </span>
-            </div>
-            <p className="text-blue-100 mb-3">
-              Run your trading strategies on historical data to see how they would have performed. Optimize parameters and maximize your win rate before going live!
-            </p>
-            <div className="flex items-center gap-4 text-sm text-blue-100">
-              <div className="flex items-center gap-1">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                Historical Data Analysis
-              </div>
-              <div className="flex items-center gap-1">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                Performance Metrics
-              </div>
-              <div className="flex items-center gap-1">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                Strategy Optimization
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-            </svg>
-          </div>
-        </div>
-      </Link>
+      {/* BTC macro filter — what the strict trade-time gate would say
+          right now. Same widget renders on /bot-performance. */}
+      <MacroFilterWidget />
 
       {/* Recent Spot Signals */}
       <div>

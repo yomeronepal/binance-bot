@@ -73,6 +73,7 @@ def _apply_common_filters(queryset, params):
     if str(params.get('top_performer', '')).lower() == 'true':
         queryset = _apply_top_performer_filter(queryset)
 
+    queryset = _apply_macro_filter(queryset, params)
     queryset = _apply_golden_window_filter(queryset, params)
     queryset = _apply_time_filters(queryset, params)
 
@@ -105,6 +106,40 @@ def _maybe_apply_top_performer(queryset, params):
     if str(params.get('top_performer', '')).lower() == 'true':
         return _apply_top_performer_filter(queryset)
     return queryset
+
+
+def _apply_macro_filter(queryset, params):
+    """
+    Filter PaperTrade rows by what the macro filter said at signal time.
+
+    ``?macro_filter=allow``  → only rows whose Signal.meta tagged
+                                ``macro_at_signal.decision = 'ALLOW'``.
+    ``?macro_filter=block``  → only rows tagged ``BLOCK`` (so you can
+                                inspect what the filter would have
+                                vetoed).
+    Anything else (incl. ``all`` or empty)  → no change.
+
+    Rows whose Signal pre-dates the tagging release have no
+    ``macro_at_signal`` key. They are excluded from both ``allow``
+    and ``block`` views (as discussed: "data we don't have an opinion
+    on yet").
+    """
+    mode = str(params.get('macro_filter', '')).lower()
+    if mode not in ('allow', 'block'):
+        return queryset
+    target = 'ALLOW' if mode == 'allow' else 'BLOCK'
+    # PaperTrade has signal FK; signal.meta is JSONField. Use the
+    # nested-key lookup which Postgres serves through a ``->>`` op.
+    return queryset.filter(signal__meta__macro_at_signal__decision=target)
+
+
+def _maybe_apply_macro_filter(queryset, params):
+    """
+    Macro filter wrapper for views that bypass ``_apply_common_filters``
+    (``public_performance`` and ``public_open_positions``). Same shape
+    as ``_maybe_apply_top_performer``.
+    """
+    return _apply_macro_filter(queryset, params)
 
 
 def _apply_golden_window_filter(queryset, params):
@@ -312,6 +347,7 @@ def _get_filter_params(request):
         'gw1_ai', 'gw2_ai',
         'weekday', 'hour', 'month', 'year', 'days',
         'top_performer',
+        'macro_filter',
     ]
     return {k: request.query_params.get(k, '') for k in keys}
 
@@ -538,6 +574,7 @@ def public_performance(request):
 
     queryset = _apply_golden_window_filter(queryset, params)
     queryset = _maybe_apply_top_performer(queryset, params)
+    queryset = _maybe_apply_macro_filter(queryset, params)
 
     direction = params.get('direction', 'ALL').upper()
     if direction == 'LONG':
@@ -594,6 +631,7 @@ def public_open_positions(request):
     queryset = _apply_golden_window_filter(queryset, params)
     queryset = _apply_time_filters(queryset, params)
     queryset = _maybe_apply_top_performer(queryset, params)
+    queryset = _maybe_apply_macro_filter(queryset, params)
 
     direction = params.get('direction')
     if direction and direction != 'ALL':
@@ -1545,3 +1583,19 @@ def public_export(request):
     if fmt == 'json':
         return _build_json_response(params, qs)
     return _build_xlsx_response(params, qs)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def public_macro_status(request):
+    """
+    Live read of the BTC daily-trend snapshot and the macro filter's
+    decisions for both directions. Drives the Bot Performance "BTC
+    regime" readout so users can see why the filter is blocking or
+    allowing right now.
+
+    Cached for 5 min inside ``btc_trend.get_btc_snapshot`` so this
+    endpoint is cheap to poll (every minute is fine).
+    """
+    from scanner.services.macro_filter import macro_summary
+    return Response(macro_summary())

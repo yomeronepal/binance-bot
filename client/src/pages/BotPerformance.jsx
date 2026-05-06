@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw, FileBarChart, LineChart, CirclePlay, Download, ChevronDown, FileText, FileSpreadsheet, FileJson } from 'lucide-react';
+import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw, FileBarChart, LineChart, CirclePlay, Download, ChevronDown, FileText, FileSpreadsheet, FileJson, Shield, ShieldOff } from 'lucide-react';
 import TradeReport from '../components/common/TradeReport';
 import TradeCharts from '../components/common/TradeCharts';
+import MacroFilterWidget from '../components/common/MacroFilterWidget';
 import { lazy, Suspense } from 'react';
 const LazyTradeReplay = lazy(() => import('../components/common/TradeReplay'));
 
@@ -65,6 +66,8 @@ const BotPerformance = () => {
     if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
     if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
     if (activeWindow === 'top') params.append('top_performer', 'true');
+    if (activeWindow === 'macro_allow') params.append('macro_filter', 'allow');
+    if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
     if (direction !== 'ALL') params.append('direction', direction);
     if (weekday !== 'ALL') params.append('weekday', weekday);
     if (hour !== 'ALL') params.append('hour', hour);
@@ -156,6 +159,8 @@ const BotPerformance = () => {
       if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
       if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
       if (activeWindow === 'top') params.append('top_performer', 'true');
+    if (activeWindow === 'macro_allow') params.append('macro_filter', 'allow');
+    if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
       if (direction !== 'ALL') params.append('direction', direction);
       if (weekday !== 'ALL') params.append('weekday', weekday);
       if (hour !== 'ALL') params.append('hour', hour);
@@ -212,6 +217,8 @@ const BotPerformance = () => {
       if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
       if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
       if (activeWindow === 'top') params.append('top_performer', 'true');
+    if (activeWindow === 'macro_allow') params.append('macro_filter', 'allow');
+    if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
       if (direction !== 'ALL') params.append('direction', direction);
       if (weekday !== 'ALL') params.append('weekday', weekday);
       if (hour !== 'ALL') params.append('hour', hour);
@@ -410,6 +417,11 @@ const BotPerformance = () => {
 
           {/* New Trading Sessions & Filter Bar */}
           <div className="mt-6 mb-6 space-y-4">
+            {/* BTC macro filter readout — what the strict trade-time gate
+                will say right now. Drives confidence in the Macro Allowed /
+                Macro Blocked tabs and surfaces sudden regime shifts. */}
+            <MacroFilterWidget />
+
             {/* Golden Window Filter */}
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 bg-white dark:bg-gray-800 rounded-xl p-2 shadow-sm border border-gray-100 dark:border-gray-700">
 
@@ -497,6 +509,30 @@ const BotPerformance = () => {
                 >
                   <Zap className="w-4 h-4" />
                   Top Performers
+                </button>
+
+                <button
+                  onClick={() => setActiveWindow('macro_allow')}
+                  title="Only signals the BTC macro filter would have allowed"
+                  className={`flex-shrink-0 px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${activeWindow === 'macro_allow'
+                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                >
+                  <Shield className="w-4 h-4" />
+                  Macro Allowed
+                </button>
+
+                <button
+                  onClick={() => setActiveWindow('macro_block')}
+                  title="Only signals the BTC macro filter would have blocked (analysis)"
+                  className={`flex-shrink-0 px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${activeWindow === 'macro_block'
+                    ? 'bg-rose-600 text-white shadow-md shadow-rose-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                >
+                  <ShieldOff className="w-4 h-4" />
+                  Macro Blocked
                 </button>
               </div>
 
