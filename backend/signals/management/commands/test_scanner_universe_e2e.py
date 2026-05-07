@@ -47,7 +47,10 @@ KNOWN_MISSING_FUTURES_ONLY = [
     'LABUSDT', 'RIVERUSDT', 'BLUAIUSDT', '1000PEPEUSDT',
 ]
 KNOWN_ESTABLISHED = ['BTCUSDT', 'ETHUSDT']
-SAMPLE_FOR_KLINES = KNOWN_MISSING_FUTURES_ONLY + KNOWN_ESTABLISHED
+KNOWN_TRADIFI = ['NVDAUSDT', 'QQQUSDT', 'TSLAUSDT', 'SPYUSDT']
+SAMPLE_FOR_KLINES = (
+    KNOWN_MISSING_FUTURES_ONLY + KNOWN_ESTABLISHED + KNOWN_TRADIFI
+)
 MIN_EXPECTED_PAIRS = 400
 
 
@@ -137,10 +140,16 @@ class Command(BaseCommand):
         for sym in KNOWN_ESTABLISHED:
             assert sym in pairs, f"{sym} should always be in the universe"
 
+        missing_tradifi = [s for s in KNOWN_TRADIFI if s not in pairs]
+        assert not missing_tradifi, (
+            f"TRADIFI_PERPETUAL pairs not picked up: {missing_tradifi} — "
+            f"check PERPETUAL_CONTRACT_TYPES in BinanceFuturesClient"
+        )
+
         self._ok(
-            f"{len(pairs)} USDT perpetuals; "
-            f"all originally-missing pairs present "
-            f"({', '.join(KNOWN_MISSING_FUTURES_ONLY)})"
+            f"{len(pairs)} USDT perpetuals; originally-missing pairs "
+            f"present ({', '.join(KNOWN_MISSING_FUTURES_ONLY)}); "
+            f"TRADIFI pairs present ({', '.join(KNOWN_TRADIFI)})"
         )
         self._universe = pairs
 

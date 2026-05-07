@@ -87,15 +87,28 @@ class BinanceFuturesClient:
         """Get futures exchange information."""
         return await self._request('GET', '/fapi/v1/exchangeInfo')
 
+    PERPETUAL_CONTRACT_TYPES = ('PERPETUAL', 'TRADIFI_PERPETUAL')
+
     async def get_usdt_futures_pairs(self) -> List[str]:
-        """Get all USDT perpetual futures pairs."""
+        """Get all USDT perpetual futures pairs.
+
+        Includes both regular crypto ``PERPETUAL`` contracts and the
+        newer ``TRADIFI_PERPETUAL`` product class (tokenized US equities
+        and commodities — NVDA, QQQ, TSLA, SPY, BZ, CL, etc.). These
+        share the same ``/fapi/v1/order`` endpoint and so are wired
+        through the existing futures pipeline transparently.
+
+        Caller is responsible for any per-instrument trading-hours or
+        earnings handling — TRADIFI candles are very different from
+        24/7 crypto candles outside NYSE/NASDAQ hours.
+        """
         exchange_info = await self.get_exchange_info()
         futures_pairs = [
             symbol['symbol']
             for symbol in exchange_info['symbols']
             if symbol['symbol'].endswith('USDT')
             and symbol['status'] == 'TRADING'
-            and symbol['contractType'] == 'PERPETUAL'
+            and symbol['contractType'] in self.PERPETUAL_CONTRACT_TYPES
         ]
         logger.info(f"Found {len(futures_pairs)} USDT perpetual futures pairs")
         return futures_pairs
