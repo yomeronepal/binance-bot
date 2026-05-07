@@ -1748,7 +1748,25 @@ class FuturesTradingService:
         Snapshot-fetch failures fail open (allow) so a transient network
         issue doesn't pause the bot; the underlying ``evaluate_macro_filter``
         returns ``ALLOW_SNAPSHOT_UNAVAILABLE`` in that case.
+
+        Honours the admin-toggleable
+        ``FuturesTradingSettings.macro_filter_enabled`` flag — when
+        OFF, the gate short-circuits to True (allow) without consulting
+        the BTC snapshot. Signal-creation tagging is unaffected by the
+        flag (always on; cheap; useful for analytics).
         """
+        try:
+            settings_obj = FuturesTradingSettings.get_settings()
+            if not getattr(settings_obj, 'macro_filter_enabled', True):
+                return True
+        except Exception as exc:
+            # Settings lookup failure shouldn't block trading. Default
+            # to "allow" matching the in-code default.
+            logger.warning(
+                "Macro filter setting lookup failed (allowing trade): %s", exc,
+            )
+            return True
+
         try:
             from scanner.services.macro_filter import evaluate_macro_filter
             decision, reason = evaluate_macro_filter(direction)

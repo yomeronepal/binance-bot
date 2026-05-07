@@ -91,7 +91,8 @@
       "WebSearch",
       "WebFetch(domain:dev.binance.vision)",
       "WebFetch(domain:github.com)",
-      "Bash(DJANGO_SETTINGS_MODULE=config.settings python -m pytest scanner/tests/test_macro_filter.py -v)"
+      "Bash(DJANGO_SETTINGS_MODULE=config.settings python -m pytest scanner/tests/test_macro_filter.py -v)",
+      "Bash(DJANGO_SETTINGS_MODULE=config.settings python -m pytest scanner/tests/test_macro_filter.py scanner/tests/test_indicators.py scanner/tests/test_signal_engine.py scanner/tests/test_signal_generator.py -q)"
     ],
     "deny": [],
     "ask": []

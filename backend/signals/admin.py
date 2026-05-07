@@ -1401,7 +1401,8 @@ class FuturesTradingSettingsAdmin(admin.ModelAdmin):
     list_display = (
         "id", "is_enabled_badge", "trade_amount", "leverage",
         "effective_position_size_display", "max_concurrent_trades",
-        "fear_greed_badge", "gw_auto_trader_badge", "dynamic_trailing_badge",
+        "fear_greed_badge", "macro_filter_badge",
+        "gw_auto_trader_badge", "dynamic_trailing_badge",
         "cut_loser_badge", "updated_at"
     )
     readonly_fields = ("created_at", "updated_at")
@@ -1449,6 +1450,20 @@ class FuturesTradingSettingsAdmin(admin.ModelAdmin):
                 'to filter trade direction. F&G <= SHORT threshold: only SHORT. '
                 'F&G >= LONG threshold: only LONG. Between: both allowed.'
             )
+        }),
+        ('BTC Macro Filter', {
+            'fields': (
+                'macro_filter_enabled',
+            ),
+            'description': (
+                "Toggle the strict BTC-regime gate at the Binance trade boundary. "
+                "When ON, futures orders are blocked if BTC's daily regime "
+                "contradicts the signal direction (LONG when BTC is below "
+                "EMA20/50 or 7d return < 0; SHORT when BTC is in uptrend or "
+                "3d return < -7%). Signal-creation tagging is always on "
+                "regardless of this flag — it powers the analytics filter "
+                "on Bot Performance and has near-zero cost."
+            ),
         }),
         ('Neutral Market Reversal', {
             'fields': (
@@ -1563,6 +1578,19 @@ class FuturesTradingSettingsAdmin(admin.ModelAdmin):
             'border-radius: 3px; font-size: 11px;">FIXED SL</span>'
         )
     dynamic_trailing_badge.short_description = 'SL Type'
+
+    def macro_filter_badge(self, obj):
+        """Display BTC macro filter status."""
+        if getattr(obj, 'macro_filter_enabled', False):
+            return format_html(
+                '<span style="background-color: #10b981; color: white; padding: 2px 6px; '
+                'border-radius: 3px; font-size: 11px;">MACRO ON</span>'
+            )
+        return format_html(
+            '<span style="background-color: #6c757d; color: white; padding: 2px 6px; '
+            'border-radius: 3px; font-size: 11px;">MACRO OFF</span>'
+        )
+    macro_filter_badge.short_description = 'BTC Macro'
 
     def cut_loser_badge(self, obj):
         """Display cut loser status."""

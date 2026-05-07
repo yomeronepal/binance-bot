@@ -21,39 +21,61 @@ from signals.models import Signal
 logger = logging.getLogger(__name__)
 
 
-async def _get_top_pairs_by_volume(client: BinanceClient, pairs: List[str], top_n: int = 200) -> List[str]:
-    """Get top N pairs by 24h volume"""
-    try:
-        # Get 24h ticker data for all symbols (no symbol parameter = all tickers)
-        response = await client._request('GET', '/api/v3/ticker/24hr')
+async def _get_top_pairs_by_volume(client, pairs: List[str], top_n: int = 200,
+                                    use_futures: bool = True) -> List[str]:
+    """
+    Rank ``pairs`` by 24h quote volume and return the top ``top_n``.
 
-        # response should be a list of tickers
+    ``use_futures=True`` (default) queries ``/fapi/v1/ticker/24hr``.
+    The previous spot-ticker version dropped any pair without a spot
+    listing — which excluded every futures-only perpetual (LAB, RIVER,
+    BLUAI, 1000PEPEUSDT, …) from the scan. The volume source must
+    match the symbol universe to avoid that class of bug.
+
+    Pairs without a ticker entry (e.g. brand-new listings whose 24h
+    window hasn't accrued any volume yet) are kept and appended at the
+    end with volume=0 — they should still be scanned, not silently
+    dropped, even if they end up at the bottom of the ranking.
+    """
+    try:
+        endpoint = '/fapi/v1/ticker/24hr' if use_futures else '/api/v3/ticker/24hr'
+        response = await client._request('GET', endpoint)
+
         if not isinstance(response, list):
-            logger.warning("Unexpected ticker response format")
+            logger.warning(f"Unexpected ticker response format from {endpoint}")
             return pairs[:top_n]
 
-        # Create volume map
         volume_map = {}
         for ticker in response:
             symbol = ticker.get('symbol', '')
-            quote_volume = float(ticker.get('quoteVolume', 0))
-            if symbol and quote_volume > 0:
+            try:
+                quote_volume = float(ticker.get('quoteVolume', 0) or 0)
+            except (TypeError, ValueError):
+                quote_volume = 0.0
+            if symbol:
                 volume_map[symbol] = quote_volume
 
-        # Sort pairs by volume
-        volume_data = []
+        # Two buckets: ranked-by-volume first, then any pair missing
+        # from the ticker map (newly-listed) appended at zero volume so
+        # the scanner still sees them.
+        with_volume: list[tuple[str, float]] = []
+        without_volume: list[str] = []
         for pair in pairs:
-            volume = volume_map.get(pair, 0)
-            if volume > 0:
-                volume_data.append((pair, volume))
+            if pair in volume_map:
+                with_volume.append((pair, volume_map[pair]))
+            else:
+                without_volume.append(pair)
 
-        # Sort by volume descending
-        volume_data.sort(key=lambda x: x[1], reverse=True)
+        with_volume.sort(key=lambda x: x[1], reverse=True)
+        ordered = [p for p, _ in with_volume] + without_volume
 
-        # Return top N
-        top_pairs = [pair for pair, _ in volume_data[:top_n]]
+        top_pairs = ordered[:top_n] if top_n else ordered
 
-        logger.info(f"Selected top {len(top_pairs)} pairs by 24h volume")
+        logger.info(
+            f"Volume ranking [{'futures' if use_futures else 'spot'}]: "
+            f"{len(with_volume)} ranked + {len(without_volume)} new-listing "
+            f"(no-volume); returning top {len(top_pairs)}"
+        )
         return top_pairs
     except Exception as e:
         logger.error(f"Error getting top pairs by volume: {e}")
@@ -323,7 +345,7 @@ async def _save_signal_async(signal_data: Dict) -> Optional[Signal]:
 
 
 async def scan_timeframe(
-    client: BinanceClient,
+    client,
     timeframe: str,
     top_pairs: List[str],
     limit: int = 200,
@@ -333,7 +355,11 @@ async def scan_timeframe(
     Scan a specific timeframe for signals with market-specific configuration.
 
     Args:
-        client: Binance API client
+        client: Binance API client. Either ``BinanceClient`` (spot) or
+            ``BinanceFuturesClient`` (futures) — both expose
+            ``batch_get_klines`` with the same shape, so this function
+            is client-agnostic. The caller picks based on what market
+            it wants candles from.
         timeframe: Timeframe to scan ('15m', '1h', '4h', '1d')
         top_pairs: List of symbols to scan
         limit: Number of candles to fetch
@@ -457,14 +483,34 @@ async def _scan_multi_timeframe_async():
     """
     Async implementation of multi-timeframe scan with universal configuration.
 
+    The whole pipeline runs against Binance USD-M Futures so that
+    futures-only perpetuals (LAB, RIVER, BLUAI, 1000PEPEUSDT, etc.) are
+    actually scanned:
+
+      * Symbol universe → ``/fapi/v1/exchangeInfo`` (PERPETUAL, TRADING)
+      * Volume ranking  → ``/fapi/v1/ticker/24hr``
+      * Candle data     → ``/fapi/v1/klines``
+
+    Mixing universe sources with spot endpoints silently dropped every
+    futures-only listing because they have no spot listing and no spot
+    volume. Brand-new perpetuals whose 24h window hasn't accrued any
+    volume yet are kept (placed at the bottom of the ranking) rather
+    than excluded.
+
     Uses market-specific universal configs (Forex vs Binance) for each symbol.
     """
+    from scanner.services.binance_futures_client import BinanceFuturesClient
 
-    async with BinanceClient() as client:
-        usdt_pairs = await client.get_usdt_pairs()
+    async with BinanceFuturesClient() as client:
+        usdt_pairs = await client.get_usdt_futures_pairs()
 
-        top_pairs = await _get_top_pairs_by_volume(client, usdt_pairs, top_n=len(usdt_pairs))
-        logger.info(f"📊 Scanning ALL {len(top_pairs)} Binance USDT pairs with UNIVERSAL CONFIG")
+        top_pairs = await _get_top_pairs_by_volume(
+            client, usdt_pairs, top_n=len(usdt_pairs), use_futures=True,
+        )
+        logger.info(
+            f"📊 Scanning {len(top_pairs)} Binance USD-M Futures "
+            "perpetual pairs with UNIVERSAL CONFIG"
+        )
 
         timeframes = ['1d', '4h', '1h', '30m', '15m']
         limit_map = {'15m': 300, '30m': 300, '1h': 250, '4h': 200, '1d': 100}
@@ -574,10 +620,18 @@ async def _scan_single_timeframe_async(timeframe: str):
     Returns:
         Dict with scan results
     """
-    async with BinanceClient() as client:
-        usdt_pairs = await client.get_usdt_pairs()
+    # Mirror ``_scan_multi_timeframe_async`` — symbol universe, volume
+    # ranking, and klines all hit the Binance USD-M Futures endpoints
+    # so newly-listed perpetuals (LAB, RIVER, BLUAI, etc.) aren't
+    # silently dropped by the spot ticker's volume filter.
+    from scanner.services.binance_futures_client import BinanceFuturesClient
 
-        top_pairs = await _get_top_pairs_by_volume(client, usdt_pairs, top_n=len(usdt_pairs))
+    async with BinanceFuturesClient() as client:
+        usdt_pairs = await client.get_usdt_futures_pairs()
+
+        top_pairs = await _get_top_pairs_by_volume(
+            client, usdt_pairs, top_n=len(usdt_pairs), use_futures=True,
+        )
 
         limit = SINGLE_TF_LIMITS.get(timeframe, 200)
 

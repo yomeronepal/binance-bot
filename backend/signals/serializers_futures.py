@@ -27,6 +27,7 @@ class FuturesTradingSettingsSerializer(serializers.ModelSerializer):
             'trade_long',
             'trade_short',
             'use_trading_window',
+            'macro_filter_enabled',
             'effective_position_size',
             'created_at',
             'updated_at',

@@ -119,6 +119,20 @@ class FuturesTradingSettings(models.Model):
         help_text=_("Enable Fear & Greed Index filter for trade direction")
     )
 
+    macro_filter_enabled = models.BooleanField(
+        default=True,
+        help_text=_(
+            "Enable BTC macro filter at the Binance trade boundary. "
+            "When ON, futures orders are blocked if BTC's daily regime "
+            "contradicts the signal direction (LONG when BTC is below "
+            "EMA20/50 or 7d return < 0; SHORT when BTC is in uptrend or "
+            "3d return < -7%). "
+            "Signal-creation tagging (signal.meta.macro_at_signal) is "
+            "always on regardless of this flag — it powers the analytics "
+            "filter on Bot Performance and has near-zero cost."
+        ),
+    )
+
     fear_greed_short_threshold = models.IntegerField(
         default=30,
         validators=[MinValueValidator(5), MaxValueValidator(50)],

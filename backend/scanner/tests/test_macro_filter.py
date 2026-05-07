@@ -284,6 +284,104 @@ class TestMacroSummary:
 
 
 # ---------------------------------------------------------------------------
+# Trade-boundary gate respects the admin-toggleable enabled flag.
+# DB-free: we mock FuturesTradingSettings.get_settings() so these run in
+# any environment, including local dev without Postgres.
+# ---------------------------------------------------------------------------
+
+class _FakeSettings:
+    def __init__(self, enabled=True):
+        self.macro_filter_enabled = enabled
+
+
+class TestTradeGateRespectsToggle:
+    """``FuturesTradingSettings.macro_filter_enabled`` controls whether the
+    strict trade-time gate runs. When OFF, _check_macro_filter must
+    short-circuit to True without consulting the BTC snapshot."""
+
+    def _log_ctx(self, direction='LONG'):
+        return {'signal': None, 'symbol': 'X', 'direction': direction,
+                'is_priority': True, 'force_execute': True}
+
+    def _signal_stub(self):
+        class _S:
+            id = 0
+        return _S()
+
+    def test_gate_bypasses_when_disabled(self):
+        from signals.services.futures_trader import futures_trading_service
+
+        # Force evaluate_macro_filter to BLOCK if we ever reach it; if the
+        # toggle bypass works, we never call it.
+        with patch.object(
+            type(futures_trading_service), '_log', return_value=None,
+        ), patch(
+            'signals.services.futures_trader.FuturesTradingSettings.get_settings',
+            return_value=_FakeSettings(enabled=False),
+        ), patch(
+            'scanner.services.macro_filter.evaluate_macro_filter',
+            return_value=('BLOCK', 'long_btc_not_uptrend'),
+        ) as eval_mock:
+            ok = futures_trading_service._check_macro_filter(
+                self._signal_stub(), 'LONG', self._log_ctx(),
+            )
+        assert ok is True
+        assert eval_mock.called is False, (
+            "Toggle off must short-circuit before evaluate_macro_filter runs"
+        )
+
+    def test_gate_evaluates_when_enabled_and_allow(self):
+        from signals.services.futures_trader import futures_trading_service
+
+        with patch(
+            'signals.services.futures_trader.FuturesTradingSettings.get_settings',
+            return_value=_FakeSettings(enabled=True),
+        ), patch(
+            'scanner.services.macro_filter.evaluate_macro_filter',
+            return_value=('ALLOW', 'long_ok'),
+        ) as eval_mock:
+            ok = futures_trading_service._check_macro_filter(
+                self._signal_stub(), 'LONG', self._log_ctx(),
+            )
+        assert ok is True
+        assert eval_mock.called is True
+
+    def test_gate_blocks_when_enabled_and_filter_blocks(self):
+        from signals.services.futures_trader import futures_trading_service
+
+        with patch.object(
+            type(futures_trading_service), '_log', return_value=None,
+        ), patch(
+            'signals.services.futures_trader.FuturesTradingSettings.get_settings',
+            return_value=_FakeSettings(enabled=True),
+        ), patch(
+            'scanner.services.macro_filter.evaluate_macro_filter',
+            return_value=('BLOCK', 'long_btc_7d_negative'),
+        ):
+            ok = futures_trading_service._check_macro_filter(
+                self._signal_stub(), 'LONG', self._log_ctx(),
+            )
+        assert ok is False
+
+    def test_gate_fails_open_on_settings_lookup_error(self):
+        """A DB hiccup on settings lookup must not pause trading."""
+        from signals.services.futures_trader import futures_trading_service
+
+        with patch(
+            'signals.services.futures_trader.FuturesTradingSettings.get_settings',
+            side_effect=RuntimeError('DB down'),
+        ), patch(
+            'scanner.services.macro_filter.evaluate_macro_filter',
+            return_value=('BLOCK', 'long_btc_not_uptrend'),
+        ) as eval_mock:
+            ok = futures_trading_service._check_macro_filter(
+                self._signal_stub(), 'LONG', self._log_ctx(),
+            )
+        assert ok is True
+        assert eval_mock.called is False
+
+
+# ---------------------------------------------------------------------------
 # Cache hygiene — keep tests order-independent.
 # ---------------------------------------------------------------------------
 
