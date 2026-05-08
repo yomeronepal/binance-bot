@@ -8,7 +8,7 @@ a BTC snapshot, return ``(decision, reason)``.
 
 Rules (matches the spec exactly, no quality flag check):
 
-  LONG  → BTC must be above both EMA20 and EMA50, and 7d return >= 0
+  LONG  → BTC must be above both EMA7 and EMA20, and 7d return >= 0
   SHORT → BTC must NOT be in the LONG uptrend regime above, and 3d
           return >= -7 (i.e. BTC isn't outright crashing)
 
@@ -78,14 +78,14 @@ def evaluate_macro_filter(
         return 'ALLOW', ALLOW_SNAPSHOT_UNAVAILABLE
 
     if direction == 'LONG':
-        if not (snapshot.above_ema20 and snapshot.above_ema50):
+        if not (snapshot.above_ema7 and snapshot.above_ema20):
             return 'BLOCK', BLOCK_LONG_NOT_UPTREND
         if snapshot.ret_7d < LONG_RET_7D_MIN:
             return 'BLOCK', BLOCK_LONG_7D_NEGATIVE
         return 'ALLOW', ALLOW_LONG
 
     if direction == 'SHORT':
-        if snapshot.above_ema20 and snapshot.above_ema50:
+        if snapshot.above_ema7 and snapshot.above_ema20:
             return 'BLOCK', BLOCK_SHORT_UPTREND
         if snapshot.ret_3d < SHORT_RET_3D_MIN:
             return 'BLOCK', BLOCK_SHORT_CRASHING

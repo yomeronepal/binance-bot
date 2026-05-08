@@ -10,9 +10,9 @@ returns don't change between two scan cycles. We pull once and cache
 
 Snapshot contents:
   close          last daily close
-  ema20, ema50   trend gates
+  ema7, ema20    fast/slow trend gates
+  above_ema7     bool
   above_ema20    bool
-  above_ema50    bool
   ret_3d         3-day percent change (%, signed)
   ret_7d         7-day percent change (%, signed)
   fetched_at     UTC datetime — for staleness debugging
@@ -40,19 +40,19 @@ _TTL_SECONDS = 300
 # window so transient network blips are recoverable inside a minute.
 _FAILURE_TTL_SECONDS = 30
 
-# Pull 90 daily candles. Plenty to settle EMA50 (needs ~150 weighted
-# inputs but pandas EWM converges effectively at ~3x span) and to read
-# a 7-day return.
-_KLINE_LIMIT = 90
+# Pull 60 daily candles. EMA20 settles fast under pandas EWM (~3x span =
+# 60 inputs) and we still want a 7-day return. Dropping from 90 keeps
+# the request light without changing the math.
+_KLINE_LIMIT = 60
 
 
 @dataclass(frozen=True)
 class BTCSnapshot:
     close: float
+    ema7: float
     ema20: float
-    ema50: float
+    above_ema7: bool
     above_ema20: bool
-    above_ema50: bool
     ret_3d: float
     ret_7d: float
     fetched_at: datetime
@@ -73,8 +73,8 @@ _lock = threading.Lock()
 def _compute_snapshot_from_closes(closes: list[float]) -> BTCSnapshot:
     """Pure helper — testable without the network."""
     s = pd.Series(closes, dtype='float64')
+    ema7 = float(s.ewm(span=7, adjust=False).mean().iloc[-1])
     ema20 = float(s.ewm(span=20, adjust=False).mean().iloc[-1])
-    ema50 = float(s.ewm(span=50, adjust=False).mean().iloc[-1])
     close = float(s.iloc[-1])
 
     # Returns are computed on close-to-close, not intraday, so 3d return
@@ -89,10 +89,10 @@ def _compute_snapshot_from_closes(closes: list[float]) -> BTCSnapshot:
 
     return BTCSnapshot(
         close=close,
+        ema7=ema7,
         ema20=ema20,
-        ema50=ema50,
+        above_ema7=close > ema7,
         above_ema20=close > ema20,
-        above_ema50=close > ema50,
         ret_3d=_ret(3),
         ret_7d=_ret(7),
         fetched_at=datetime.now(timezone.utc),
@@ -100,11 +100,18 @@ def _compute_snapshot_from_closes(closes: list[float]) -> BTCSnapshot:
 
 
 def _fetch_sync() -> BTCSnapshot:
-    """Run the async client call from sync code on a fresh event loop."""
-    from .binance_client import BinanceClient
+    """Run the async client call from sync code on a fresh event loop.
+
+    Uses the Futures (fapi) endpoint, not spot. Reasoning: the rest of
+    the bot already routes everything through ``fapi.binance.com``;
+    spot (``api.binance.com``) is observed to be flaky from some
+    deploy environments while futures stays reachable. BTCUSDT exists
+    on both with the same OHLCV per candle.
+    """
+    from .binance_futures_client import BinanceFuturesClient
 
     async def _go():
-        async with BinanceClient() as c:
+        async with BinanceFuturesClient() as c:
             klines = await c.get_klines('BTCUSDT', interval='1d', limit=_KLINE_LIMIT)
             return [float(k[4]) for k in klines]   # k[4] = close price
 
@@ -114,9 +121,9 @@ def _fetch_sync() -> BTCSnapshot:
     finally:
         loop.close()
 
-    if len(closes) < 51:
+    if len(closes) < 21:
         raise RuntimeError(
-            f"BTCUSDT klines returned only {len(closes)} candles, need >= 51 for EMA50"
+            f"BTCUSDT klines returned only {len(closes)} candles, need >= 21 for EMA20"
         )
     return _compute_snapshot_from_closes(closes)
 
@@ -146,9 +153,9 @@ def get_btc_snapshot(force_refresh: bool = False) -> BTCSnapshot | None:
             _state['snapshot'] = snap
             _state['expires_at'] = time.time() + _TTL_SECONDS
         logger.info(
-            "BTC snapshot refreshed: close=%.2f ema20=%.2f ema50=%.2f "
-            "above_ema20=%s above_ema50=%s ret_3d=%+.2f%% ret_7d=%+.2f%%",
-            snap.close, snap.ema20, snap.ema50, snap.above_ema20, snap.above_ema50,
+            "BTC snapshot refreshed: close=%.2f ema7=%.2f ema20=%.2f "
+            "above_ema7=%s above_ema20=%s ret_3d=%+.2f%% ret_7d=%+.2f%%",
+            snap.close, snap.ema7, snap.ema20, snap.above_ema7, snap.above_ema20,
             snap.ret_3d, snap.ret_7d,
         )
         return snap

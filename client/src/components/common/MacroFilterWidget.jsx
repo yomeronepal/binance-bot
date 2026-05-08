@@ -77,21 +77,21 @@ export default function MacroFilterWidget({ variant = 'full', className = '' }) 
             <>
               <span
                 className={`px-2 py-0.5 rounded text-xs font-medium ${
+                  snap.above_ema7
+                    ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                    : 'bg-rose-100 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                }`}
+              >
+                {snap.above_ema7 ? '↑' : '↓'} EMA7
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded text-xs font-medium ${
                   snap.above_ema20
                     ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
                     : 'bg-rose-100 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300'
                 }`}
               >
                 {snap.above_ema20 ? '↑' : '↓'} EMA20
-              </span>
-              <span
-                className={`px-2 py-0.5 rounded text-xs font-medium ${
-                  snap.above_ema50
-                    ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                    : 'bg-rose-100 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300'
-                }`}
-              >
-                {snap.above_ema50 ? '↑' : '↓'} EMA50
               </span>
               <span className="text-gray-600 dark:text-gray-400">3d {fmtPct(snap.ret_3d)}</span>
               <span className="text-gray-600 dark:text-gray-400">7d {fmtPct(snap.ret_7d)}</span>

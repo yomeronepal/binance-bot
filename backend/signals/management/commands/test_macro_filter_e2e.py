@@ -103,13 +103,13 @@ class Command(BaseCommand):
         snap = get_btc_snapshot(force_refresh=True)
         assert snap is not None, "snapshot is None — Binance unreachable?"
         assert snap.close > 0, f"BTC close should be >0, got {snap.close}"
-        assert snap.ema20 > 0 and snap.ema50 > 0, "EMAs should be >0"
+        assert snap.ema7 > 0 and snap.ema20 > 0, "EMAs should be >0"
+        assert isinstance(snap.above_ema7, bool)
         assert isinstance(snap.above_ema20, bool)
-        assert isinstance(snap.above_ema50, bool)
         self._ok(
-            f"close=${snap.close:,.2f} ema20=${snap.ema20:,.2f} "
-            f"ema50=${snap.ema50:,.2f} above20={snap.above_ema20} "
-            f"above50={snap.above_ema50} ret_3d={snap.ret_3d:+.2f}% "
+            f"close=${snap.close:,.2f} ema7=${snap.ema7:,.2f} "
+            f"ema20=${snap.ema20:,.2f} above7={snap.above_ema7} "
+            f"above20={snap.above_ema20} ret_3d={snap.ret_3d:+.2f}% "
             f"ret_7d={snap.ret_7d:+.2f}%"
         )
         self._snapshot = snap
@@ -166,7 +166,7 @@ class Command(BaseCommand):
             "macro_at_signal not stamped on freshly-created ActiveSignal"
         )
         ms = meta['macro_at_signal']
-        for k in ('decision', 'reason', 'above_ema20', 'above_ema50',
+        for k in ('decision', 'reason', 'above_ema7', 'above_ema20',
                   'ret_3d', 'ret_7d', 'btc_close', 'fetched_at'):
             assert k in ms, f"macro_at_signal missing field: {k}"
         assert ms['decision'] in ('ALLOW', 'BLOCK')

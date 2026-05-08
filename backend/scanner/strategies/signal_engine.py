@@ -1008,8 +1008,8 @@ class SignalDetectionEngine:
                 'macro_at_signal': {
                     'decision': decision,
                     'reason': reason,
+                    'above_ema7': bool(snap.above_ema7) if snap else None,
                     'above_ema20': bool(snap.above_ema20) if snap else None,
-                    'above_ema50': bool(snap.above_ema50) if snap else None,
                     'ret_3d': float(snap.ret_3d) if snap else None,
                     'ret_7d': float(snap.ret_7d) if snap else None,
                     'btc_close': float(snap.close) if snap else None,
