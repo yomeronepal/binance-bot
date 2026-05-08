@@ -715,24 +715,26 @@ class SignalDetectionEngine:
             confidence = min(confidence, 0.92)  # Cap at 92% for realism
             triggered = score >= (max_score * config.min_confidence)
 
-            # LONG-SPECIFIC: Require minimum bullish confirmations to avoid weak entries
-            if triggered:
-                bullish_checks = [
-                    conditions.get('supertrend_bullish', False),
-                    conditions.get('positive_di', False),
-                    conditions.get('ema_aligned', False),
-                    conditions.get('ha_bullish', False),
-                    conditions.get('psar_bullish', False),
-                ]
-                bullish_count = sum(bullish_checks)
-
-                if bullish_count < 3:
-                    logger.debug(
-                        f"LONG rejected: Only {bullish_count}/5 bullish confirmations "
-                        f"(need 3+). ST={conditions.get('supertrend_bullish')}, "
-                        f"+DI={conditions.get('positive_di')}, EMA={conditions.get('ema_aligned')}"
-                    )
-                    triggered = False
+            # LONG-SPECIFIC 3-of-5 bullish confirmations gate — disabled
+            # to keep LONG/SHORT symmetric. Re-enable if LONG win rate
+            # drops post-removal.
+            # if triggered:
+            #     bullish_checks = [
+            #         conditions.get('supertrend_bullish', False),
+            #         conditions.get('positive_di', False),
+            #         conditions.get('ema_aligned', False),
+            #         conditions.get('ha_bullish', False),
+            #         conditions.get('psar_bullish', False),
+            #     ]
+            #     bullish_count = sum(bullish_checks)
+            #
+            #     if bullish_count < 3:
+            #         logger.debug(
+            #             f"LONG rejected: Only {bullish_count}/5 bullish confirmations "
+            #             f"(need 3+). ST={conditions.get('supertrend_bullish')}, "
+            #             f"+DI={conditions.get('positive_di')}, EMA={conditions.get('ema_aligned')}"
+            #         )
+            #         triggered = False
 
             return triggered, confidence, conditions
 
