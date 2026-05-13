@@ -942,21 +942,50 @@ def check_and_close_paper_trades(self):
             logger.debug("No open paper trades to check")
             return {'checked': 0, 'closed': 0}
 
-        # Get unique symbols from open trades
-        symbols = set(trade.symbol for trade in open_trades)
-        logger.info(f"📊 Checking {open_trades.count()} open trades across {len(symbols)} symbols")
+        spot_symbols = {t.symbol for t in open_trades if t.market_type != 'FUTURES'}
+        futures_symbols = {t.symbol for t in open_trades if t.market_type == 'FUTURES'}
+        logger.info(
+            f"📊 Checking {open_trades.count()} open trades "
+            f"({len(spot_symbols)} spot, {len(futures_symbols)} futures)"
+        )
+
+        async def fetch_from(client, symbols, track_400=False):
+            out = {}
+            missing_on_spot = []
+            for symbol in symbols:
+                try:
+                    price_data = await client.get_price(symbol)
+                    if price_data and 'price' in price_data:
+                        out[symbol] = Decimal(str(price_data['price']))
+                except Exception as e:
+                    error_msg = str(e)
+                    if track_400 and ('400' in error_msg or 'Bad Request' in error_msg):
+                        missing_on_spot.append(symbol)
+                    else:
+                        logger.warning(f"Failed to fetch price for {symbol}: {e}")
+                    continue
+            return out, missing_on_spot
 
         async def fetch_prices():
+            from scanner.services.binance_futures_client import BinanceFuturesClient
             prices = {}
-            async with BinanceClient() as client:
-                for symbol in symbols:
-                    try:
-                        price_data = await client.get_price(symbol)
-                        if price_data and 'price' in price_data:
-                            prices[symbol] = Decimal(str(price_data['price']))
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch price for {symbol}: {e}")
-                        continue
+            async with BinanceClient() as spot_client, BinanceFuturesClient() as fut_client:
+                fallback_symbols = []
+                if spot_symbols:
+                    spot_prices, fallback_symbols = await fetch_from(
+                        spot_client, spot_symbols, track_400=True
+                    )
+                    prices.update(spot_prices)
+                if futures_symbols:
+                    fut_prices, _ = await fetch_from(fut_client, futures_symbols)
+                    prices.update(fut_prices)
+                if fallback_symbols:
+                    logger.info(
+                        f"🔁 Falling back to futures ticker for {len(fallback_symbols)} "
+                        f"spot-rejected symbols: {fallback_symbols}"
+                    )
+                    fallback_prices, _ = await fetch_from(fut_client, fallback_symbols)
+                    prices.update(fallback_prices)
             return prices
 
         current_prices = asyncio.run(fetch_prices())

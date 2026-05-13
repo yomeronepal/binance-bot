@@ -352,43 +352,100 @@ def _get_filter_params(request):
     return {k: request.query_params.get(k, '') for k in keys}
 
 
-def _fetch_prices_batch(symbols):
+async def _fetch_prices_from_client(client, symbols):
     """
-    Fetch prices for multiple symbols concurrently using asyncio.gather.
+    Fetch ticker prices for a list of symbols using one Binance client.
+
+    Returns (prices_dict, failed_dict). 400 / Bad Request errors land in
+    failed_dict so the caller can decide what to do; transient errors
+    return neither.
+    """
+    if not symbols:
+        return {}, {}
+
+    prices = {}
+    failed = {}
+    semaphore = asyncio.Semaphore(10)
+
+    async def fetch_one(sym):
+        async with semaphore:
+            try:
+                price_data = await client.get_price(sym)
+                if price_data and 'price' in price_data:
+                    return sym, Decimal(str(price_data['price'])), None
+            except Exception as e:
+                error_msg = str(e)
+                if '400' in error_msg or 'Bad Request' in error_msg:
+                    return sym, None, error_msg
+            return sym, None, None
+
+    results = await asyncio.gather(*[fetch_one(s) for s in symbols])
+    for sym, price, error in results:
+        if price:
+            prices[sym] = price
+        elif error:
+            failed[sym] = error
+    return prices, failed
+
+
+def _fetch_prices_batch(symbol_market_map):
+    """
+    Fetch prices for multiple symbols. Tries spot first for any symbol
+    tagged SPOT (or untagged), then falls back to futures for anything
+    spot rejected with 400. FUTURES-tagged symbols go straight to
+    futures.
+
+    The fallback exists because legacy PaperTrade rows were created
+    with market_type='SPOT' even for futures-only perpetuals (BAN,
+    MSTR, AIO, etc.). Without it those tickers would 400 forever.
 
     Args:
-        symbols: List/set of symbol strings
+        symbol_market_map: Dict of {symbol: 'SPOT'|'FUTURES'}
 
     Returns:
         Tuple of (prices dict, failed_symbols dict)
     """
     from scanner.services.binance_client import BinanceClient
+    from scanner.services.binance_futures_client import BinanceFuturesClient
+
+    spot_first = [s for s, m in symbol_market_map.items() if m != 'FUTURES']
+    futures_first = [s for s, m in symbol_market_map.items() if m == 'FUTURES']
 
     async def fetch_all():
         prices = {}
         failed = {}
-        async with BinanceClient() as client:
-            semaphore = asyncio.Semaphore(10)
 
-            async def fetch_one(sym):
-                async with semaphore:
-                    try:
-                        price_data = await client.get_price(sym)
-                        if price_data and 'price' in price_data:
-                            return sym, Decimal(str(price_data['price'])), None
-                    except Exception as e:
-                        error_msg = str(e)
-                        if '400' in error_msg or 'Bad Request' in error_msg:
-                            return sym, None, error_msg
-                    return sym, None, None
+        async with BinanceClient() as spot_client, BinanceFuturesClient() as fut_client:
+            tasks = []
+            if spot_first:
+                tasks.append(_fetch_prices_from_client(spot_client, spot_first))
+            if futures_first:
+                tasks.append(_fetch_prices_from_client(fut_client, futures_first))
 
-            results = await asyncio.gather(*[fetch_one(s) for s in symbols])
+            spot_failed = {}
+            if tasks:
+                results = await asyncio.gather(*tasks)
+                if spot_first:
+                    spot_prices, spot_failed = results[0]
+                    prices.update(spot_prices)
+                    if futures_first:
+                        fut_prices, fut_failed = results[1]
+                        prices.update(fut_prices)
+                        failed.update(fut_failed)
+                else:
+                    fut_prices, fut_failed = results[0]
+                    prices.update(fut_prices)
+                    failed.update(fut_failed)
 
-            for sym, price, error in results:
-                if price:
-                    prices[sym] = price
-                elif error:
-                    failed[sym] = error
+            fallback_symbols = [s for s in spot_failed if s not in prices]
+            if fallback_symbols:
+                fallback_prices, fallback_failed = await _fetch_prices_from_client(
+                    fut_client, fallback_symbols
+                )
+                prices.update(fallback_prices)
+                for sym in fallback_symbols:
+                    if sym not in fallback_prices:
+                        failed[sym] = fallback_failed.get(sym, spot_failed[sym])
 
         return prices, failed
 
@@ -591,8 +648,8 @@ def public_performance(request):
 
     if open_trades_qs.exists():
         try:
-            symbols = set(open_trades_qs.values_list('symbol', flat=True))
-            current_prices, failed_symbols = _fetch_prices_batch(symbols)
+            symbol_market = dict(open_trades_qs.values_list('symbol', 'market_type'))
+            current_prices, failed_symbols = _fetch_prices_batch(symbol_market)
 
             for sym, error_msg in failed_symbols.items():
                 for trade in open_trades_qs.filter(symbol=sym):
@@ -654,8 +711,8 @@ def public_open_positions(request):
             'positions': []
         })
 
-    symbols = set(t.symbol for t in open_trades)
-    current_prices, failed_symbols = _fetch_prices_batch(symbols)
+    symbol_market = {t.symbol: t.market_type for t in open_trades}
+    current_prices, failed_symbols = _fetch_prices_batch(symbol_market)
 
     for sym, error_msg in failed_symbols.items():
         failing = [t for t in open_trades if t.symbol == sym]
@@ -754,7 +811,7 @@ def public_close_trade(request, trade_id):
         )
 
     try:
-        prices, failed = _fetch_prices_batch([trade.symbol])
+        prices, failed = _fetch_prices_batch({trade.symbol: trade.market_type})
         current_price = prices.get(trade.symbol)
 
         if not current_price:
