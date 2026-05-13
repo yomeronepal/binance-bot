@@ -390,17 +390,16 @@ async def _fetch_prices_from_client(client, symbols):
 
 def _fetch_prices_batch(symbol_market_map):
     """
-    Fetch prices for multiple symbols. Tries spot first for any symbol
-    tagged SPOT (or untagged), then falls back to futures for anything
-    spot rejected with 400. FUTURES-tagged symbols go straight to
-    futures.
+    Fetch prices for multiple symbols, futures-first with spot fallback.
 
-    The fallback exists because legacy PaperTrade rows were created
-    with market_type='SPOT' even for futures-only perpetuals (BAN,
-    MSTR, AIO, etc.). Without it those tickers would 400 forever.
+    The bot trades on Binance Futures (fapi.binance.com), so paper-trade
+    SL/TP simulation must use futures prices to match real execution.
+    For the rare symbol that has no futures listing, fall back to spot.
 
     Args:
-        symbol_market_map: Dict of {symbol: 'SPOT'|'FUTURES'}
+        symbol_market_map: Dict of {symbol: 'SPOT'|'FUTURES'}. The value
+            is accepted for API compatibility but no longer affects
+            routing — every symbol is tried on futures first.
 
     Returns:
         Tuple of (prices dict, failed_symbols dict)
@@ -408,44 +407,27 @@ def _fetch_prices_batch(symbol_market_map):
     from scanner.services.binance_client import BinanceClient
     from scanner.services.binance_futures_client import BinanceFuturesClient
 
-    spot_first = [s for s, m in symbol_market_map.items() if m != 'FUTURES']
-    futures_first = [s for s, m in symbol_market_map.items() if m == 'FUTURES']
+    all_symbols = list(symbol_market_map.keys())
 
     async def fetch_all():
         prices = {}
         failed = {}
 
-        async with BinanceClient() as spot_client, BinanceFuturesClient() as fut_client:
-            tasks = []
-            if spot_first:
-                tasks.append(_fetch_prices_from_client(spot_client, spot_first))
-            if futures_first:
-                tasks.append(_fetch_prices_from_client(fut_client, futures_first))
+        async with BinanceFuturesClient() as fut_client, BinanceClient() as spot_client:
+            fut_prices, fut_failed = await _fetch_prices_from_client(
+                fut_client, all_symbols
+            )
+            prices.update(fut_prices)
 
-            spot_failed = {}
-            if tasks:
-                results = await asyncio.gather(*tasks)
-                if spot_first:
-                    spot_prices, spot_failed = results[0]
-                    prices.update(spot_prices)
-                    if futures_first:
-                        fut_prices, fut_failed = results[1]
-                        prices.update(fut_prices)
-                        failed.update(fut_failed)
-                else:
-                    fut_prices, fut_failed = results[0]
-                    prices.update(fut_prices)
-                    failed.update(fut_failed)
-
-            fallback_symbols = [s for s in spot_failed if s not in prices]
+            fallback_symbols = [s for s in all_symbols if s not in prices]
             if fallback_symbols:
-                fallback_prices, fallback_failed = await _fetch_prices_from_client(
-                    fut_client, fallback_symbols
+                spot_prices, spot_failed = await _fetch_prices_from_client(
+                    spot_client, fallback_symbols
                 )
-                prices.update(fallback_prices)
+                prices.update(spot_prices)
                 for sym in fallback_symbols:
-                    if sym not in fallback_prices:
-                        failed[sym] = fallback_failed.get(sym, spot_failed[sym])
+                    if sym not in spot_prices:
+                        failed[sym] = spot_failed.get(sym) or fut_failed.get(sym) or 'No price available'
 
         return prices, failed
 
