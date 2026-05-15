@@ -26,13 +26,27 @@ class FuturesTradingSettings(models.Model):
         help_text=_("Base trade amount in USDT (before leverage)")
     )
 
-    # New: Total capital to divide among trades
     total_trading_capital = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=Decimal('100.00'),
         validators=[MinValueValidator(Decimal('10.00'))],
-        help_text=_("Total capital to divide equally among max_active_gw_trades")
+        help_text=_(
+            "Last known Binance futures USDT wallet balance. Written by "
+            "the monthly rebalance task (signals.monthly_balance_rebalance) "
+            "and read by the frontend balance display. Also used by the "
+            "Golden Window auto-trader as the per-trade sizing pool "
+            "(per_trade = total_trading_capital / max_active_gw_trades)."
+        ),
+    )
+
+    last_balance_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_(
+            "When total_trading_capital was last refreshed from the "
+            "live Binance futures balance."
+        ),
     )
 
     # New: Max trades during golden window session
@@ -688,3 +702,86 @@ class FuturesTradeLog(models.Model):
 
     def __str__(self):
         return f"[{self.level}] {self.action} {self.symbol} - {self.message[:60]}"
+
+
+class BalanceRebalanceLog(models.Model):
+    """
+    One row per ``rebalance_from_futures_balance`` invocation —
+    monthly Celery beat or manual ``manage.py rebalance_now``.
+
+    Captures the live Binance USDT balance at run time, the values
+    that were computed and written, and what the previous values were.
+    ``applied=False`` rows are kept too (dry runs, failures) so the
+    history reflects every attempt, not just successful writes.
+    """
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    balance = models.DecimalField(
+        max_digits=14,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        help_text=_("Futures USDT wallet balance at rebalance time"),
+    )
+
+    per_trade_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=_("Computed per-trade size (balance / 3)"),
+    )
+
+    max_concurrent_trades = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text=_("Max concurrent trades set on this run"),
+    )
+
+    backup_reserve = models.DecimalField(
+        max_digits=14,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        help_text=_("balance - max_concurrent * per_trade"),
+    )
+
+    previous_trade_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=_("trade_amount on FuturesTradingSettings before this run"),
+    )
+
+    previous_max_concurrent_trades = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text=_("max_concurrent_trades on FuturesTradingSettings before this run"),
+    )
+
+    applied = models.BooleanField(
+        default=False,
+        help_text=_("True if FuturesTradingSettings was written; False for dry-runs / failures"),
+    )
+
+    reason = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text=_("Short outcome reason (e.g. 'rebalanced', 'dry-run; no write', 'balance fetch failed: ...')"),
+    )
+
+    class Meta:
+        db_table = 'balance_rebalance_logs'
+        ordering = ['-created_at']
+        verbose_name = _('Balance Rebalance Log')
+        verbose_name_plural = _('Balance Rebalance Logs')
+        indexes = [
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['applied', '-created_at']),
+        ]
+
+    def __str__(self):
+        bal = f"${self.balance}" if self.balance is not None else "?"
+        flag = 'APPLIED' if self.applied else 'SKIPPED'
+        return f"[{self.created_at:%Y-%m-%d %H:%M}] {flag} balance={bal} reason={self.reason}"

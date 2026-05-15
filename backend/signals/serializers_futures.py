@@ -31,6 +31,8 @@ class FuturesTradingSettingsSerializer(serializers.ModelSerializer):
             'crypto_macro_filter_enabled',
             'stock_macro_filter_enabled',
             'commodity_macro_filter_enabled',
+            'total_trading_capital',
+            'last_balance_updated_at',
             'effective_position_size',
             'created_at',
             'updated_at',

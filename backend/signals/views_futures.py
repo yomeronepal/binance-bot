@@ -447,3 +447,68 @@ def futures_report(request):
         'top_losers': _top(closed, asc=True),
         'streaks': {'current': streak, 'max_win': max_win, 'max_loss': max_lose},
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def futures_balance(request):
+    """
+    Live Binance futures USDT wallet snapshot.
+
+    Calls /fapi/v2/balance (signed) and returns the USDT row plus a
+    ``fetched_at`` timestamp. Admin-only since it reflects real
+    account state.
+
+    Returns:
+        {
+            "balance":          Decimal,     wallet balance
+            "available_balance": Decimal,     unencumbered margin
+            "unrealized_pnl":    Decimal,     cross-wallet unrealized PnL
+            "fetched_at":        ISO timestamp,
+            "error":             str | null,
+        }
+    """
+    import asyncio
+    from .services.futures_trader import BinanceFuturesTrader
+
+    async def _go():
+        trader = BinanceFuturesTrader(use_testnet=False)
+        try:
+            return await trader.get_account_balance()
+        finally:
+            await trader.close()
+
+    payload = {
+        'balance': None,
+        'available_balance': None,
+        'unrealized_pnl': None,
+        'fetched_at': timezone.now().isoformat(),
+        'error': None,
+    }
+
+    try:
+        loop = asyncio.new_event_loop()
+        try:
+            rows = loop.run_until_complete(_go())
+        finally:
+            loop.close()
+    except Exception as exc:
+        logger.warning("futures_balance fetch failed: %s", exc)
+        payload['error'] = str(exc)
+        return Response(payload)
+
+    usdt = next((r for r in (rows or []) if r.get('asset') == 'USDT'), None)
+    if not usdt:
+        payload['error'] = 'no USDT row in futures balance response'
+        return Response(payload)
+
+    def _dec(v):
+        try:
+            return float(Decimal(str(v)))
+        except Exception:
+            return None
+
+    payload['balance'] = _dec(usdt.get('balance', '0'))
+    payload['available_balance'] = _dec(usdt.get('availableBalance', '0'))
+    payload['unrealized_pnl'] = _dec(usdt.get('crossUnPnl', '0'))
+    return Response(payload)

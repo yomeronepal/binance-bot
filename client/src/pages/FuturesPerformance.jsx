@@ -8,6 +8,7 @@ import PullToRefresh from '../components/common/PullToRefresh';
 import FearGreedWidget from '../components/common/FearGreedWidget';
 import TradeReport from '../components/common/TradeReport';
 import TradeCharts from '../components/common/TradeCharts';
+import FuturesBalanceCard from '../components/common/FuturesBalanceCard';
 
 const FuturesPerformance = () => {
     const [loading, setLoading] = useState(true);
@@ -256,6 +257,11 @@ const FuturesPerformance = () => {
                     </div>
 
                     {fearGreed && fearGreed.available && <FearGreedWidget data={fearGreed} />}
+                </div>
+
+                {/* Binance futures wallet — source of truth for the monthly rebalancer */}
+                <div className="mb-6">
+                    <FuturesBalanceCard />
                 </div>
 
                 {/* Stats Grid */}

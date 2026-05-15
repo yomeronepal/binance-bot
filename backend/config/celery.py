@@ -23,6 +23,7 @@ app.autodiscover_tasks(related_name='tasks_strategy_performance')
 app.autodiscover_tasks(related_name='tasks_optimization')
 app.autodiscover_tasks(related_name='tasks_golden_window')
 app.autodiscover_tasks(related_name='tasks_top_performers')
+app.autodiscover_tasks(related_name='tasks_balance_rebalance')
 
 # Celery Beat Schedule (Periodic Tasks)
 app.conf.beat_schedule = {
@@ -162,6 +163,12 @@ app.conf.beat_schedule = {
         'task': 'signals.optimize_golden_windows',
         'schedule': crontab(minute=0, hour=3, day_of_month=1),
         'options': {'expires': 3600.0},
+    },
+
+    'monthly-balance-rebalance': {
+        'task': 'signals.monthly_balance_rebalance',
+        'schedule': crontab(minute=30, hour=2, day_of_month=1),
+        'options': {'expires': 1800.0},
     },
 
     # Snapshot the top-10 performing symbols for the calendar month

@@ -15,7 +15,8 @@ from .models_strategy_config import StrategyConfig
 from .models_futures import (
     FuturesTradingSettings,
     FuturesTrade,
-    FuturesTradeLog
+    FuturesTradeLog,
+    BalanceRebalanceLog,
 )
 from .models_blacklist import BlacklistedSymbol
 from .models_push import PushSubscription, NotificationLog
@@ -2280,4 +2281,27 @@ class BacktestMetricAdmin(admin.ModelAdmin):
         'total_trades', 'winning_trades', 'losing_trades', 'open_trades',
     )
     list_per_page = 50
+
+
+@admin.register(BalanceRebalanceLog)
+class BalanceRebalanceLogAdmin(admin.ModelAdmin):
+    list_display = (
+        'created_at', 'applied', 'balance', 'per_trade_amount',
+        'max_concurrent_trades', 'backup_reserve',
+        'previous_trade_amount', 'reason',
+    )
+    list_filter = ('applied', 'created_at')
+    readonly_fields = (
+        'created_at', 'balance', 'per_trade_amount', 'max_concurrent_trades',
+        'backup_reserve', 'previous_trade_amount',
+        'previous_max_concurrent_trades', 'applied', 'reason',
+    )
+    ordering = ('-created_at',)
+    list_per_page = 50
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 

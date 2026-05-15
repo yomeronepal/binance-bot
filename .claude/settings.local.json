@@ -97,7 +97,10 @@
       "Bash(git -C /Users/gunsnrojeshprajapati/Desktop/project/binance-bot show --stat 784b184)",
       "Bash(git -C /Users/gunsnrojeshprajapati/Desktop/project/binance-bot show 784b184 -- backend/scanner/services/binance_futures_client.py)",
       "Bash(node_modules/.bin/eslint src/components/common/EquityMacroFilterWidget.jsx src/pages/BotPerformance.jsx)",
-      "Bash(node_modules/.bin/eslint src/pages/dashboard/Dashboard.jsx)"
+      "Bash(node_modules/.bin/eslint src/pages/dashboard/Dashboard.jsx)",
+      "Bash(node_modules/.bin/eslint src/components/common/FuturesBalanceCard.jsx src/pages/Futures.jsx)",
+      "Bash(node_modules/.bin/eslint src/components/common/FuturesBalanceCard.jsx)",
+      "Bash(node_modules/.bin/eslint src/pages/FuturesPerformance.jsx)"
     ],
     "deny": [],
     "ask": []
