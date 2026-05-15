@@ -996,30 +996,16 @@ class SignalDetectionEngine:
 
         conditions_copy = {k: v for k, v in conditions.items() if not k.startswith('_')}
 
-        # Stamp the BTC macro filter's *opinion at signal-creation time*.
-        # This is metadata only — never blocks creation. The strict gate
-        # at the trade boundary re-evaluates against a fresh snapshot
-        # (BTC may have moved between signal and order placement).
+        # Stamp the macro filter's *opinion at signal-creation time*,
+        # routed by the symbol's asset class (BTC for crypto, SPY for
+        # stocks, XAU for commodities). Metadata only — never blocks
+        # creation. The strict gate at the trade boundary re-evaluates
+        # against a fresh snapshot.
         try:
-            from scanner.services.btc_trend import get_btc_snapshot
-            from scanner.services.macro_filter import evaluate_macro_filter
-            snap = get_btc_snapshot()
-            decision, reason = evaluate_macro_filter(direction, snapshot=snap)
-            meta = {
-                **meta,
-                'macro_at_signal': {
-                    'decision': decision,
-                    'reason': reason,
-                    'above_ema7': bool(snap.above_ema7) if snap else None,
-                    'above_ema20': bool(snap.above_ema20) if snap else None,
-                    'ret_3d': float(snap.ret_3d) if snap else None,
-                    'ret_7d': float(snap.ret_7d) if snap else None,
-                    'btc_close': float(snap.close) if snap else None,
-                    'fetched_at': snap.fetched_at.isoformat() if snap else None,
-                },
-            }
+            from scanner.services.macro_router import evaluate_for_symbol
+            _, _, macro_meta = evaluate_for_symbol(symbol, direction)
+            meta = {**meta, 'macro_at_signal': macro_meta}
         except Exception as exc:
-            # Tagging must never block signal creation.
             logger.warning(f"macro_at_signal tagging failed for {symbol}: {exc}")
 
         signal = ActiveSignal(

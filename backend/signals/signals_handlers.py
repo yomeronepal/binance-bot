@@ -7,8 +7,9 @@ import logging
 from datetime import datetime, timezone, timedelta
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
-from .models import Signal, TradingSession
+from .models import Signal, Symbol, PaperTrade, TradingSession
 from .services.realtime import realtime_signal_service
+from scanner.services.asset_classifier import classify_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -559,3 +560,59 @@ def _execute_futures_trade(instance):
             f"Failed to execute futures trade for signal {instance.id}: {e}",
             exc_info=True,
         )
+
+
+@receiver(pre_save, sender=Symbol)
+def stamp_symbol_asset_class(sender, instance, **kwargs):
+    """
+    On insert, classify the Symbol from its ticker string.
+
+    The classifier falls back to a curated COMMODITY ticker set when
+    no contract_type is available, so freshly-discovered commodity
+    perps are tagged correctly. Tokenized stocks default to CRYPTO
+    here and are corrected by the backfill management command, which
+    has the contract_type from a fresh exchangeInfo fetch.
+    """
+    if not instance._state.adding:
+        return
+    if instance.asset_class and instance.asset_class != 'CRYPTO':
+        return
+    instance.asset_class = classify_symbol(instance.symbol)
+
+
+@receiver(pre_save, sender=Signal)
+def stamp_signal_asset_class(sender, instance, **kwargs):
+    """
+    On insert, inherit asset_class from the related Symbol so signal
+    queries never need a join.
+    """
+    if not instance._state.adding:
+        return
+    if instance.asset_class and instance.asset_class != 'CRYPTO':
+        return
+    if instance.symbol_id:
+        try:
+            instance.asset_class = instance.symbol.asset_class
+        except Symbol.DoesNotExist:
+            pass
+
+
+@receiver(pre_save, sender=PaperTrade)
+def stamp_paper_trade_asset_class(sender, instance, **kwargs):
+    """
+    On insert, inherit asset_class from the originating Signal. If
+    the trade was opened without a linked Signal (manual / replay),
+    fall back to classifying the symbol string directly.
+    """
+    if not instance._state.adding:
+        return
+    if instance.asset_class and instance.asset_class != 'CRYPTO':
+        return
+    if instance.signal_id:
+        try:
+            instance.asset_class = instance.signal.asset_class
+            return
+        except Exception:
+            pass
+    if instance.symbol:
+        instance.asset_class = classify_symbol(instance.symbol)

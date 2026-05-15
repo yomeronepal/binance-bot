@@ -113,6 +113,22 @@ class BinanceFuturesClient:
         logger.info(f"Found {len(futures_pairs)} USDT perpetual futures pairs")
         return futures_pairs
 
+    async def get_usdt_futures_pairs_with_metadata(self) -> List[Dict]:
+        """Like ``get_usdt_futures_pairs`` but returns each row's metadata.
+
+        Returns a list of ``{'symbol': ..., 'contract_type': ...}`` dicts so
+        callers that need to classify the asset class (CRYPTO vs the
+        TRADIFI lane) can do so without re-fetching exchangeInfo.
+        """
+        exchange_info = await self.get_exchange_info()
+        return [
+            {'symbol': s['symbol'], 'contract_type': s['contractType']}
+            for s in exchange_info['symbols']
+            if s['symbol'].endswith('USDT')
+            and s['status'] == 'TRADING'
+            and s['contractType'] in self.PERPETUAL_CONTRACT_TYPES
+        ]
+
     async def get_klines(
         self,
         symbol: str,

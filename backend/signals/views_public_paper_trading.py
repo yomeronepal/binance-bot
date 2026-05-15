@@ -43,6 +43,18 @@ def _build_cache_key(prefix, params):
     return f"{prefix}:{suffix}"
 
 
+def _maybe_apply_asset_class(queryset, params):
+    """
+    Whitelisted asset_class filter (CRYPTO/STOCK/COMMODITY). Used by
+    endpoints that bypass _apply_common_filters (public_performance,
+    public_open_positions).
+    """
+    asset_class = str(params.get('asset_class', '')).upper()
+    if asset_class in ('CRYPTO', 'STOCK', 'COMMODITY'):
+        return queryset.filter(asset_class=asset_class)
+    return queryset
+
+
 def _apply_common_filters(queryset, params):
     """
     Apply shared filter logic to a PaperTrade queryset.
@@ -61,6 +73,10 @@ def _apply_common_filters(queryset, params):
     market_type = params.get('market_type')
     if market_type:
         queryset = queryset.filter(market_type=market_type)
+
+    asset_class = str(params.get('asset_class', '')).upper()
+    if asset_class in ('CRYPTO', 'STOCK', 'COMMODITY'):
+        queryset = queryset.filter(asset_class=asset_class)
 
     symbol = params.get('symbol')
     if symbol:
@@ -342,7 +358,7 @@ def _get_filter_params(request):
         Dict of filter parameters
     """
     keys = [
-        'status', 'market_type', 'symbol', 'direction',
+        'status', 'market_type', 'asset_class', 'symbol', 'direction',
         'golden_window', 'golden_window_2', 'outside_golden_window',
         'gw1_ai', 'gw2_ai',
         'weekday', 'hour', 'month', 'year', 'days',
@@ -614,6 +630,7 @@ def public_performance(request):
     queryset = _apply_golden_window_filter(queryset, params)
     queryset = _maybe_apply_top_performer(queryset, params)
     queryset = _maybe_apply_macro_filter(queryset, params)
+    queryset = _maybe_apply_asset_class(queryset, params)
 
     direction = params.get('direction', 'ALL').upper()
     if direction == 'LONG':
@@ -671,6 +688,7 @@ def public_open_positions(request):
     queryset = _apply_time_filters(queryset, params)
     queryset = _maybe_apply_top_performer(queryset, params)
     queryset = _maybe_apply_macro_filter(queryset, params)
+    queryset = _maybe_apply_asset_class(queryset, params)
 
     direction = params.get('direction')
     if direction and direction != 'ALL':
@@ -1638,3 +1656,31 @@ def public_macro_status(request):
     """
     from scanner.services.macro_filter import macro_summary
     return Response(macro_summary())
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def public_equity_macro_status(request):
+    """
+    Live read of the SPY+QQQ daily-trend snapshot and the equity macro
+    filter's decisions for both directions. Drives the Bot Performance
+    "Equity regime" widget for STOCK signals.
+
+    Cached for 5 min inside ``equity_trend.get_equity_snapshot``.
+    """
+    from scanner.services.equity_filter import equity_macro_summary
+    return Response(equity_macro_summary())
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def public_commodity_macro_status(request):
+    """
+    Live read of the GLD+CL daily-trend snapshot and the commodity
+    macro filter's decisions for both directions. Drives the
+    "Commodity regime" widget for COMMODITY signals.
+
+    Cached for 5 min inside ``commodity_trend.get_commodity_snapshot``.
+    """
+    from scanner.services.commodity_filter import commodity_macro_summary
+    return Response(commodity_macro_summary())

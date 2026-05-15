@@ -7,6 +7,13 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils.translation import gettext_lazy as _
 
 
+ASSET_CLASS_CHOICES = [
+    ('CRYPTO', _('Crypto')),
+    ('STOCK', _('Stock')),
+    ('COMMODITY', _('Commodity')),
+]
+
+
 class Symbol(models.Model):
     """
     Trading symbol model representing tradable pairs.
@@ -35,6 +42,13 @@ class Symbol(models.Model):
         choices=MARKET_TYPE_CHOICES,
         default='SPOT',
         help_text=_("Market type (SPOT/FUTURES)")
+    )
+    asset_class = models.CharField(
+        max_length=10,
+        choices=ASSET_CLASS_CHOICES,
+        default='CRYPTO',
+        db_index=True,
+        help_text=_("Asset class (CRYPTO/STOCK/COMMODITY)")
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -367,6 +381,13 @@ class Signal(models.Model):
         default='SPOT',
         help_text=_("Market type (SPOT/FUTURES)")
     )
+    asset_class = models.CharField(
+        max_length=10,
+        choices=ASSET_CLASS_CHOICES,
+        default='CRYPTO',
+        db_index=True,
+        help_text=_("Asset class (CRYPTO/STOCK/COMMODITY)")
+    )
     leverage = models.IntegerField(
         null=True,
         blank=True,
@@ -659,6 +680,13 @@ class PaperTrade(models.Model):
         choices=[('SPOT', 'Spot'), ('FUTURES', 'Futures')],
         default='SPOT',
         help_text=_("Market type")
+    )
+    asset_class = models.CharField(
+        max_length=10,
+        choices=ASSET_CLASS_CHOICES,
+        default='CRYPTO',
+        db_index=True,
+        help_text=_("Asset class (CRYPTO/STOCK/COMMODITY)")
     )
     timeframe = models.CharField(
         max_length=5,

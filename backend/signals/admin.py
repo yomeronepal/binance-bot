@@ -1451,18 +1451,22 @@ class FuturesTradingSettingsAdmin(admin.ModelAdmin):
                 'F&G >= LONG threshold: only LONG. Between: both allowed.'
             )
         }),
-        ('BTC Macro Filter', {
+        ('Macro Filters (per asset class)', {
             'fields': (
+                'crypto_macro_filter_enabled',
+                'stock_macro_filter_enabled',
+                'commodity_macro_filter_enabled',
                 'macro_filter_enabled',
             ),
             'description': (
-                "Toggle the strict BTC-regime gate at the Binance trade boundary. "
-                "When ON, futures orders are blocked if BTC's daily regime "
-                "contradicts the signal direction (LONG when BTC is below "
-                "EMA20/50 or 7d return < 0; SHORT when BTC is in uptrend or "
-                "3d return < -7%). Signal-creation tagging is always on "
-                "regardless of this flag — it powers the analytics filter "
-                "on Bot Performance and has near-zero cost."
+                "Per-class regime gates at the Binance trade boundary. "
+                "Each flag independently controls whether the matching "
+                "regime proxy (BTC for crypto, SPY for stocks, XAU for "
+                "commodities) can block an order. When OFF, that class "
+                "of signal bypasses the gate. Signal-creation tagging "
+                "is always on regardless. macro_filter_enabled is the "
+                "legacy global flag — kept for backwards compatibility "
+                "but no longer consulted at the trade boundary."
             ),
         }),
         ('Neutral Market Reversal', {

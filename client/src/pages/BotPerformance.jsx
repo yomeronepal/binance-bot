@@ -3,6 +3,8 @@ import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Pe
 import TradeReport from '../components/common/TradeReport';
 import TradeCharts from '../components/common/TradeCharts';
 import MacroFilterWidget from '../components/common/MacroFilterWidget';
+import EquityMacroFilterWidget from '../components/common/EquityMacroFilterWidget';
+import CommodityMacroFilterWidget from '../components/common/CommodityMacroFilterWidget';
 import { lazy, Suspense } from 'react';
 const LazyTradeReplay = lazy(() => import('../components/common/TradeReplay'));
 
@@ -421,6 +423,8 @@ const BotPerformance = () => {
                 will say right now. Drives confidence in the Macro Allowed /
                 Macro Blocked tabs and surfaces sudden regime shifts. */}
             <MacroFilterWidget />
+            <EquityMacroFilterWidget />
+            <CommodityMacroFilterWidget />
 
             {/* Golden Window Filter */}
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 bg-white dark:bg-gray-800 rounded-xl p-2 shadow-sm border border-gray-100 dark:border-gray-700">

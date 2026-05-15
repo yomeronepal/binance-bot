@@ -12,6 +12,8 @@ import FuturesSignalCard from '../../components/signals/FuturesSignalCard';
 import { Activity } from 'lucide-react';
 import FearGreedWidget from '../../components/common/FearGreedWidget';
 import MacroFilterWidget from '../../components/common/MacroFilterWidget';
+import EquityMacroFilterWidget from '../../components/common/EquityMacroFilterWidget';
+import CommodityMacroFilterWidget from '../../components/common/CommodityMacroFilterWidget';
 
 // Mock signals data for development
 const mockSignals = [
@@ -268,6 +270,8 @@ const Dashboard = () => {
       {/* BTC macro filter — what the strict trade-time gate would say
           right now. Same widget renders on /bot-performance. */}
       <MacroFilterWidget />
+      <EquityMacroFilterWidget />
+      <CommodityMacroFilterWidget />
 
       {/* Recent Spot Signals */}
       <div>

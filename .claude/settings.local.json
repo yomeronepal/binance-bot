@@ -92,7 +92,12 @@
       "WebFetch(domain:dev.binance.vision)",
       "WebFetch(domain:github.com)",
       "Bash(DJANGO_SETTINGS_MODULE=config.settings python -m pytest scanner/tests/test_macro_filter.py -v)",
-      "Bash(DJANGO_SETTINGS_MODULE=config.settings python -m pytest scanner/tests/test_macro_filter.py scanner/tests/test_indicators.py scanner/tests/test_signal_engine.py scanner/tests/test_signal_generator.py -q)"
+      "Bash(DJANGO_SETTINGS_MODULE=config.settings python -m pytest scanner/tests/test_macro_filter.py scanner/tests/test_indicators.py scanner/tests/test_signal_engine.py scanner/tests/test_signal_generator.py -q)",
+      "Bash(git -C /Users/gunsnrojeshprajapati/Desktop/project/binance-bot log --oneline --all)",
+      "Bash(git -C /Users/gunsnrojeshprajapati/Desktop/project/binance-bot show --stat 784b184)",
+      "Bash(git -C /Users/gunsnrojeshprajapati/Desktop/project/binance-bot show 784b184 -- backend/scanner/services/binance_futures_client.py)",
+      "Bash(node_modules/.bin/eslint src/components/common/EquityMacroFilterWidget.jsx src/pages/BotPerformance.jsx)",
+      "Bash(node_modules/.bin/eslint src/pages/dashboard/Dashboard.jsx)"
     ],
     "deny": [],
     "ask": []

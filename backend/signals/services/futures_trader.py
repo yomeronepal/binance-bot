@@ -1742,34 +1742,50 @@ class FuturesTradingService:
 
     def _check_macro_filter(self, signal, direction, log_ctx):
         """
-        Block trades that fight BTC's daily regime.
+        Block trades that fight their asset class's daily regime.
+
+        Routes to the right macro filter based on ``signal.asset_class``:
+            CRYPTO     → BTC daily regime
+            STOCK      → SPY daily regime
+            COMMODITY  → XAU (gold) daily regime
 
         Pure check — no side effects beyond a ``CHECK_FAILED`` log row.
-        Snapshot-fetch failures fail open (allow) so a transient network
-        issue doesn't pause the bot; the underlying ``evaluate_macro_filter``
-        returns ``ALLOW_SNAPSHOT_UNAVAILABLE`` in that case.
+        Snapshot-fetch failures fail open (allow) so a transient
+        network issue doesn't pause the bot; each per-class filter
+        returns ``ALLOW`` + ``*_snapshot_unavailable_allow`` in that
+        case.
 
-        Honours the admin-toggleable
-        ``FuturesTradingSettings.macro_filter_enabled`` flag — when
-        OFF, the gate short-circuits to True (allow) without consulting
-        the BTC snapshot. Signal-creation tagging is unaffected by the
-        flag (always on; cheap; useful for analytics).
+        Honours the per-class admin toggles on
+        ``FuturesTradingSettings``: ``crypto_macro_filter_enabled``,
+        ``stock_macro_filter_enabled``,
+        ``commodity_macro_filter_enabled``. When the relevant flag is
+        OFF, the gate short-circuits to True (allow) without
+        consulting any regime snapshot. Signal-creation tagging is
+        unaffected by the flags.
         """
+        asset_class = (getattr(signal, 'asset_class', None) or 'CRYPTO').upper()
+        flag_attr = {
+            'CRYPTO': 'crypto_macro_filter_enabled',
+            'STOCK': 'stock_macro_filter_enabled',
+            'COMMODITY': 'commodity_macro_filter_enabled',
+        }.get(asset_class, 'crypto_macro_filter_enabled')
+
         try:
             settings_obj = FuturesTradingSettings.get_settings()
-            if not getattr(settings_obj, 'macro_filter_enabled', True):
+            if not getattr(settings_obj, flag_attr, True):
                 return True
         except Exception as exc:
-            # Settings lookup failure shouldn't block trading. Default
-            # to "allow" matching the in-code default.
             logger.warning(
                 "Macro filter setting lookup failed (allowing trade): %s", exc,
             )
             return True
 
         try:
-            from scanner.services.macro_filter import evaluate_macro_filter
-            decision, reason = evaluate_macro_filter(direction)
+            from scanner.services.macro_router import evaluate_for_symbol
+            symbol_str = signal.symbol.symbol if hasattr(signal.symbol, 'symbol') else str(signal.symbol)
+            decision, reason, _ = evaluate_for_symbol(
+                symbol_str, direction, asset_class=asset_class,
+            )
         except Exception as exc:
             logger.warning(
                 "Macro filter raised (allowing trade): signal=%s err=%s",
@@ -1781,7 +1797,11 @@ class FuturesTradingService:
             self._log(
                 'CHECK_FAILED', 'WARNING',
                 f"Macro filter blocked: {reason}",
-                details={'macro_reason': reason, 'direction': direction},
+                details={
+                    'macro_reason': reason,
+                    'direction': direction,
+                    'asset_class': asset_class,
+                },
                 **log_ctx,
             )
             return False

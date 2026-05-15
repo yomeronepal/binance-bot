@@ -122,14 +122,40 @@ class FuturesTradingSettings(models.Model):
     macro_filter_enabled = models.BooleanField(
         default=True,
         help_text=_(
-            "Enable BTC macro filter at the Binance trade boundary. "
-            "When ON, futures orders are blocked if BTC's daily regime "
-            "contradicts the signal direction (LONG when BTC is below "
-            "EMA20/50 or 7d return < 0; SHORT when BTC is in uptrend or "
-            "3d return < -7%). "
-            "Signal-creation tagging (signal.meta.macro_at_signal) is "
-            "always on regardless of this flag — it powers the analytics "
-            "filter on Bot Performance and has near-zero cost."
+            "Legacy global toggle. Kept for backwards compatibility — "
+            "the per-class flags (crypto/stock/commodity_macro_filter_"
+            "enabled) are the source of truth used at the trade "
+            "boundary. New deployments should ignore this field."
+        ),
+    )
+
+    crypto_macro_filter_enabled = models.BooleanField(
+        default=True,
+        help_text=_(
+            "Enable BTC macro filter for CRYPTO signals at the Binance "
+            "trade boundary. When ON, futures orders on crypto perps "
+            "are blocked if BTC's daily regime contradicts the signal "
+            "direction."
+        ),
+    )
+
+    stock_macro_filter_enabled = models.BooleanField(
+        default=True,
+        help_text=_(
+            "Enable SPY macro filter for STOCK signals (NVDA, MSTR, "
+            "TSLA, ...). When ON, orders on tokenized-equity perps "
+            "are blocked if SPY's daily regime contradicts the signal "
+            "direction."
+        ),
+    )
+
+    commodity_macro_filter_enabled = models.BooleanField(
+        default=True,
+        help_text=_(
+            "Enable XAU (gold) macro filter for COMMODITY signals "
+            "(XAU, XAG, CL, ...). When ON, orders on tokenized-"
+            "commodity perps are blocked if gold's daily regime "
+            "contradicts the signal direction."
         ),
     )
 
