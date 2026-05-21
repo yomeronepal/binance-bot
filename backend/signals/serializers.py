@@ -173,6 +173,8 @@ class SignalSerializer(BaseModelSerializer):
             'source',
             'status',
             'status_display',
+            'market_type',
+            'asset_class',
             'meta',
             'description',
             'created_by',
@@ -306,6 +308,7 @@ class SignalListSerializer(serializers.ModelSerializer):
             'risk_reward',
             'created_at',
             'market_type',
+            'asset_class',
             'leverage',
             'timeframe',
             'description',
@@ -453,7 +456,7 @@ class PaperTradeSerializer(BaseModelSerializer):
         model = PaperTrade
         fields = [
             'id', 'signal_id', 'signal_direction', 'signal_timeframe', 'signal_confidence',
-            'symbol', 'direction', 'market_type', 'timeframe', 'confidence',
+            'symbol', 'direction', 'market_type', 'asset_class', 'timeframe', 'confidence',
             'entry_price', 'entry_price_formatted', 'entry_time',
             'position_size', 'quantity',
             'stop_loss', 'take_profit',

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { TrendingUp, TrendingDown, Clock, Target, ShieldAlert, Zap, BarChart3, ArrowRight } from 'lucide-react';
 import usePaperTradeStore from '../../store/usePaperTradeStore';
+import AssetClassBadge from './AssetClassBadge';
 
 const formatPrice = (price) => {
   if (!price) return 'N/A';
@@ -102,10 +103,11 @@ const SignalCard = ({ signal, tradingMode = 'paper' }) => {
             </div>
             <div className="min-w-0">
               <h3 className="font-bold text-gray-900 dark:text-white text-base truncate">{symbol}</h3>
-              <div className="flex items-center gap-1.5 mt-0.5">
+              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                 <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${dirBg}`}>
                   {displayDirection}
                 </span>
+                <AssetClassBadge assetClass={signal.asset_class} />
                 {signal.timeframe && (
                   <span className="text-[10px] text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700/50 px-1.5 py-0.5 rounded">
                     {signal.timeframe}

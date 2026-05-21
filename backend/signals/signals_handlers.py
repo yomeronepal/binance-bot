@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
 from .models import Signal, Symbol, PaperTrade, TradingSession
+from .models_futures import FuturesTrade
 from .services.realtime import realtime_signal_service
 from scanner.services.asset_classifier import classify_symbol
 
@@ -616,3 +617,51 @@ def stamp_paper_trade_asset_class(sender, instance, **kwargs):
             pass
     if instance.symbol:
         instance.asset_class = classify_symbol(instance.symbol)
+
+
+@receiver(pre_save, sender=FuturesTrade)
+def _stash_futures_trade_old_status(sender, instance, **kwargs):
+    """
+    Remember the prior status so the post_save handler can detect
+    OPEN -> CLOSED_* transitions. Skipped on insert (no prior row).
+    """
+    if instance._state.adding or not instance.pk:
+        return
+    try:
+        previous = FuturesTrade.objects.only('status').get(pk=instance.pk)
+        instance._prev_status = previous.status
+    except FuturesTrade.DoesNotExist:
+        instance._prev_status = None
+
+
+@receiver(post_save, sender=FuturesTrade)
+def refresh_balance_on_futures_trade_close(sender, instance, created, **kwargs):
+    """
+    When a real futures trade closes (status flips from OPEN to any
+    CLOSED_*), pull the fresh Binance USDT balance and update
+    ``total_trading_capital`` so the frontend display reflects the
+    realized P&L. Trade-sizing fields are intentionally not touched.
+
+    Fail-safe: never raise. Errors are logged.
+    """
+    if created:
+        return
+    prev_status = getattr(instance, '_prev_status', None)
+    if prev_status is None:
+        return
+    if not (prev_status == 'OPEN' and instance.status.startswith('CLOSED')):
+        return
+
+    try:
+        from .services.balance_rebalancer import refresh_balance_only
+        result = refresh_balance_only()
+        if not result.get('ok'):
+            logger.warning(
+                "Balance refresh after trade close failed: trade=%s reason=%s",
+                instance.id, result.get('reason'),
+            )
+    except Exception as exc:
+        logger.warning(
+            "Balance refresh handler raised for trade %s: %s",
+            instance.id, exc,
+        )

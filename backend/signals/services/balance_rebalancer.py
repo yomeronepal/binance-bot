@@ -80,6 +80,67 @@ def _compute_per_trade(balance: Decimal) -> Decimal:
     )
 
 
+def refresh_balance_only() -> dict:
+    """
+    Pull the live futures USDT balance and update
+    ``total_trading_capital`` + ``last_balance_updated_at`` ONLY.
+
+    Per-trade sizing fields (``trade_amount``,
+    ``max_concurrent_trades``) are intentionally left untouched —
+    those are set by the monthly rebalance and should not move
+    intraday on every trade close, otherwise wins/losses compound
+    sizing immediately and per-trade risk drifts off-plan.
+
+    Fail-safe: any error returns a summary with ``ok=False`` and
+    skips the write. Caller (a post_save signal) should not raise
+    on failure.
+
+    Returns:
+        ``{ok, balance, previous_balance, reason}``.
+    """
+    from django.utils import timezone
+
+    out = {
+        'ok': False,
+        'balance': None,
+        'previous_balance': None,
+        'reason': '',
+    }
+
+    try:
+        balance = _fetch_futures_usdt_balance()
+    except Exception as exc:
+        out['reason'] = f'balance fetch failed: {exc}'
+        logger.warning("refresh_balance_only fetch failed: %s", exc)
+        return out
+
+    if balance is None:
+        out['reason'] = 'no USDT row in futures balance'
+        return out
+
+    try:
+        settings_obj = FuturesTradingSettings.get_settings()
+        out['previous_balance'] = float(settings_obj.total_trading_capital)
+        settings_obj.total_trading_capital = balance
+        settings_obj.last_balance_updated_at = timezone.now()
+        settings_obj.save(update_fields=[
+            'total_trading_capital', 'last_balance_updated_at',
+        ])
+    except Exception as exc:
+        out['reason'] = f'settings write failed: {exc}'
+        logger.warning("refresh_balance_only write failed: %s", exc)
+        return out
+
+    out['ok'] = True
+    out['balance'] = float(balance)
+    out['reason'] = 'balance refreshed'
+    logger.info(
+        "Balance refreshed from %.2f -> %.2f",
+        out['previous_balance'], out['balance'],
+    )
+    return out
+
+
 def _record_log(summary: dict, dry_run: bool) -> None:
     """
     Persist a BalanceRebalanceLog row for the run.

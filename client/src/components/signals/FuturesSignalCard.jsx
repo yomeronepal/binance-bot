@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { TrendingUp, TrendingDown, Shield, Target, Zap, BarChart3, Clock, ArrowRight, ExternalLink, RefreshCw } from 'lucide-react';
 import usePaperTradeStore from '../../store/usePaperTradeStore';
+import AssetClassBadge from '../common/AssetClassBadge';
 
 const formatPrice = (price) => {
   if (!price) return 'N/A';
@@ -87,10 +88,11 @@ const FuturesSignalCard = ({ signal, tradingMode = 'paper' }) => {
                   FUTURES
                 </span>
               </div>
-              <div className="flex items-center gap-1.5 mt-0.5">
+              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isLong ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-100 dark:bg-rose-500/15 text-rose-600 dark:text-rose-400'}`}>
                   {signal.direction}
                 </span>
+                <AssetClassBadge assetClass={signal.asset_class} />
                 <span className="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-700/50 px-1.5 py-0.5 rounded">{signal.timeframe}</span>
                 <span className="text-[10px] font-medium text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-500/10 px-1.5 py-0.5 rounded">
                   {leverage}x

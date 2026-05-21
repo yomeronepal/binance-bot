@@ -695,10 +695,10 @@ def public_open_positions(request):
         queryset = queryset.filter(direction=direction.upper())
 
     open_trades = list(queryset.select_related('signal').only(
-        'id', 'symbol', 'direction', 'market_type', 'entry_price',
-        'entry_time', 'position_size', 'stop_loss', 'take_profit',
-        'leverage', 'quantity', 'status', 'user_id', 'is_priority',
-        'signal__meta'
+        'id', 'symbol', 'direction', 'market_type', 'asset_class',
+        'entry_price', 'entry_time', 'position_size', 'stop_loss',
+        'take_profit', 'leverage', 'quantity', 'status', 'user_id',
+        'is_priority', 'signal__meta'
     ).order_by('-entry_time'))
 
     if not open_trades:
@@ -734,6 +734,7 @@ def public_open_positions(request):
             'symbol': trade.symbol,
             'direction': trade.direction,
             'market_type': trade.market_type,
+            'asset_class': trade.asset_class,
             'entry_price': float(trade.entry_price),
             'entry_time': trade.entry_time,
             'position_size': float(trade.position_size),
