@@ -105,7 +105,8 @@
       "Bash(node_modules/.bin/eslint --no-cache src/components/common/AssetClassBadge.jsx)",
       "Bash(node_modules/.bin/eslint --no-cache src/components/common/AssetClassBadge.jsx src/components/common/SignalCard.jsx src/components/signals/FuturesSignalCard.jsx src/pages/BotPerformance.jsx)",
       "Bash(git -C /Users/gunsnrojeshprajapati/Desktop/project/binance-bot log --oneline -1 -- client/src/components/common/SignalCard.jsx)",
-      "Bash(git -C /Users/gunsnrojeshprajapati/Desktop/project/binance-bot diff HEAD -- client/src/components/common/SignalCard.jsx)"
+      "Bash(git -C /Users/gunsnrojeshprajapati/Desktop/project/binance-bot diff HEAD -- client/src/components/common/SignalCard.jsx)",
+      "Bash(node_modules/.bin/eslint --no-cache src/pages/FuturesPerformance.jsx)"
     ],
     "deny": [],
     "ask": []

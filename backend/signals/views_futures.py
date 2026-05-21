@@ -20,6 +20,65 @@ from .serializers_futures import (
 logger = logging.getLogger(__name__)
 
 
+def _apply_time_filters(queryset, params):
+    """
+    Filter a FuturesTrade queryset by weekday / hour / month / year on
+    ``entry_time``. Weekday and hour are matched in Nepal Time (the
+    server-wide convention shared with the public paper-trading
+    dashboard); month and year use DB-native lookups against the UTC
+    timestamp.
+
+    Each filter is independent and accepts ``'ALL'`` or missing to
+    mean "no filter". Invalid values are silently ignored so a bad
+    query param can't 500 the dashboard.
+
+    Args:
+        queryset: FuturesTrade queryset (or any model with entry_time).
+        params: ``request.query_params`` (or a dict-like).
+
+    Returns:
+        Filtered queryset.
+    """
+    from .views_public_paper_trading import (
+        _filter_by_npt_weekday,
+        _filter_by_npt_hour,
+    )
+
+    weekday = params.get('weekday')
+    if weekday and weekday != 'ALL':
+        try:
+            queryset = _filter_by_npt_weekday(queryset, int(weekday))
+        except (ValueError, TypeError):
+            pass
+
+    hour = params.get('hour')
+    if hour and hour != 'ALL':
+        try:
+            h = int(hour)
+            if 0 <= h <= 23:
+                queryset = _filter_by_npt_hour(queryset, h)
+        except (ValueError, TypeError):
+            pass
+
+    month = params.get('month')
+    if month and month != 'ALL':
+        try:
+            m = int(month)
+            if 1 <= m <= 12:
+                queryset = queryset.filter(entry_time__month=m)
+        except (ValueError, TypeError):
+            pass
+
+    year = params.get('year')
+    if year and year != 'ALL':
+        try:
+            queryset = queryset.filter(entry_time__year=int(year))
+        except (ValueError, TypeError):
+            pass
+
+    return queryset
+
+
 @api_view(['GET', 'PUT', 'PATCH'])
 @permission_classes([IsAdminUser])
 def futures_settings(request):
@@ -100,6 +159,7 @@ def futures_trades_list(request):
     - limit: Number of records (default 50)
     """
     trades = FuturesTrade.objects.select_related('signal').all()
+    trades = _apply_time_filters(trades, request.query_params)
 
     status_filter = request.query_params.get('status')
     if status_filter:
@@ -201,6 +261,7 @@ def futures_summary(request):
     settings_obj = FuturesTradingSettings.get_settings()
 
     all_trades = FuturesTrade.objects.select_related('signal').all()
+    all_trades = _apply_time_filters(all_trades, request.query_params)
     closed_trades = all_trades.filter(status__startswith='CLOSED')
     open_trades = all_trades.filter(status='OPEN')
 
@@ -352,8 +413,10 @@ def futures_report(request):
 
     GET /api/futures/report/
     """
-    closed = FuturesTrade.objects.select_related('signal').filter(status__startswith='CLOSED')
-    all_trades = FuturesTrade.objects.all()
+    base = FuturesTrade.objects.select_related('signal')
+    base = _apply_time_filters(base, request.query_params)
+    closed = base.filter(status__startswith='CLOSED')
+    all_trades = base
 
     total_closed = closed.count()
     winners = closed.filter(profit_loss__gt=0).count()

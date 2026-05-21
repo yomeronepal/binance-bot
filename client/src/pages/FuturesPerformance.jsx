@@ -10,6 +10,63 @@ import TradeReport from '../components/common/TradeReport';
 import TradeCharts from '../components/common/TradeCharts';
 import FuturesBalanceCard from '../components/common/FuturesBalanceCard';
 
+const WEEKDAYS = [
+    { value: 'ALL', label: 'All' },
+    { value: '1', label: 'Mon' }, { value: '2', label: 'Tue' },
+    { value: '3', label: 'Wed' }, { value: '4', label: 'Thu' },
+    { value: '5', label: 'Fri' }, { value: '6', label: 'Sat' },
+    { value: '7', label: 'Sun' },
+];
+const HOURS = ['ALL', ...Array.from({ length: 24 }, (_, i) => String(i))];
+const MONTHS = [
+    { value: 'ALL', label: 'All' },
+    { value: '1', label: 'Jan' }, { value: '2', label: 'Feb' },
+    { value: '3', label: 'Mar' }, { value: '4', label: 'Apr' },
+    { value: '5', label: 'May' }, { value: '6', label: 'Jun' },
+    { value: '7', label: 'Jul' }, { value: '8', label: 'Aug' },
+    { value: '9', label: 'Sep' }, { value: '10', label: 'Oct' },
+    { value: '11', label: 'Nov' }, { value: '12', label: 'Dec' },
+];
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS = ['ALL', ...Array.from({ length: 4 }, (_, i) => String(CURRENT_YEAR - i))];
+
+const TimeFilters = ({ weekday, setWeekday, hour, setHour, month, setMonth, year, setYear }) => {
+    const Row = ({ label, value, setValue, options }) => (
+        <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400 w-16 shrink-0">{label}</span>
+            <div className="flex flex-wrap gap-1.5">
+                {options.map((opt) => {
+                    const optValue = typeof opt === 'string' ? opt : opt.value;
+                    const optLabel = typeof opt === 'string' ? (opt === 'ALL' ? 'All' : opt) : opt.label;
+                    const active = value === optValue;
+                    return (
+                        <button
+                            key={optValue}
+                            onClick={() => setValue(optValue)}
+                            className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
+                                active
+                                    ? 'bg-purple-600 text-white'
+                                    : 'bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                            }`}
+                        >
+                            {optLabel}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+            <Row label="Days" value={weekday} setValue={setWeekday} options={WEEKDAYS} />
+            <Row label="Hours" value={hour} setValue={setHour} options={HOURS} />
+            <Row label="Months" value={month} setValue={setMonth} options={MONTHS} />
+            <Row label="Years" value={year} setValue={setYear} options={YEARS} />
+        </div>
+    );
+};
+
 const FuturesPerformance = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -23,6 +80,26 @@ const FuturesPerformance = () => {
     const [savingSettings, setSavingSettings] = useState(false);
     const [fearGreed, setFearGreed] = useState(null);
 
+    const [weekday, setWeekday] = useState(() => localStorage.getItem('futures_perf_weekday') || 'ALL');
+    const [hour, setHour] = useState(() => localStorage.getItem('futures_perf_hour') || 'ALL');
+    const [month, setMonth] = useState(() => localStorage.getItem('futures_perf_month') || 'ALL');
+    const [year, setYear] = useState(() => localStorage.getItem('futures_perf_year') || 'ALL');
+
+    useEffect(() => localStorage.setItem('futures_perf_weekday', weekday), [weekday]);
+    useEffect(() => localStorage.setItem('futures_perf_hour', hour), [hour]);
+    useEffect(() => localStorage.setItem('futures_perf_month', month), [month]);
+    useEffect(() => localStorage.setItem('futures_perf_year', year), [year]);
+
+    const buildTimeQuery = () => {
+        const p = new URLSearchParams();
+        if (weekday !== 'ALL') p.append('weekday', weekday);
+        if (hour !== 'ALL') p.append('hour', hour);
+        if (month !== 'ALL') p.append('month', month);
+        if (year !== 'ALL') p.append('year', year);
+        const q = p.toString();
+        return q ? `&${q}` : '';
+    };
+
     const { user } = useAuthStore();
     const isSuperUser = user?.is_superuser;
 
@@ -33,10 +110,12 @@ const FuturesPerformance = () => {
         try {
             setLoading(true);
 
+            const tq = buildTimeQuery();
+            const tqLead = tq ? `?${tq.slice(1)}` : '';
             const [summaryRes, positionsRes, tradesRes, fgRes] = await Promise.all([
-                api.get('/futures/summary/'),
+                api.get(`/futures/summary/${tqLead}`),
                 api.get('/futures/positions/'),
-                api.get('/futures/trades/?limit=50'),
+                api.get(`/futures/trades/?limit=50${tq}`),
                 api.get('/futures/fear-greed/').catch(() => ({ data: null })),
             ]);
 
@@ -101,11 +180,10 @@ const FuturesPerformance = () => {
     useEffect(() => {
         if (isSuperUser) {
             fetchData();
-            // Auto-refresh every 30 seconds
             const interval = setInterval(fetchData, 30000);
             return () => clearInterval(interval);
         }
-    }, [isSuperUser]);
+    }, [isSuperUser, weekday, hour, month, year]);
 
     if (!isSuperUser) {
         return (
@@ -264,6 +342,16 @@ const FuturesPerformance = () => {
                     <FuturesBalanceCard />
                 </div>
 
+                {/* Time filters */}
+                <div className="mb-6">
+                    <TimeFilters
+                        weekday={weekday} setWeekday={setWeekday}
+                        hour={hour} setHour={setHour}
+                        month={month} setMonth={setMonth}
+                        year={year} setYear={setYear}
+                    />
+                </div>
+
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-8">
                     {statCards.map((stat, index) => (
@@ -369,11 +457,17 @@ const FuturesPerformance = () => {
                 )}
 
                 {activeTab === 'report' && (
-                    <TradeReport apiUrl="/futures/report/" useAuth={true} />
+                    <TradeReport
+                        apiUrl={`/futures/report/${buildTimeQuery() ? `?${buildTimeQuery().slice(1)}` : ''}`}
+                        useAuth={true}
+                    />
                 )}
 
                 {activeTab === 'graphs' && (
-                    <TradeCharts apiUrl="/futures/report/" useAuth={true} />
+                    <TradeCharts
+                        apiUrl={`/futures/report/${buildTimeQuery() ? `?${buildTimeQuery().slice(1)}` : ''}`}
+                        useAuth={true}
+                    />
                 )}
 
                 {/* Settings Modal */}
