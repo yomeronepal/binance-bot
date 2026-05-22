@@ -159,16 +159,16 @@ app.conf.beat_schedule = {
         'schedule': crontab(minute=0, hour='*/6'),
     },
 
-    'optimize-golden-windows-monthly': {
-        'task': 'signals.optimize_golden_windows',
-        'schedule': crontab(minute=0, hour=3, day_of_month=1),
-        'options': {'expires': 3600.0},
-    },
-
     'monthly-balance-rebalance': {
         'task': 'signals.monthly_balance_rebalance',
-        'schedule': crontab(minute=30, hour=2, day_of_month=1),
+        'schedule': crontab(minute=0, hour=0, day_of_month=1),
         'options': {'expires': 1800.0},
+    },
+
+    'optimize-trading-sessions-monthly': {
+        'task': 'signals.optimize_golden_windows',
+        'schedule': crontab(minute=30, hour=0, day_of_month=1),
+        'options': {'expires': 3600.0},
     },
 
     # Snapshot the top-10 performing symbols for the calendar month
