@@ -168,8 +168,8 @@ class TradingSessionAdmin(BaseModelAdmin):
         wr = float(obj.win_rate)
         color = '#28a745' if wr >= 60 else '#f59e0b' if wr >= 50 else '#dc3545'
         return format_html(
-            '<span style="color: {}; font-weight: bold;">{:.1f}%</span>',
-            color, wr
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color, f'{wr:.1f}%'
         )
     win_rate_display.short_description = 'Win Rate'
     win_rate_display.admin_order_field = 'win_rate'
@@ -1178,8 +1178,8 @@ class PaperAccountAdmin(BaseModelAdmin):
     def balance_display(self, obj):
         """Display balance."""
         return format_html(
-            '<span style="font-weight: bold;">${:,.2f}</span>',
-            float(obj.balance)
+            '<span style="font-weight: bold;">{}</span>',
+            f'${float(obj.balance):,.2f}',
         )
     balance_display.short_description = 'Balance'
     balance_display.admin_order_field = 'balance'
@@ -1187,8 +1187,8 @@ class PaperAccountAdmin(BaseModelAdmin):
     def equity_display(self, obj):
         """Display equity."""
         return format_html(
-            '<span style="font-weight: bold;">${:,.2f}</span>',
-            float(obj.equity)
+            '<span style="font-weight: bold;">{}</span>',
+            f'${float(obj.equity):,.2f}',
         )
     equity_display.short_description = 'Equity'
     equity_display.admin_order_field = 'equity'
@@ -1206,10 +1206,9 @@ class PaperAccountAdmin(BaseModelAdmin):
             color = 'gray'
             sign = ''
         return format_html(
-            '<span style="color: {}; font-weight: bold;">{}{:.2f}</span>',
+            '<span style="color: {}; font-weight: bold;">{}</span>',
             color,
-            sign,
-            pnl
+            f'{sign}{pnl:.2f}',
         )
     total_pnl_display.short_description = 'Total P/L'
     total_pnl_display.admin_order_field = 'total_pnl'
@@ -1224,9 +1223,9 @@ class PaperAccountAdmin(BaseModelAdmin):
         else:
             color = 'red'
         return format_html(
-            '<span style="color: {}; font-weight: bold;">{:.1f}%</span>',
+            '<span style="color: {}; font-weight: bold;">{}</span>',
             color,
-            win_rate
+            f'{win_rate:.1f}%',
         )
     win_rate_display.short_description = 'Win Rate'
     win_rate_display.admin_order_field = 'win_rate'

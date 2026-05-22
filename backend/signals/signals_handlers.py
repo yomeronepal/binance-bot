@@ -619,6 +619,72 @@ def stamp_paper_trade_asset_class(sender, instance, **kwargs):
         instance.asset_class = classify_symbol(instance.symbol)
 
 
+TRADING_SESSION_TRACKED_FIELDS = (
+    'name', 'session_type', 'description',
+    'start_hour', 'start_minute', 'end_hour', 'end_minute',
+    'active_days', 'active', 'auto_generated',
+    'win_rate', 'total_trades_analyzed', 'last_optimized_at',
+)
+
+
+@receiver(pre_save, sender=TradingSession)
+def _stash_trading_session_old(sender, instance, **kwargs):
+    """
+    Snapshot the prior field values so the post_save handler can
+    diff them and log only what changed. Skipped on insert (no prior
+    row).
+    """
+    if instance._state.adding or not instance.pk:
+        return
+    try:
+        previous = TradingSession.objects.get(pk=instance.pk)
+        instance._prev_field_values = {
+            f: getattr(previous, f, None)
+            for f in TRADING_SESSION_TRACKED_FIELDS
+        }
+    except TradingSession.DoesNotExist:
+        instance._prev_field_values = None
+
+
+@receiver(post_save, sender=TradingSession)
+def log_trading_session_change(sender, instance, created, **kwargs):
+    """
+    Emit a structured log line whenever a TradingSession is created
+    or its tracked fields change. Useful audit trail for windows
+    flipped active/inactive, retimed by the optimizer, or hand-edited
+    in admin.
+    """
+    if created:
+        logger.info(
+            "TradingSession created: id=%s name=%s type=%s window=%02d:%02d-%02d:%02d "
+            "active=%s auto_generated=%s",
+            instance.pk, instance.name, instance.session_type,
+            instance.start_hour, instance.start_minute,
+            instance.end_hour, instance.end_minute,
+            instance.active, instance.auto_generated,
+        )
+        return
+
+    prev = getattr(instance, '_prev_field_values', None)
+    if not prev:
+        return
+
+    diffs = []
+    for field in TRADING_SESSION_TRACKED_FIELDS:
+        new = getattr(instance, field, None)
+        old = prev.get(field)
+        if old != new:
+            diffs.append(f"{field}: {old!r} -> {new!r}")
+
+    if not diffs:
+        return
+
+    logger.info(
+        "TradingSession updated: id=%s name=%s changes=[%s]",
+        instance.pk, instance.name, "; ".join(diffs),
+    )
+
+
 @receiver(pre_save, sender=FuturesTrade)
 def _stash_futures_trade_old_status(sender, instance, **kwargs):
     """
