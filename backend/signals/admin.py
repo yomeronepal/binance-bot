@@ -1,6 +1,8 @@
 """
 Signal admin configuration following DRY principles.
 """
+import csv
+import io
 import json
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -1619,6 +1621,12 @@ class FuturesTradingSettingsAdmin(admin.ModelAdmin):
 @admin.register(FuturesTrade)
 class FuturesTradeAdmin(BaseModelAdmin):
     """Admin interface for Futures Trades."""
+    change_list_template = "admin/signals/futurestrade/change_list.html"
+    actions = [
+        'export_selected_to_json',
+        'export_selected_to_csv',
+        'export_selected_to_excel',
+    ]
     list_display = (
         "id", "symbol", "direction_badge", "leverage",
         "entry_price", "mark_price", "status_badge",
@@ -1784,6 +1792,225 @@ class FuturesTradeAdmin(BaseModelAdmin):
     def get_queryset(self, request):
         """Optimize queryset."""
         return super().get_queryset(request).select_related('signal')
+
+    EXPORT_COLUMNS = [
+        'id', 'symbol', 'direction', 'status', 'leverage', 'margin_type',
+        'quantity', 'position_size_usdt',
+        'entry_price', 'exit_price', 'stop_loss', 'take_profit',
+        'mark_price', 'liquidation_price',
+        'profit_loss', 'profit_loss_percentage',
+        'unrealized_pnl', 'unrealized_pnl_percentage',
+        'max_loss_pct_reached', 'max_profit_pct_reached',
+        'cut_loser_triggered', 'current_trailing_tier',
+        'binance_order_id', 'binance_exit_order_id',
+        'sl_order_id', 'tp_order_id', 'trailing_order_id',
+        'signal_id', 'signal_timeframe', 'signal_confidence', 'signal_source',
+        'error_message',
+        'entry_time', 'exit_time', 'last_sync_time', 'created_at', 'updated_at',
+    ]
+
+    def _serialize_trade(self, trade):
+        """Serialize a FuturesTrade to a flat dict suitable for export."""
+        return {
+            'id': trade.id,
+            'symbol': trade.symbol,
+            'direction': trade.direction,
+            'status': trade.status,
+            'leverage': trade.leverage,
+            'margin_type': trade.margin_type,
+            'quantity': self._to_float(trade.quantity),
+            'position_size_usdt': self._to_float(trade.position_size_usdt),
+            'entry_price': self._to_float(trade.entry_price),
+            'exit_price': self._to_float(trade.exit_price),
+            'stop_loss': self._to_float(trade.stop_loss),
+            'take_profit': self._to_float(trade.take_profit),
+            'mark_price': self._to_float(trade.mark_price),
+            'liquidation_price': self._to_float(trade.liquidation_price),
+            'profit_loss': self._to_float(trade.profit_loss),
+            'profit_loss_percentage': self._to_float(trade.profit_loss_percentage),
+            'unrealized_pnl': self._to_float(trade.unrealized_pnl),
+            'unrealized_pnl_percentage': self._to_float(trade.unrealized_pnl_percentage),
+            'max_loss_pct_reached': self._to_float(trade.max_loss_pct_reached),
+            'max_profit_pct_reached': self._to_float(trade.max_profit_pct_reached),
+            'cut_loser_triggered': trade.cut_loser_triggered,
+            'current_trailing_tier': trade.current_trailing_tier,
+            'binance_order_id': trade.binance_order_id,
+            'binance_exit_order_id': trade.binance_exit_order_id,
+            'sl_order_id': trade.sl_order_id,
+            'tp_order_id': trade.tp_order_id,
+            'trailing_order_id': trade.trailing_order_id,
+            'signal_id': trade.signal.id if trade.signal else None,
+            'signal_timeframe': trade.signal.timeframe if trade.signal else None,
+            'signal_confidence': self._to_float(trade.signal.confidence) if trade.signal else None,
+            'signal_source': trade.signal.source if trade.signal else None,
+            'error_message': trade.error_message or '',
+            'entry_time': self._to_iso(trade.entry_time),
+            'exit_time': self._to_iso(trade.exit_time),
+            'last_sync_time': self._to_iso(trade.last_sync_time),
+            'created_at': self._to_iso(trade.created_at),
+            'updated_at': self._to_iso(trade.updated_at),
+        }
+
+    @staticmethod
+    def _to_float(value):
+        """Convert a Decimal to float for JSON-safe export."""
+        if value is None:
+            return None
+        if isinstance(value, Decimal):
+            return float(value)
+        return value
+
+    @staticmethod
+    def _to_iso(value):
+        """Convert datetime to ISO 8601 string."""
+        if value is None:
+            return None
+        return value.isoformat()
+
+    @staticmethod
+    def _filename(stem, ext):
+        """Build a timestamped export filename."""
+        ts = timezone.now().strftime('%Y%m%d_%H%M%S')
+        return f'{stem}_{ts}.{ext}'
+
+    def _export_queryset(self, queryset):
+        """Return ordered queryset with related Signal preloaded."""
+        return queryset.select_related('signal').order_by('-created_at')
+
+    def _build_json_response(self, request, trades, filename):
+        """Build a JSON HttpResponse for the given trades."""
+        rows = [self._serialize_trade(t) for t in trades]
+        payload = {
+            'export_info': {
+                'generated_at': timezone.now().isoformat(),
+                'generated_by': request.user.username if request.user.is_authenticated else None,
+                'total_trades': len(rows),
+            },
+            'trades': rows,
+        }
+        response = HttpResponse(
+            json.dumps(payload, indent=2),
+            content_type='application/json',
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    def _build_csv_response(self, trades, filename):
+        """Build a CSV HttpResponse for the given trades."""
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        writer = csv.DictWriter(response, fieldnames=self.EXPORT_COLUMNS, extrasaction='ignore')
+        writer.writeheader()
+        for trade in trades:
+            writer.writerow(self._serialize_trade(trade))
+        return response
+
+    def _build_excel_response(self, trades, filename):
+        """Build an XLSX HttpResponse for the given trades."""
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill
+        except ImportError:
+            return None
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = 'Futures Trades'
+
+        header_font = Font(bold=True, color='FFFFFF')
+        header_fill = PatternFill(start_color='1F2937', end_color='1F2937', fill_type='solid')
+        sheet.append(self.EXPORT_COLUMNS)
+        for col_idx in range(1, len(self.EXPORT_COLUMNS) + 1):
+            cell = sheet.cell(row=1, column=col_idx)
+            cell.font = header_font
+            cell.fill = header_fill
+
+        for trade in trades:
+            row_data = self._serialize_trade(trade)
+            sheet.append([row_data.get(col) for col in self.EXPORT_COLUMNS])
+
+        for col_idx, column_name in enumerate(self.EXPORT_COLUMNS, start=1):
+            sheet.column_dimensions[sheet.cell(row=1, column=col_idx).column_letter].width = max(
+                12, min(len(column_name) + 4, 30)
+            )
+        sheet.freeze_panes = 'A2'
+
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+
+        response = HttpResponse(
+            buffer.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    @admin.action(description='Export selected trades to JSON')
+    def export_selected_to_json(self, request, queryset):
+        trades = self._export_queryset(queryset)
+        return self._build_json_response(request, trades, self._filename('futures_trades', 'json'))
+
+    @admin.action(description='Export selected trades to CSV')
+    def export_selected_to_csv(self, request, queryset):
+        trades = self._export_queryset(queryset)
+        return self._build_csv_response(trades, self._filename('futures_trades', 'csv'))
+
+    @admin.action(description='Export selected trades to Excel')
+    def export_selected_to_excel(self, request, queryset):
+        trades = self._export_queryset(queryset)
+        response = self._build_excel_response(trades, self._filename('futures_trades', 'xlsx'))
+        if response is None:
+            self.message_user(
+                request,
+                'openpyxl is not installed; cannot export to Excel.',
+                level=messages.ERROR,
+            )
+            return None
+        return response
+
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        custom = [
+            path(
+                'export-all/json/',
+                self.admin_site.admin_view(self.export_all_json_view),
+                name='signals_futurestrade_export_json',
+            ),
+            path(
+                'export-all/csv/',
+                self.admin_site.admin_view(self.export_all_csv_view),
+                name='signals_futurestrade_export_csv',
+            ),
+            path(
+                'export-all/excel/',
+                self.admin_site.admin_view(self.export_all_excel_view),
+                name='signals_futurestrade_export_excel',
+            ),
+        ]
+        return custom + urls
+
+    def export_all_json_view(self, request):
+        trades = self._export_queryset(FuturesTrade.objects.all())
+        return self._build_json_response(request, trades, self._filename('futures_trades_all', 'json'))
+
+    def export_all_csv_view(self, request):
+        trades = self._export_queryset(FuturesTrade.objects.all())
+        return self._build_csv_response(trades, self._filename('futures_trades_all', 'csv'))
+
+    def export_all_excel_view(self, request):
+        from django.shortcuts import redirect
+        trades = self._export_queryset(FuturesTrade.objects.all())
+        response = self._build_excel_response(trades, self._filename('futures_trades_all', 'xlsx'))
+        if response is None:
+            self.message_user(
+                request,
+                'openpyxl is not installed; cannot export to Excel.',
+                level=messages.ERROR,
+            )
+            return redirect('..')
+        return response
 
 
 @admin.register(FuturesTradeLog)

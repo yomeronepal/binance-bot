@@ -1,6 +1,6 @@
 
-import React, { useEffect, useState } from 'react';
-import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Activity, X, Settings, Power, Calendar, RefreshCw, AlertTriangle, FileBarChart, LineChart } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Activity, X, Settings, Power, Calendar, RefreshCw, AlertTriangle, FileBarChart, LineChart, Download, FileJson, FileSpreadsheet, FileText, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
 import { ShieldAlert } from 'lucide-react';
@@ -85,10 +85,25 @@ const FuturesPerformance = () => {
     const [month, setMonth] = useState(() => localStorage.getItem('futures_perf_month') || 'ALL');
     const [year, setYear] = useState(() => localStorage.getItem('futures_perf_year') || 'ALL');
 
+    const [exportingFormat, setExportingFormat] = useState(null);
+    const [showExportMenu, setShowExportMenu] = useState(false);
+    const exportMenuRef = useRef(null);
+
     useEffect(() => localStorage.setItem('futures_perf_weekday', weekday), [weekday]);
     useEffect(() => localStorage.setItem('futures_perf_hour', hour), [hour]);
     useEffect(() => localStorage.setItem('futures_perf_month', month), [month]);
     useEffect(() => localStorage.setItem('futures_perf_year', year), [year]);
+
+    useEffect(() => {
+        if (!showExportMenu) return;
+        const onClick = (event) => {
+            if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
+                setShowExportMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', onClick);
+        return () => document.removeEventListener('mousedown', onClick);
+    }, [showExportMenu]);
 
     const buildTimeQuery = () => {
         const p = new URLSearchParams();
@@ -159,6 +174,46 @@ const FuturesPerformance = () => {
             alert(`Failed to update settings: ${err.message}`);
         } finally {
             setSavingSettings(false);
+        }
+    };
+
+    const buildExportFilename = (format) => {
+        const ts = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15);
+        return `futures_trades_${ts}.${format === 'excel' ? 'xlsx' : format}`;
+    };
+
+    const triggerBlobDownload = (blob, filename) => {
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+    };
+
+    const handleExport = async (format) => {
+        try {
+            setExportingFormat(format);
+            setShowExportMenu(false);
+            const params = new URLSearchParams();
+            params.set('format', format);
+            if (weekday !== 'ALL') params.append('weekday', weekday);
+            if (hour !== 'ALL') params.append('hour', hour);
+            if (month !== 'ALL') params.append('month', month);
+            if (year !== 'ALL') params.append('year', year);
+
+            const response = await api.get(`/futures/export/?${params.toString()}`, {
+                responseType: 'blob',
+                timeout: 60000,
+            });
+            triggerBlobDownload(response.data, buildExportFilename(format));
+        } catch (err) {
+            console.error('Export failed:', err);
+            alert(`Failed to export trades: ${err.response?.data?.error || err.message}`);
+        } finally {
+            setExportingFormat(null);
         }
     };
 
@@ -311,6 +366,43 @@ const FuturesPerformance = () => {
                             >
                                 <Settings className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                             </button>
+                            {/* Export */}
+                            <div className="relative" ref={exportMenuRef}>
+                                <button
+                                    onClick={() => setShowExportMenu((open) => !open)}
+                                    disabled={!!exportingFormat}
+                                    className="flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
+                                >
+                                    <Download className="w-4 h-4" />
+                                    {exportingFormat ? `Exporting ${exportingFormat.toUpperCase()}...` : 'Export'}
+                                    {!exportingFormat && <ChevronDown className="w-3 h-3" />}
+                                </button>
+                                {showExportMenu && !exportingFormat && (
+                                    <div className="absolute right-0 mt-2 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 overflow-hidden">
+                                        <button
+                                            onClick={() => handleExport('json')}
+                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 text-left"
+                                        >
+                                            <FileJson className="w-4 h-4 text-amber-500" />
+                                            Export as JSON
+                                        </button>
+                                        <button
+                                            onClick={() => handleExport('csv')}
+                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 text-left"
+                                        >
+                                            <FileText className="w-4 h-4 text-blue-500" />
+                                            Export as CSV
+                                        </button>
+                                        <button
+                                            onClick={() => handleExport('excel')}
+                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 text-left"
+                                        >
+                                            <FileSpreadsheet className="w-4 h-4 text-green-500" />
+                                            Export as Excel
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                             {/* Refresh */}
                             <button
                                 onClick={fetchData}

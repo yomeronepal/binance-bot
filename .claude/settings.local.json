@@ -106,7 +106,13 @@
       "Bash(node_modules/.bin/eslint --no-cache src/components/common/AssetClassBadge.jsx src/components/common/SignalCard.jsx src/components/signals/FuturesSignalCard.jsx src/pages/BotPerformance.jsx)",
       "Bash(git -C /Users/gunsnrojeshprajapati/Desktop/project/binance-bot log --oneline -1 -- client/src/components/common/SignalCard.jsx)",
       "Bash(git -C /Users/gunsnrojeshprajapati/Desktop/project/binance-bot diff HEAD -- client/src/components/common/SignalCard.jsx)",
-      "Bash(node_modules/.bin/eslint --no-cache src/pages/FuturesPerformance.jsx)"
+      "Bash(node_modules/.bin/eslint --no-cache src/pages/FuturesPerformance.jsx)",
+      "Bash(venv/bin/python -c \"import django; print\\(django.get_version\\(\\)\\)\")",
+      "Bash(../venv/bin/python manage.py check)",
+      "Bash(venv/bin/python -c \"from openpyxl import Workbook; from openpyxl.styles import Font, PatternFill; print\\('openpyxl OK'\\)\")",
+      "Bash(../venv/bin/python -c ' *)",
+      "Bash(npx --no-install eslint src/pages/FuturesPerformance.jsx)",
+      "Bash(DJANGO_SETTINGS_MODULE=config.settings ../venv/bin/python -c ' *)"
     ],
     "deny": [],
     "ask": []
