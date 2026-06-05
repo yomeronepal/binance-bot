@@ -301,11 +301,9 @@ const Dashboard = () => {
         {regimeOpen && (
           <div className="px-3 pb-3 space-y-3">
             {fearGreed && fearGreed.available && <FearGreedWidget data={fearGreed} />}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <MacroFilterWidget variant="compact" />
-              <EquityMacroFilterWidget variant="compact" />
-              <CommodityMacroFilterWidget variant="compact" />
-            </div>
+            <MacroFilterWidget />
+            <EquityMacroFilterWidget />
+            <CommodityMacroFilterWidget />
           </div>
         )}
       </div>
