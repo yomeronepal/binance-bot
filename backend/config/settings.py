@@ -27,8 +27,16 @@ if not DEBUG and SECRET_KEY == 'django-insecure-please-change-this-key':
         "Generate a secure key with: python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'"
     )
 
-# ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = [
+    h.strip()
+    for h in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+    if h.strip()
+]
+if not DEBUG and (ALLOWED_HOSTS == ['*'] or not ALLOWED_HOSTS):
+    raise ImproperlyConfigured(
+        "ALLOWED_HOSTS must be set to explicit hostnames in production "
+        "(set the ALLOWED_HOSTS environment variable)."
+    )
 # Application definition
 INSTALLED_APPS = [
     'daphne',  # Must be first for channels
@@ -92,9 +100,14 @@ WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = 'config.asgi.application'
 
 # Database
+DATABASE_URL = os.getenv('DATABASE_URL')
+if not DATABASE_URL:
+    raise ImproperlyConfigured(
+        "DATABASE_URL environment variable is required."
+    )
 DATABASES = {
-    'default': dj_database_url.config(
-        default=os.getenv('DATABASE_URL', 'postgres://binancebot:binancebot123@localhost:5432/binancebot'),
+    'default': dj_database_url.parse(
+        DATABASE_URL,
         conn_max_age=600,
         conn_health_checks=True,
     )

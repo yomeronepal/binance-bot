@@ -845,8 +845,9 @@ def public_close_trade(request, trade_id):
         })
 
     except Exception as e:
+        logger.error("Failed to close trade: %s", e, exc_info=True)
         return Response(
-            {'error': f'Failed to close trade: {str(e)}'},
+            {'error': 'Failed to close trade'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

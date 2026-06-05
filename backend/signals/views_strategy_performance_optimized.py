@@ -237,7 +237,7 @@ def strategy_performance_lite(request):
     except Exception as e:
         logger.error(f"Lite performance error: {e}", exc_info=True)
         return Response(
-            {"error": str(e)},
+            {"error": "Failed to fetch performance data"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
