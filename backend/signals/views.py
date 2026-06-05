@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, IsAdminUser
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
+from django.db.models import Count, Q
 
 from .models import Symbol, Signal, UserSubscription, TradingSession
 from .serializers import (
@@ -48,7 +49,9 @@ class SymbolViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         """Filter queryset based on query parameters."""
-        queryset = Symbol.objects.all()
+        queryset = Symbol.objects.annotate(
+            active_signals_count=Count('signals', filter=Q(signals__status='ACTIVE'))
+        )
 
         # Filter by active status
         active = self.request.query_params.get('active', None)

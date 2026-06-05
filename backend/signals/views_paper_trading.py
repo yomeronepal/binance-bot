@@ -453,7 +453,7 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
         recent_closed = PaperTrade.objects.filter(
             status__startswith='CLOSED',
             user=request.user
-        ).order_by('-exit_time')[:10]
+        ).select_related('signal').order_by('-exit_time')[:10]
 
         summary = {
             'performance': metrics,
@@ -664,7 +664,7 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
         limit = int(request.query_params.get('limit', 100))
 
         # Filter trades
-        trades_queryset = PaperTrade.objects.filter(user=request.user)
+        trades_queryset = PaperTrade.objects.filter(user=request.user).select_related('signal')
         if trade_status:
             trades_queryset = trades_queryset.filter(status=trade_status)
 
@@ -714,10 +714,14 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
             performance = paper_trading_service.calculate_performance_metrics(user=request.user)
 
             # Get open positions
-            open_trades = PaperTrade.objects.filter(user=request.user, status='OPEN')
+            open_trades = PaperTrade.objects.filter(
+                user=request.user, status='OPEN'
+            ).select_related('signal')
 
             # Get recent trades
-            recent_trades = PaperTrade.objects.filter(user=request.user).order_by('-created_at')[:10]
+            recent_trades = PaperTrade.objects.filter(
+                user=request.user
+            ).select_related('signal').order_by('-created_at')[:10]
 
             account_serializer = self.get_serializer(account)
             trades_serializer = PaperTradeSerializer(recent_trades, many=True)

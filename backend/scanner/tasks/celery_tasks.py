@@ -527,7 +527,6 @@ def cleanup_expired_signals(self):
             created_at__lt=expire_cutoff
         ).update(status='EXPIRED')
 
-        duplicates_removed = 0
         duplicate_groups = Signal.objects.filter(
             status='ACTIVE'
         ).values(
@@ -537,19 +536,23 @@ def cleanup_expired_signals(self):
             first_id=Min('id')
         ).filter(count__gt=1)
 
+        duplicate_ids = []
         for group in duplicate_groups:
-            old_duplicates = Signal.objects.filter(
+            # Keep the newest signal in each group, cancel the rest
+            stale_ids = Signal.objects.filter(
                 symbol_id=group['symbol'],
                 direction=group['direction'],
                 timeframe=group['timeframe'],
                 market_type=group['market_type'],
                 status='ACTIVE'
-            ).order_by('-created_at')[1:]
+            ).order_by('-created_at').values_list('id', flat=True)[1:]
+            duplicate_ids.extend(stale_ids)
 
-            for signal in old_duplicates:
-                signal.status = 'CANCELLED'
-                signal.save()
-                duplicates_removed += 1
+        duplicates_removed = 0
+        if duplicate_ids:
+            duplicates_removed = Signal.objects.filter(
+                id__in=duplicate_ids
+            ).update(status='CANCELLED')
 
         active_after = Signal.objects.filter(status='ACTIVE').count()
         total_after = Signal.objects.count()
