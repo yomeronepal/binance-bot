@@ -100,7 +100,11 @@ const Dashboard = () => {
 
   // Fetch initial signals for both spot and futures
   useEffect(() => {
-    Promise.all([fetchSignals(), fetchFuturesSignals()]).then(() => {
+    const previewOpts = { singlePage: true, pageSize: 50 };
+    Promise.all([
+      fetchSignals({}, previewOpts),
+      fetchFuturesSignals({}, previewOpts),
+    ]).then(() => {
       setUseMockData(false);
     }).catch(() => {
       setUseMockData(true);
