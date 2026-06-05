@@ -80,7 +80,6 @@ const Dashboard = () => {
   const [useMockData, setUseMockData] = useState(true);
   const [tradingMode, setTradingMode] = useState('paper');
   const [successRate, setSuccessRate] = useState(null);
-  const [fearGreed, setFearGreed] = useState(null);
 
   // WebSocket URL
   const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/signals/';
@@ -133,19 +132,6 @@ const Dashboard = () => {
       // Keep default value (null) if fetch fails
     }
   }, 30000);
-
-  usePolling(async () => {
-    try {
-      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-      const response = await fetch(`${API_BASE}/futures/fear-greed/`);
-      if (response.ok) {
-        const data = await response.json();
-        setFearGreed(data);
-      }
-    } catch (error) {
-      console.debug('F&G fetch skipped:', error.message);
-    }
-  }, 60000);
 
   const displaySignals = useMockData ? mockSignals : signals;
   const displayFuturesSignals = useMockData ? [] : futuresSignals;
@@ -266,7 +252,7 @@ const Dashboard = () => {
       </div>
 
       {/* Market Regime — collapsible macro filters (shared with /bot-performance) */}
-      <MarketRegimePanel fearGreed={fearGreed} />
+      <MarketRegimePanel />
 
       {/* Recent Spot Signals */}
       <div>

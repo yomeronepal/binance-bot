@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import { Activity, ChevronDown } from 'lucide-react';
+import { usePolling } from '../../hooks/usePolling';
 import FearGreedWidget from './FearGreedWidget';
 import MacroFilterWidget from './MacroFilterWidget';
 import EquityMacroFilterWidget from './EquityMacroFilterWidget';
@@ -26,6 +27,25 @@ export default function MarketRegimePanel({
   const [open, setOpen] = useState(
     () => localStorage.getItem(storageKey) !== 'false'
   );
+
+  // Self-fetch Fear & Greed when a parent doesn't supply it (e.g. Bot
+  // Performance), so the panel shows the same data everywhere. When a
+  // parent passes `fearGreed` (Dashboard), skip the extra request.
+  const [internalFearGreed, setInternalFearGreed] = useState(null);
+  usePolling(
+    async () => {
+      try {
+        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+        const res = await fetch(`${API_BASE}/futures/fear-greed/`);
+        if (res.ok) setInternalFearGreed(await res.json());
+      } catch (error) {
+        console.debug('F&G fetch skipped:', error.message);
+      }
+    },
+    60000,
+    fearGreed == null
+  );
+  const fg = fearGreed ?? internalFearGreed;
 
   const toggle = () => {
     setOpen((prev) => {
@@ -55,7 +75,7 @@ export default function MarketRegimePanel({
 
       {open && (
         <div className="px-3 pb-3 space-y-3">
-          {fearGreed && fearGreed.available && <FearGreedWidget data={fearGreed} />}
+          {fg && fg.available && <FearGreedWidget data={fg} />}
           <MacroFilterWidget />
           <EquityMacroFilterWidget />
           <CommodityMacroFilterWidget />
