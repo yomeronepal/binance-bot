@@ -27,16 +27,22 @@ if not DEBUG and SECRET_KEY == 'django-insecure-please-change-this-key':
         "Generate a secure key with: python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'"
     )
 
-ALLOWED_HOSTS = [
+# Local/loopback hosts are always allowed (health checks, local dev, the
+# container talking to itself) regardless of what the env var configures,
+# so deployments that only list public domains don't break local access.
+BASELINE_ALLOWED_HOSTS = {'localhost', '127.0.0.1', '0.0.0.0'}
+DEFAULT_ALLOWED_HOSTS = 'revxsys.com,www.revxsys.com,backend.revxsys.com,91.98.146.162'
+
+_configured_hosts = {
     h.strip()
-    for h in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+    for h in os.getenv('ALLOWED_HOSTS', DEFAULT_ALLOWED_HOSTS).split(',')
     if h.strip()
-]
-if not DEBUG and (ALLOWED_HOSTS == ['*'] or not ALLOWED_HOSTS):
+}
+if not DEBUG and '*' in _configured_hosts:
     raise ImproperlyConfigured(
-        "ALLOWED_HOSTS must be set to explicit hostnames in production "
-        "(set the ALLOWED_HOSTS environment variable)."
+        "ALLOWED_HOSTS must not be '*' in production; list explicit hostnames."
     )
+ALLOWED_HOSTS = sorted(BASELINE_ALLOWED_HOSTS | _configured_hosts)
 # Application definition
 INSTALLED_APPS = [
     'daphne',  # Must be first for channels
