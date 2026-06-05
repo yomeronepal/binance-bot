@@ -447,6 +447,10 @@ class Signal(models.Model):
             models.Index(fields=['status', '-created_at']),
             models.Index(fields=['timeframe', '-created_at']),
             models.Index(fields=['-confidence', '-created_at']),
+            models.Index(
+                fields=['symbol', 'direction', 'timeframe', 'market_type', 'status', '-created_at'],
+                name='signal_dedup_idx',
+            ),
         ]
 
     def __str__(self):
@@ -816,6 +820,9 @@ class PaperTrade(models.Model):
             models.Index(fields=['confidence', 'status'], name='paper_trade_confide_idx'),
             models.Index(fields=['is_priority', 'status'], name='paper_trade_gw1_status_idx'),
             models.Index(fields=['is_golden_2', 'status'], name='paper_trade_gw2_status_idx'),
+            models.Index(fields=['user', '-entry_time'], name='paper_trade_user_entry_idx'),
+            models.Index(fields=['-entry_time'], name='paper_trade_entry_time_idx'),
+            models.Index(fields=['symbol', '-entry_time'], name='paper_trade_symbol_entry_idx'),
         ]
 
     def __str__(self):

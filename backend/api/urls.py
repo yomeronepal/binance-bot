@@ -125,7 +125,8 @@ urlpatterns = [
     path('public/commodity-macro-status/', public_commodity_macro_status, name='public-commodity-macro-status'),
     path('public/paper-trading/<int:trade_id>/replay/', trade_replay, name='trade-replay'),
     path('public/signal/<int:signal_id>/chart/', signal_chart, name='signal-chart'),
-    path('public/paper-trading/dashboard/', public_paper_trading_dashboard, name='public-dashboard'),
+    path('public/paper-trading/dashboard/', optimized_dashboard, name='public-dashboard'),
+    path('public/paper-trading/dashboard/legacy/', public_paper_trading_dashboard, name='public-dashboard-legacy'),
 
     # OPTIMIZED Dashboard endpoints (10x faster)
     path('public/dashboard/v2/', optimized_dashboard, name='optimized-dashboard'),  # Recommended

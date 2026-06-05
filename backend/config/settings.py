@@ -241,6 +241,22 @@ CSRF_COOKIE_SECURE = not DEBUG
 # Channels Configuration
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 
+# Cache Configuration (django-redis; separate DB so cache flushes don't touch
+# the Celery broker / channel layer on DB 0)
+CACHE_REDIS_URL = os.getenv('CACHE_REDIS_URL', REDIS_URL.rsplit('/', 1)[0] + '/1')
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': CACHE_REDIS_URL,
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+        'KEY_PREFIX': 'revx',
+        'TIMEOUT': 300,
+    }
+}
+
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',

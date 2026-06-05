@@ -264,10 +264,9 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
 
         # Fetch current prices and calculate unrealized P/L for open trades
         try:
-            from scanner.services.binance_client import BinanceClient
             from signals.models import PaperTrade
+            from signals.services.price_fetcher import fetch_prices_batch
             from decimal import Decimal
-            import asyncio
 
             # Get open trades for current user only
             open_trades_queryset = PaperTrade.objects.filter(
@@ -277,20 +276,7 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
 
             if open_trades_queryset.exists():
                 symbols = set(trade.symbol for trade in open_trades_queryset)
-
-                async def fetch_prices():
-                    prices = {}
-                    async with BinanceClient() as client:
-                        for symbol in symbols:
-                            try:
-                                price_data = await client.get_price(symbol)
-                                if price_data and 'price' in price_data:
-                                    prices[symbol] = Decimal(str(price_data['price']))
-                            except Exception:
-                                pass
-                    return prices
-
-                current_prices = asyncio.run(fetch_prices())
+                current_prices = fetch_prices_batch(symbols)
 
                 total_unrealized_pnl = Decimal('0')
                 for trade in open_trades_queryset:
@@ -356,24 +342,10 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
             })
 
         try:
-            from scanner.services.binance_client import BinanceClient
-            import asyncio
+            from signals.services.price_fetcher import fetch_prices_batch
 
             symbols = set(trade.symbol for trade in open_trades)
-
-            async def fetch_prices():
-                prices = {}
-                async with BinanceClient() as client:
-                    for symbol in symbols:
-                        try:
-                            price_data = await client.get_price(symbol)
-                            if price_data and 'price' in price_data:
-                                prices[symbol] = Decimal(str(price_data['price']))
-                        except Exception:
-                            pass
-                return prices
-
-            current_prices = asyncio.run(fetch_prices())
+            current_prices = fetch_prices_batch(symbols)
 
         except Exception:
             current_prices = {}
@@ -641,26 +613,12 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
             account = PaperAccount.objects.get(user=request.user)
 
             try:
-                from scanner.services.binance_client import BinanceClient
-                import asyncio
+                from signals.services.price_fetcher import fetch_prices_batch
 
                 open_trades = PaperTrade.objects.filter(user=request.user, status='OPEN')
                 if open_trades.exists():
                     symbols = set(trade.symbol for trade in open_trades)
-
-                    async def fetch_prices():
-                        prices = {}
-                        async with BinanceClient() as client:
-                            for symbol in symbols:
-                                try:
-                                    price_data = await client.get_price(symbol)
-                                    if price_data and 'price' in price_data:
-                                        prices[symbol] = Decimal(str(price_data['price']))
-                                except Exception:
-                                    pass
-                        return prices
-
-                    current_prices = asyncio.run(fetch_prices())
+                    current_prices = fetch_prices_batch(symbols)
                     from signals.services.auto_trader import auto_trading_service
                     auto_trading_service.update_account_equity(account, current_prices)
 

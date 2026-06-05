@@ -928,10 +928,9 @@ def check_and_close_paper_trades(self):
     Runs every 30 seconds via Celery Beat.
     """
     try:
-        from decimal import Decimal
         from signals.services.paper_trader import paper_trading_service
         from signals.models import PaperTrade
-        from scanner.services.binance_client import BinanceClient
+        from signals.services.price_fetcher import fetch_prices_batch
         from scanner.services.dispatcher import signal_dispatcher
 
         logger.info("🔍 Checking paper trades for auto-close...")
@@ -947,42 +946,7 @@ def check_and_close_paper_trades(self):
             f"📊 Checking {open_trades.count()} open trades across {len(symbols)} symbols"
         )
 
-        async def fetch_from(client, sym_list, track_400=False):
-            out = {}
-            missing = []
-            for symbol in sym_list:
-                try:
-                    price_data = await client.get_price(symbol)
-                    if price_data and 'price' in price_data:
-                        out[symbol] = Decimal(str(price_data['price']))
-                except Exception as e:
-                    error_msg = str(e)
-                    if track_400 and ('400' in error_msg or 'Bad Request' in error_msg):
-                        missing.append(symbol)
-                    else:
-                        logger.warning(f"Failed to fetch price for {symbol}: {e}")
-                    continue
-            return out, missing
-
-        async def fetch_prices():
-            from scanner.services.binance_futures_client import BinanceFuturesClient
-            prices = {}
-            async with BinanceFuturesClient() as fut_client, BinanceClient() as spot_client:
-                fut_prices, missing_on_futures = await fetch_from(
-                    fut_client, symbols, track_400=True
-                )
-                prices.update(fut_prices)
-
-                if missing_on_futures:
-                    logger.info(
-                        f"🔁 Falling back to spot ticker for {len(missing_on_futures)} "
-                        f"futures-rejected symbols: {missing_on_futures}"
-                    )
-                    spot_prices, _ = await fetch_from(spot_client, missing_on_futures)
-                    prices.update(spot_prices)
-            return prices
-
-        current_prices = asyncio.run(fetch_prices())
+        current_prices = fetch_prices_batch(symbols)
 
         # Check and close trades
         closed_trades = paper_trading_service.check_and_close_trades(current_prices)
