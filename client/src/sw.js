@@ -1,8 +1,5 @@
 import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching'
 import { registerRoute, NavigationRoute } from 'workbox-routing'
-import { NetworkFirst } from 'workbox-strategies'
-import { ExpirationPlugin } from 'workbox-expiration'
-import { CacheableResponsePlugin } from 'workbox-cacheable-response'
 import { createHandlerBoundToURL } from 'workbox-precaching'
 
 cleanupOutdatedCaches()
@@ -12,17 +9,10 @@ registerRoute(
   new NavigationRoute(createHandlerBoundToURL('index.html'))
 )
 
-registerRoute(
-  /^https:\/\/api\.*/i,
-  new NetworkFirst({
-    cacheName: 'api-cache',
-    plugins: [
-      new ExpirationPlugin({ maxEntries: 50, maxAgeSeconds: 300 }),
-      new CacheableResponsePlugin({ statuses: [0, 200] }),
-    ],
-  }),
-  'GET'
-)
+// NOTE: API responses are intentionally NOT cached. This is a trading app
+// where stale prices / PnL would be misleading, and the previous
+// NetworkFirst route (/^https:\/\/api.*/) never matched the real backend
+// host anyway.
 
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js')
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js')

@@ -7,6 +7,7 @@ import useThemeStore from '../../store/useThemeStore';
 const SignalChart = ({ signalId }) => {
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
+  const seriesMapRef = useRef({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
@@ -16,6 +17,10 @@ const SignalChart = ({ signalId }) => {
     ema9: true, ema21: true, ema50: false,
     bb: true, rsi: true,
   });
+  // Mirror toggle state in a ref so buildChart can read it without
+  // being rebuilt (and re-creating the whole chart) on every toggle.
+  const showIndicatorRef = useRef(showIndicator);
+  showIndicatorRef.current = showIndicator;
 
   useEffect(() => {
     fetchData();
@@ -27,12 +32,25 @@ const SignalChart = ({ signalId }) => {
     };
   }, [signalId]);
 
+  // Build the chart once when data or theme changes (NOT on indicator toggles).
   useEffect(() => {
     if (data && !loading && chartContainerRef.current) {
       const timer = setTimeout(() => buildChart(), 200);
       return () => clearTimeout(timer);
     }
-  }, [data, loading, showIndicator]);
+  }, [data, loading, isDark]);
+
+  // Toggle indicator series visibility in place instead of rebuilding.
+  useEffect(() => {
+    const m = seriesMapRef.current;
+    if (!m) return;
+    m.ema9?.applyOptions({ visible: showIndicator.ema9 });
+    m.ema21?.applyOptions({ visible: showIndicator.ema21 });
+    m.ema50?.applyOptions({ visible: showIndicator.ema50 });
+    [m.bb_upper, m.bb_mid, m.bb_lower].forEach(
+      (s) => s?.applyOptions({ visible: showIndicator.bb })
+    );
+  }, [showIndicator]);
 
   const fetchData = async () => {
     try {
@@ -96,8 +114,8 @@ const SignalChart = ({ signalId }) => {
     }
     candleSeries.setData(data.candles);
 
-    const addLine = async (lineData, color, lineWidth = 1, lineStyle = 0) => {
-      const opts = { color, lineWidth, lineStyle, priceLineVisible: false, lastValueVisible: false };
+    const addLine = async (lineData, color, lineWidth = 1, lineStyle = 0, visible = true) => {
+      const opts = { color, lineWidth, lineStyle, visible, priceLineVisible: false, lastValueVisible: false };
       let series;
       if (chart.addLineSeries) {
         series = chart.addLineSeries(opts);
@@ -106,17 +124,23 @@ const SignalChart = ({ signalId }) => {
         series = chart.addSeries(lc.LineSeries, opts);
       }
       series.setData(lineData);
+      return series;
     };
 
     const ind = data.indicators || {};
-    if (showIndicator.ema9 && ind.ema9?.length) await addLine(ind.ema9, '#f59e0b', 1);
-    if (showIndicator.ema21 && ind.ema21?.length) await addLine(ind.ema21, '#8b5cf6', 1);
-    if (showIndicator.ema50 && ind.ema50?.length) await addLine(ind.ema50, '#06b6d4', 1);
-    if (showIndicator.bb && ind.bb_upper?.length) {
-      await addLine(ind.bb_upper, '#64748b', 1, LineStyle.Dotted);
-      await addLine(ind.bb_mid, '#64748b', 1, LineStyle.Dashed);
-      await addLine(ind.bb_lower, '#64748b', 1, LineStyle.Dotted);
+    const toggles = showIndicatorRef.current;
+    const seriesMap = {};
+    // Create indicator series once with initial visibility; the toggle
+    // effect flips visibility later without rebuilding the chart.
+    if (ind.ema9?.length) seriesMap.ema9 = await addLine(ind.ema9, '#f59e0b', 1, 0, toggles.ema9);
+    if (ind.ema21?.length) seriesMap.ema21 = await addLine(ind.ema21, '#8b5cf6', 1, 0, toggles.ema21);
+    if (ind.ema50?.length) seriesMap.ema50 = await addLine(ind.ema50, '#06b6d4', 1, 0, toggles.ema50);
+    if (ind.bb_upper?.length) {
+      seriesMap.bb_upper = await addLine(ind.bb_upper, '#64748b', 1, LineStyle.Dotted, toggles.bb);
+      seriesMap.bb_mid = await addLine(ind.bb_mid, '#64748b', 1, LineStyle.Dashed, toggles.bb);
+      seriesMap.bb_lower = await addLine(ind.bb_lower, '#64748b', 1, LineStyle.Dotted, toggles.bb);
     }
+    seriesMapRef.current = seriesMap;
 
     if (data.markers?.length) candleSeries.setMarkers(data.markers);
 
@@ -136,7 +160,7 @@ const SignalChart = ({ signalId }) => {
 
     const onResize = () => chart.applyOptions({ width: container.clientWidth });
     window.addEventListener('resize', onResize);
-  }, [data, showIndicator, isDark]);
+  }, [data, isDark]);
 
   const toggleIndicator = (key) => setShowIndicator(prev => ({ ...prev, [key]: !prev[key] }));
 

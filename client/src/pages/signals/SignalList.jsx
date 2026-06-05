@@ -2,7 +2,7 @@
  * Spot Signal List page component
  * Displays all spot trading signals with filtering and real-time updates
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useSignalStore } from '../../store/useSignalStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import SignalCard from '../../components/common/SignalCard';
@@ -60,8 +60,8 @@ const SignalList = () => {
     fetchSpotSymbolsCount();
   }, [fetchSignals, fetchSpotSymbolsCount]);
 
-  // Apply filters
-  const filteredSignals = signals.filter((signal) => {
+  // Apply filters (memoized so it only recomputes when signals/filters change)
+  const filteredSignals = useMemo(() => signals.filter((signal) => {
     if (filters.direction !== 'ALL' && signal.direction !== filters.direction) {
       return false;
     }
@@ -72,15 +72,15 @@ const SignalList = () => {
       return false;
     }
     return true;
-  });
+  }), [signals, filters]);
 
-  // Stats calculation
-  const stats = {
+  // Stats calculation (memoized off the filtered list)
+  const stats = useMemo(() => ({
     total: filteredSignals.length,
     long: filteredSignals.filter(s => s.direction === 'LONG').length,
     short: filteredSignals.filter(s => s.direction === 'SHORT').length,
     active: filteredSignals.filter(s => s.status === 'ACTIVE').length,
-  };
+  }), [filteredSignals]);
 
   return (
     <div className="space-y-6">

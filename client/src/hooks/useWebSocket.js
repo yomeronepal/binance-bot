@@ -103,7 +103,7 @@ export const useWebSocket = (url, options = {}) => {
           if (onMessage) {
             onMessage(data);
           }
-        } catch (err) {
+        } catch {
           setError('Failed to parse message');
         }
       };
@@ -126,18 +126,23 @@ export const useWebSocket = (url, options = {}) => {
           onClose(event);
         }
 
-        // Attempt reconnection
+        // Attempt reconnection with exponential backoff + jitter so a
+        // backend restart doesn't trigger a synchronized reconnect storm.
         if (
           reconnectCount.current < reconnectAttempts &&
           event.code !== 1000 && // Normal closure
           event.code !== 4001 // Authentication failure
         ) {
+          const attempt = reconnectCount.current;
           reconnectCount.current += 1;
           setConnectionStatus('reconnecting');
 
+          const backoff = Math.min(30000, reconnectInterval * 2 ** attempt);
+          const delay = backoff + Math.floor(Math.random() * 1000);
+
           reconnectTimer.current = setTimeout(() => {
             connect();
-          }, reconnectInterval);
+          }, delay);
         }
       };
     } catch (err) {
