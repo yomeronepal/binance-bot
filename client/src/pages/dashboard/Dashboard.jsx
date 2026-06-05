@@ -11,11 +11,7 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import { usePolling } from '../../hooks/usePolling';
 import SignalCard from '../../components/common/SignalCard';
 import FuturesSignalCard from '../../components/signals/FuturesSignalCard';
-import { Activity } from 'lucide-react';
-import FearGreedWidget from '../../components/common/FearGreedWidget';
-import MacroFilterWidget from '../../components/common/MacroFilterWidget';
-import EquityMacroFilterWidget from '../../components/common/EquityMacroFilterWidget';
-import CommodityMacroFilterWidget from '../../components/common/CommodityMacroFilterWidget';
+import MarketRegimePanel from '../../components/common/MarketRegimePanel';
 
 // Mock signals data for development
 const mockSignals = [
@@ -84,7 +80,6 @@ const Dashboard = () => {
   const [useMockData, setUseMockData] = useState(true);
   const [tradingMode, setTradingMode] = useState('paper');
   const [successRate, setSuccessRate] = useState(null);
-  const [fearGreed, setFearGreed] = useState(null);
 
   // WebSocket URL
   const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/signals/';
@@ -137,19 +132,6 @@ const Dashboard = () => {
       // Keep default value (null) if fetch fails
     }
   }, 30000);
-
-  usePolling(async () => {
-    try {
-      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-      const response = await fetch(`${API_BASE}/futures/fear-greed/`);
-      if (response.ok) {
-        const data = await response.json();
-        setFearGreed(data);
-      }
-    } catch (error) {
-      console.debug('F&G fetch skipped:', error.message);
-    }
-  }, 60000);
 
   const displaySignals = useMockData ? mockSignals : signals;
   const displayFuturesSignals = useMockData ? [] : futuresSignals;
@@ -269,13 +251,8 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {fearGreed && fearGreed.available && <FearGreedWidget data={fearGreed} />}
-
-      {/* BTC macro filter — what the strict trade-time gate would say
-          right now. Same widget renders on /bot-performance. */}
-      <MacroFilterWidget />
-      <EquityMacroFilterWidget />
-      <CommodityMacroFilterWidget />
+      {/* Market Regime — collapsible macro filters (shared with /bot-performance) */}
+      <MarketRegimePanel />
 
       {/* Recent Spot Signals */}
       <div>

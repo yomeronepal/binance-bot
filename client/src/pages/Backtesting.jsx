@@ -43,11 +43,11 @@ const Backtesting = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white flex items-center gap-2">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Activity className="w-8 h-8 text-blue-400" />
             Backtesting
           </h1>
-          <p className="text-gray-400 mt-1">
+          <p className="text-gray-500 dark:text-gray-400 mt-1">
             Test your trading strategies on historical data and optimize parameters
           </p>
         </div>
@@ -65,46 +65,46 @@ const Backtesting = () => {
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-red-400 font-medium">Error</p>
-            <p className="text-red-300 text-sm mt-1">{error}</p>
+            <p className="text-red-600 dark:text-red-400 font-medium">Error</p>
+            <p className="text-red-600/80 dark:text-red-300 text-sm mt-1">{error}</p>
           </div>
         </div>
       )}
 
       {/* Info Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
+        <div className="bg-white dark:bg-gray-800/50 backdrop-blur-sm border border-gray-200 dark:border-gray-700/50 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="bg-blue-500/10 p-3 rounded-lg">
               <Activity className="w-6 h-6 text-blue-400" />
             </div>
-            <span className="text-2xl font-bold text-white">{backtests.length}</span>
+            <span className="text-2xl font-bold text-gray-900 dark:text-white">{backtests.length}</span>
           </div>
-          <p className="text-gray-400 text-sm">Total Backtests</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Total Backtests</p>
         </div>
 
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
+        <div className="bg-white dark:bg-gray-800/50 backdrop-blur-sm border border-gray-200 dark:border-gray-700/50 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="bg-green-500/10 p-3 rounded-lg">
               <TrendingUp className="w-6 h-6 text-green-400" />
             </div>
-            <span className="text-2xl font-bold text-white">
+            <span className="text-2xl font-bold text-gray-900 dark:text-white">
               {backtests.filter(b => b.status === 'COMPLETED').length}
             </span>
           </div>
-          <p className="text-gray-400 text-sm">Completed</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Completed</p>
         </div>
 
-        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
+        <div className="bg-white dark:bg-gray-800/50 backdrop-blur-sm border border-gray-200 dark:border-gray-700/50 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="bg-purple-500/10 p-3 rounded-lg">
               <Target className="w-6 h-6 text-purple-400" />
             </div>
-            <span className="text-2xl font-bold text-white">
+            <span className="text-2xl font-bold text-gray-900 dark:text-white">
               {backtests.filter(b => b.status === 'RUNNING').length}
             </span>
           </div>
-          <p className="text-gray-400 text-sm">Running</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Running</p>
         </div>
       </div>
 
@@ -112,13 +112,13 @@ const Backtesting = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Sidebar - Backtest List */}
         <div className="lg:col-span-1">
-          <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
+          <div className="bg-white dark:bg-gray-800/50 backdrop-blur-sm border border-gray-200 dark:border-gray-700/50 rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-white">Backtests</h2>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Backtests</h2>
               <button
                 onClick={fetchBacktests}
                 disabled={loading}
-                className="text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+                className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors disabled:opacity-50"
                 title="Refresh list"
               >
                 <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
@@ -140,10 +140,10 @@ const Backtesting = () => {
           ) : selectedBacktest ? (
             <BacktestResults backtest={selectedBacktest} />
           ) : (
-            <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 rounded-xl p-12 text-center">
-              <Activity className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-400 mb-2">No Backtest Selected</h3>
-              <p className="text-gray-500 mb-6">
+            <div className="bg-white dark:bg-gray-800/50 backdrop-blur-sm border border-gray-200 dark:border-gray-700/50 rounded-xl p-12 text-center">
+              <Activity className="w-16 h-16 text-gray-400 dark:text-gray-600 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-400 mb-2">No Backtest Selected</h3>
+              <p className="text-gray-500 dark:text-gray-500 mb-6">
                 Select a backtest from the list or create a new one to get started
               </p>
               <button

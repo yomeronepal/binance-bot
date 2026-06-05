@@ -15,8 +15,8 @@ const TradesTable = ({ trades }) => {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="text-center">
-          <BarChart3 className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-400">No trades available</p>
+          <BarChart3 className="w-12 h-12 text-gray-400 dark:text-gray-600 mx-auto mb-3" />
+          <p className="text-gray-500 dark:text-gray-400">No trades available</p>
         </div>
       </div>
     );
@@ -94,11 +94,11 @@ const TradesTable = ({ trades }) => {
       {/* Filters */}
       <div className="flex items-center gap-4">
         <div>
-          <label className="text-xs text-gray-400 mb-1 block">Direction</label>
+          <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Direction</label>
           <select
             value={filterDirection}
             onChange={(e) => setFilterDirection(e.target.value)}
-            className="bg-gray-900/50 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="bg-white dark:bg-gray-900/50 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="ALL">All</option>
             <option value="LONG">Long</option>
@@ -106,11 +106,11 @@ const TradesTable = ({ trades }) => {
           </select>
         </div>
         <div>
-          <label className="text-xs text-gray-400 mb-1 block">Status</label>
+          <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Status</label>
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-gray-900/50 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="bg-white dark:bg-gray-900/50 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="ALL">All</option>
             <option value="CLOSED_TP">Take Profit</option>
@@ -118,7 +118,7 @@ const TradesTable = ({ trades }) => {
             <option value="CLOSED_MANUAL">Manual</option>
           </select>
         </div>
-        <div className="ml-auto text-sm text-gray-400">
+        <div className="ml-auto text-sm text-gray-500 dark:text-gray-400">
           Showing {filteredTrades.length} of {trades.length} trades
         </div>
       </div>
@@ -127,11 +127,11 @@ const TradesTable = ({ trades }) => {
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-gray-700">
+            <tr className="border-b border-gray-200 dark:border-gray-700">
               <th className="text-left py-3 px-4">
                 <button
                   onClick={() => handleSort('symbol')}
-                  className="flex items-center gap-2 text-xs font-medium text-gray-400 hover:text-white transition-colors"
+                  className="flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
                 >
                   Symbol
                   <SortIcon field="symbol" />
@@ -140,7 +140,7 @@ const TradesTable = ({ trades }) => {
               <th className="text-left py-3 px-4">
                 <button
                   onClick={() => handleSort('direction')}
-                  className="flex items-center gap-2 text-xs font-medium text-gray-400 hover:text-white transition-colors"
+                  className="flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
                 >
                   Direction
                   <SortIcon field="direction" />
@@ -149,7 +149,7 @@ const TradesTable = ({ trades }) => {
               <th className="text-right py-3 px-4">
                 <button
                   onClick={() => handleSort('entry_price')}
-                  className="flex items-center justify-end gap-2 text-xs font-medium text-gray-400 hover:text-white transition-colors w-full"
+                  className="flex items-center justify-end gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors w-full"
                 >
                   Entry
                   <SortIcon field="entry_price" />
@@ -158,7 +158,7 @@ const TradesTable = ({ trades }) => {
               <th className="text-right py-3 px-4">
                 <button
                   onClick={() => handleSort('exit_price')}
-                  className="flex items-center justify-end gap-2 text-xs font-medium text-gray-400 hover:text-white transition-colors w-full"
+                  className="flex items-center justify-end gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors w-full"
                 >
                   Exit
                   <SortIcon field="exit_price" />
@@ -167,7 +167,7 @@ const TradesTable = ({ trades }) => {
               <th className="text-right py-3 px-4">
                 <button
                   onClick={() => handleSort('profit_loss')}
-                  className="flex items-center justify-end gap-2 text-xs font-medium text-gray-400 hover:text-white transition-colors w-full"
+                  className="flex items-center justify-end gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors w-full"
                 >
                   P/L
                   <SortIcon field="profit_loss" />
@@ -176,7 +176,7 @@ const TradesTable = ({ trades }) => {
               <th className="text-right py-3 px-4">
                 <button
                   onClick={() => handleSort('profit_loss_percentage')}
-                  className="flex items-center justify-end gap-2 text-xs font-medium text-gray-400 hover:text-white transition-colors w-full"
+                  className="flex items-center justify-end gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors w-full"
                 >
                   P/L %
                   <SortIcon field="profit_loss_percentage" />
@@ -185,7 +185,7 @@ const TradesTable = ({ trades }) => {
               <th className="text-center py-3 px-4">
                 <button
                   onClick={() => handleSort('status')}
-                  className="flex items-center justify-center gap-2 text-xs font-medium text-gray-400 hover:text-white transition-colors w-full"
+                  className="flex items-center justify-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors w-full"
                 >
                   Status
                   <SortIcon field="status" />
@@ -194,7 +194,7 @@ const TradesTable = ({ trades }) => {
               <th className="text-right py-3 px-4">
                 <button
                   onClick={() => handleSort('opened_at')}
-                  className="flex items-center justify-end gap-2 text-xs font-medium text-gray-400 hover:text-white transition-colors w-full"
+                  className="flex items-center justify-end gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors w-full"
                 >
                   Opened
                   <SortIcon field="opened_at" />
@@ -208,10 +208,10 @@ const TradesTable = ({ trades }) => {
               return (
                 <tr
                   key={trade.id || index}
-                  className="border-b border-gray-800 hover:bg-gray-800/30 transition-colors"
+                  className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
                 >
                   <td className="py-3 px-4">
-                    <span className="text-white font-medium">{trade.symbol}</span>
+                    <span className="text-gray-900 dark:text-white font-medium">{trade.symbol}</span>
                   </td>
                   <td className="py-3 px-4">
                     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
@@ -228,12 +228,12 @@ const TradesTable = ({ trades }) => {
                     </span>
                   </td>
                   <td className="py-3 px-4 text-right">
-                    <span className="text-gray-300">
+                    <span className="text-gray-700 dark:text-gray-300">
                       ${parseFloat(trade.entry_price || 0).toFixed(2)}
                     </span>
                   </td>
                   <td className="py-3 px-4 text-right">
-                    <span className="text-gray-300">
+                    <span className="text-gray-700 dark:text-gray-300">
                       ${parseFloat(trade.exit_price || 0).toFixed(2)}
                     </span>
                   </td>
@@ -251,7 +251,7 @@ const TradesTable = ({ trades }) => {
                     {getStatusBadge(trade.status)}
                   </td>
                   <td className="py-3 px-4 text-right">
-                    <span className="text-gray-400 text-xs">
+                    <span className="text-gray-500 dark:text-gray-400 text-xs">
                       {format(new Date(trade.opened_at), 'MMM d, HH:mm')}
                     </span>
                   </td>

@@ -42,9 +42,9 @@ const BacktestList = ({ backtests, selectedBacktest, onSelectBacktest, loading }
   if (backtests.length === 0) {
     return (
       <div className="text-center py-12">
-        <Clock className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-        <p className="text-gray-400">No backtests yet</p>
-        <p className="text-gray-500 text-sm mt-1">Create your first backtest to get started</p>
+        <Clock className="w-12 h-12 text-gray-400 dark:text-gray-600 mx-auto mb-3" />
+        <p className="text-gray-500 dark:text-gray-400">No backtests yet</p>
+        <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Create your first backtest to get started</p>
       </div>
     );
   }
@@ -58,13 +58,13 @@ const BacktestList = ({ backtests, selectedBacktest, onSelectBacktest, loading }
           className={`w-full text-left p-4 rounded-lg border transition-all ${
             selectedBacktest?.id === backtest.id
               ? 'bg-blue-500/10 border-blue-500/50'
-              : 'bg-gray-900/30 border-gray-700/50 hover:bg-gray-900/50'
+              : 'bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-900/50'
           }`}
         >
           <div className="flex items-start justify-between mb-2">
             <div className="flex-1 min-w-0">
-              <h3 className="font-medium text-white truncate">{backtest.name}</h3>
-              <p className="text-xs text-gray-400 mt-1">
+              <h3 className="font-medium text-gray-900 dark:text-white truncate">{backtest.name}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 {backtest.symbols?.slice(0, 3).join(', ')}
                 {backtest.symbols?.length > 3 && ` +${backtest.symbols.length - 3} more`}
               </p>
@@ -80,7 +80,7 @@ const BacktestList = ({ backtests, selectedBacktest, onSelectBacktest, loading }
             </span>
             {backtest.status === 'COMPLETED' && backtest.win_rate !== undefined && (
               <div className="flex items-center gap-2">
-                <span className="text-gray-400">{parseFloat(backtest.win_rate).toFixed(1)}% WR</span>
+                <span className="text-gray-500 dark:text-gray-400">{parseFloat(backtest.win_rate).toFixed(1)}% WR</span>
                 {backtest.roi !== undefined && (
                   <span className={`flex items-center gap-1 ${parseFloat(backtest.roi) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                     {parseFloat(backtest.roi) >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
