@@ -6,9 +6,9 @@ const PerformanceMetrics = ({ metrics, loading }) => {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="bg-gray-800 rounded-lg p-6 animate-pulse">
-            <div className="h-4 bg-gray-700 rounded w-1/2 mb-4"></div>
-            <div className="h-8 bg-gray-700 rounded w-3/4"></div>
+          <div key={i} className="bg-white dark:bg-gray-800 rounded-lg p-6 animate-pulse">
+            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2 mb-4"></div>
+            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
           </div>
         ))}
       </div>
@@ -34,10 +34,7 @@ const PerformanceMetrics = ({ metrics, loading }) => {
   const totalProfitBg = isTotalProfit ? 'from-green-500/20 to-green-600/10' : 'from-red-500/20 to-red-600/10';
 
   const isRealizedProfit = realizedPnl >= 0;
-  const realizedColor = isRealizedProfit ? 'text-green-400' : 'text-red-400';
-
   const isUnrealizedProfit = unrealizedPnl >= 0;
-  const unrealizedColor = isUnrealizedProfit ? 'text-green-400' : 'text-red-400';
 
   const stats = [
     {
@@ -82,10 +79,10 @@ const PerformanceMetrics = ({ metrics, loading }) => {
         return (
           <div
             key={index}
-            className={`bg-gradient-to-br ${stat.gradient} rounded-lg p-6 border border-gray-700/50 backdrop-blur-sm transition-all duration-300 hover:scale-105 hover:border-gray-600`}
+            className={`bg-white dark:bg-transparent bg-gradient-to-br ${stat.gradient} rounded-lg p-6 border border-gray-200 dark:border-gray-700/50 backdrop-blur-sm transition-all duration-300 hover:scale-105 hover:border-gray-300 dark:hover:border-gray-600`}
           >
             <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-gray-400 font-medium">{stat.label}</span>
+              <span className="text-sm text-gray-600 dark:text-gray-400 font-medium">{stat.label}</span>
               <Icon className={`w-5 h-5 ${stat.color}`} />
             </div>
 

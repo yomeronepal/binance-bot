@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Target, TrendingUp, AlertCircle, RefreshCw, Plus, X } from 'lucide-react';
+import { Target, TrendingUp, AlertCircle, RefreshCw, Plus, X, Sun, Moon } from 'lucide-react';
 import usePaperTradeStore from '../store/usePaperTradeStore';
+import useThemeStore from '../store/useThemeStore';
 import PerformanceMetrics from '../components/paper-trading/PerformanceMetrics';
 import PaperTradeCard from '../components/paper-trading/PaperTradeCard';
 import TradeHistory from '../components/paper-trading/TradeHistory';
@@ -9,6 +10,7 @@ import PullToRefresh from '../components/common/PullToRefresh';
 const PaperTrading = () => {
   const [activeTab, setActiveTab] = useState('open'); // 'open' or 'history'
   const [metricsDays, setMetricsDays] = useState(7);
+  const { theme, toggleTheme } = useThemeStore();
 
   const {
     trades = [],
@@ -120,7 +122,7 @@ const PaperTrading = () => {
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6">
+    <div className="min-h-screen bg-gray-50 dark:bg-gradient-to-br dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -130,17 +132,29 @@ const PaperTrading = () => {
                 <Target className="w-8 h-8 text-purple-400" />
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-white mb-1">Paper Trading</h1>
-                <p className="text-gray-400">Practice trading without risking real money</p>
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">Paper Trading</h1>
+                <p className="text-gray-500 dark:text-gray-400">Practice trading without risking real money</p>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
+              {/* Theme Toggle */}
+              <button
+                onClick={toggleTheme}
+                title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                aria-label="Toggle theme"
+                className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                {theme === 'dark'
+                  ? <Sun className="w-5 h-5 text-yellow-400" />
+                  : <Moon className="w-5 h-5" />}
+              </button>
+
               {/* Days Filter */}
               <select
                 value={metricsDays}
                 onChange={(e) => setMetricsDays(Number(e.target.value))}
-                className="bg-gray-800 border border-gray-700 text-white px-4 py-2 rounded-lg text-sm focus:outline-none focus:border-purple-500 transition-colors"
+                className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2 rounded-lg text-sm focus:outline-none focus:border-purple-500 transition-colors"
               >
                 <option value={1}>Last 24 hours</option>
                 <option value={7}>Last 7 days</option>
@@ -173,8 +187,8 @@ const PaperTrading = () => {
           <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-blue-300 text-sm font-medium mb-1">Paper Trading Mode Active</p>
-              <p className="text-blue-400/80 text-xs">
+              <p className="text-blue-700 dark:text-blue-300 text-sm font-medium mb-1">Paper Trading Mode Active</p>
+              <p className="text-blue-600 dark:text-blue-400/80 text-xs">
                 All trades are simulated. No real funds are being used. Go to the Dashboard to create trades from signals.
               </p>
             </div>
@@ -199,7 +213,7 @@ const PaperTrading = () => {
             onClick={() => setActiveTab('open')}
             className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all duration-200 ${activeTab === 'open'
               ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg'
-              : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+              : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
               }`}
           >
             <TrendingUp className="w-4 h-4" />
@@ -216,7 +230,7 @@ const PaperTrading = () => {
             onClick={() => setActiveTab('history')}
             className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all duration-200 ${activeTab === 'history'
               ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg'
-              : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+              : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
               }`}
           >
             <Target className="w-4 h-4" />
@@ -236,10 +250,10 @@ const PaperTrading = () => {
             {loading && openTrades.length === 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {[...Array(3)].map((_, i) => (
-                  <div key={i} className="bg-gray-800 rounded-lg p-6 animate-pulse">
-                    <div className="h-6 bg-gray-700 rounded w-1/2 mb-4"></div>
-                    <div className="h-4 bg-gray-700 rounded w-3/4 mb-3"></div>
-                    <div className="h-4 bg-gray-700 rounded w-2/3"></div>
+                  <div key={i} className="bg-white dark:bg-gray-800 rounded-lg p-6 animate-pulse">
+                    <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-1/2 mb-4"></div>
+                    <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-3"></div>
+                    <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-2/3"></div>
                   </div>
                 ))}
               </div>
@@ -255,12 +269,12 @@ const PaperTrading = () => {
                 ))}
               </div>
             ) : (
-              <div className="bg-gray-800/50 rounded-lg p-12 text-center">
+              <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-transparent rounded-lg p-12 text-center">
                 <div className="w-20 h-20 bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
                   <TrendingUp className="w-10 h-10 text-purple-400" />
                 </div>
-                <h3 className="text-xl font-semibold text-white mb-2">No Open Positions</h3>
-                <p className="text-gray-400 mb-6">
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">No Open Positions</h3>
+                <p className="text-gray-500 dark:text-gray-400 mb-6">
                   Start paper trading by creating trades from signals on the Dashboard
                 </p>
                 <a
@@ -281,46 +295,46 @@ const PaperTrading = () => {
       {/* Create Trade Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 rounded-xl border border-gray-700 w-full max-w-md p-6 relative shadow-2xl">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 w-full max-w-md p-6 relative shadow-2xl">
             <button
               onClick={() => setShowCreateModal(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-white"
+              className="absolute top-4 right-4 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <Target className="w-5 h-5 text-purple-400" />
               Create Manual Trade
             </h2>
 
             <form onSubmit={handleCreateSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Symbol</label>
+                <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Symbol</label>
                 <input
                   type="text"
                   required
                   value={newTrade.symbol}
                   onChange={e => setNewTrade({ ...newTrade, symbol: e.target.value })}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+                  className="w-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500"
                   placeholder="BTCUSDT"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Direction</label>
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Direction</label>
                   <select
                     value={newTrade.direction}
                     onChange={e => setNewTrade({ ...newTrade, direction: e.target.value })}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+                    className="w-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500"
                   >
                     <option value="LONG">LONG</option>
                     <option value="SHORT">SHORT</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Leverage</label>
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Leverage</label>
                   <input
                     type="number"
                     required
@@ -328,53 +342,53 @@ const PaperTrading = () => {
                     max="125"
                     value={newTrade.leverage}
                     onChange={e => setNewTrade({ ...newTrade, leverage: e.target.value })}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+                    className="w-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Entry Price (USDT)</label>
+                <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Entry Price (USDT)</label>
                 <input
                   type="number"
                   required
                   step="any"
                   value={newTrade.entry_price}
                   onChange={e => setNewTrade({ ...newTrade, entry_price: e.target.value })}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+                  className="w-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500"
                   placeholder="0.00"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Stop Loss</label>
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Stop Loss</label>
                   <input
                     type="number"
                     required
                     step="any"
                     value={newTrade.stop_loss}
                     onChange={e => setNewTrade({ ...newTrade, stop_loss: e.target.value })}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+                    className="w-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500"
                     placeholder="0.00"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Take Profit</label>
+                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Take Profit</label>
                   <input
                     type="number"
                     required
                     step="any"
                     value={newTrade.take_profit}
                     onChange={e => setNewTrade({ ...newTrade, take_profit: e.target.value })}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+                    className="w-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500"
                     placeholder="0.00"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Position Size (USDT)</label>
+                <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Position Size (USDT)</label>
                 <input
                   type="number"
                   required
@@ -382,7 +396,7 @@ const PaperTrading = () => {
                   step="any"
                   value={newTrade.position_size}
                   onChange={e => setNewTrade({ ...newTrade, position_size: e.target.value })}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+                  className="w-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500"
                 />
               </div>
 
