@@ -2,9 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw, FileBarChart, LineChart, CirclePlay, Download, ChevronDown, FileText, FileSpreadsheet, FileJson, Shield, ShieldOff } from 'lucide-react';
 import TradeReport from '../components/common/TradeReport';
 import TradeCharts from '../components/common/TradeCharts';
-import MacroFilterWidget from '../components/common/MacroFilterWidget';
-import EquityMacroFilterWidget from '../components/common/EquityMacroFilterWidget';
-import CommodityMacroFilterWidget from '../components/common/CommodityMacroFilterWidget';
+import MarketRegimePanel from '../components/common/MarketRegimePanel';
 import AssetClassBadge from '../components/common/AssetClassBadge';
 import { lazy, Suspense } from 'react';
 const LazyTradeReplay = lazy(() => import('../components/common/TradeReplay'));
@@ -420,12 +418,10 @@ const BotPerformance = () => {
 
           {/* New Trading Sessions & Filter Bar */}
           <div className="mt-6 mb-6 space-y-4">
-            {/* BTC macro filter readout — what the strict trade-time gate
-                will say right now. Drives confidence in the Macro Allowed /
-                Macro Blocked tabs and surfaces sudden regime shifts. */}
-            <MacroFilterWidget />
-            <EquityMacroFilterWidget />
-            <CommodityMacroFilterWidget />
+            {/* BTC / equity / commodity macro filter readout — what the strict
+                trade-time gate will say right now. Drives confidence in the
+                Macro Allowed / Macro Blocked tabs and surfaces regime shifts. */}
+            <MarketRegimePanel />
 
             {/* Golden Window Filter */}
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 bg-white dark:bg-gray-800 rounded-xl p-2 shadow-sm border border-gray-100 dark:border-gray-700">
