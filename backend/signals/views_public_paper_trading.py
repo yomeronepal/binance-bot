@@ -1252,7 +1252,7 @@ def trade_replay(request, trade_id):
     """
 
     try:
-        trade = PaperTrade.objects.get(id=trade_id)
+        trade = PaperTrade.objects.get(id=trade_id, user__isnull=True)
     except PaperTrade.DoesNotExist:
         return Response({'error': 'Trade not found'}, status=404)
 

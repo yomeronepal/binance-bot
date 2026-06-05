@@ -173,6 +173,7 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
             "current_price": 50000.00  // required
         }
         """
+        owned_trade = self.get_object()
         current_price = request.data.get('current_price')
 
         if not current_price:
@@ -183,8 +184,9 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
 
         try:
             trade = paper_trading_service.close_trade_manually(
-                trade_id=int(pk),
-                current_price=Decimal(str(current_price))
+                trade_id=owned_trade.id,
+                current_price=Decimal(str(current_price)),
+                user=request.user
             )
 
             if trade:
@@ -207,8 +209,12 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
         """
         Cancel a pending paper trade.
         """
+        owned_trade = self.get_object()
         try:
-            trade = paper_trading_service.cancel_trade(trade_id=int(pk))
+            trade = paper_trading_service.cancel_trade(
+                trade_id=owned_trade.id,
+                user=request.user
+            )
 
             if trade:
                 serializer = self.get_serializer(trade)
@@ -501,14 +507,11 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
 
     queryset = PaperAccount.objects.all()
     serializer_class = PaperAccountSerializer
-    permission_classes = [AllowAny]  # For developer testing - add auth later
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """Filter to current user's account if authenticated."""
-        queryset = super().get_queryset()
-        if self.request.user.is_authenticated:
-            queryset = queryset.filter(user=self.request.user)
-        return queryset
+        """Filter to the current user's account."""
+        return super().get_queryset().filter(user=self.request.user)
 
     @action(detail=False, methods=['post'], url_path='start')
     def start_auto_trading(self, request):

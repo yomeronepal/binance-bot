@@ -5,7 +5,8 @@ REST API endpoints for backtesting system.
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
+from django.db.models import Q
 from decimal import Decimal
 from datetime import datetime
 import logging
@@ -42,11 +43,14 @@ class BacktestViewSet(viewsets.ModelViewSet):
 
     queryset = BacktestRun.objects.all()
     serializer_class = BacktestRunSerializer
-    permission_classes = [AllowAny]  # Allow public access
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """Return all backtests (public access)."""
-        return BacktestRun.objects.all().order_by('-created_at')
+        """Return the requesting user's backtests (staff see all)."""
+        queryset = BacktestRun.objects.all()
+        if not self.request.user.is_staff:
+            queryset = queryset.filter(user=self.request.user)
+        return queryset.order_by('-created_at')
 
     def create(self, request):
         """
@@ -74,7 +78,7 @@ class BacktestViewSet(viewsets.ModelViewSet):
 
             # Create backtest run
             backtest_run = BacktestRun.objects.create(
-                user=request.user if request.user.is_authenticated else None,
+                user=request.user,
                 name=data.get('name', 'Unnamed Backtest'),
                 symbols=data.get('symbols', []),
                 timeframe=data.get('timeframe', '5m'),
@@ -320,11 +324,22 @@ class OptimizationViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = StrategyOptimization.objects.all()
     serializer_class = StrategyOptimizationSerializer
-    permission_classes = [AllowAny]  # Allow public access
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        """Restrict optimization runs to staff; reads require authentication."""
+        if self.action == 'run':
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
 
     def get_queryset(self):
-        """Return all optimizations (public access)."""
-        return StrategyOptimization.objects.all().order_by('-optimization_score')
+        """Return the requesting user's optimizations and shared system runs (staff see all)."""
+        queryset = StrategyOptimization.objects.all()
+        if not self.request.user.is_staff:
+            queryset = queryset.filter(
+                Q(user=self.request.user) | Q(user__isnull=True)
+            )
+        return queryset.order_by('-optimization_score')
 
     @action(detail=False, methods=['post'])
     def run(self, request):
@@ -409,10 +424,16 @@ class RecommendationViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = OptimizationRecommendation.objects.all()
     serializer_class = OptimizationRecommendationSerializer
-    permission_classes = [AllowAny]  # Allow public access
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        """Mutating actions alter shared strategy state and require staff."""
+        if self.action in ('generate', 'accept', 'reject', 'apply'):
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
 
     def get_queryset(self):
-        """Return all recommendations (public access)."""
+        """Return all recommendations (authentication required)."""
         queryset = OptimizationRecommendation.objects.all()
 
         # Filter by status

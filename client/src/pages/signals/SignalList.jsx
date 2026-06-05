@@ -39,21 +39,17 @@ const SignalList = () => {
   // Handle WebSocket messages for spot signals only
   useEffect(() => {
     if (lastMessage) {
-      try {
-        const data = JSON.parse(lastMessage);
+      const data = lastMessage;
 
-        // Only handle spot signals
-        if (!data.market_type || data.market_type === 'SPOT' || (data.signal && data.signal.market_type === 'SPOT')) {
-          if (data.type === 'signal_created') {
-            handleSignalCreated(data.signal);
-          } else if (data.type === 'signal_updated') {
-            handleSignalUpdated(data.signal);
-          } else if (data.type === 'signal_deleted') {
-            handleSignalDeleted(data.signal_id, 'SPOT');
-          }
+      // Only handle spot signals
+      if (!data.market_type || data.market_type === 'SPOT' || (data.signal && data.signal.market_type === 'SPOT')) {
+        if (data.type === 'signal_created') {
+          handleSignalCreated(data.signal);
+        } else if (data.type === 'signal_updated') {
+          handleSignalUpdated(data.signal);
+        } else if (data.type === 'signal_deleted') {
+          handleSignalDeleted(data.signal_id, 'SPOT');
         }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
       }
     }
   }, [lastMessage, handleSignalCreated, handleSignalUpdated, handleSignalDeleted]);

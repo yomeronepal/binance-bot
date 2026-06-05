@@ -30,21 +30,17 @@ const Futures = () => {
   // Handle WebSocket messages
   useEffect(() => {
     if (lastMessage) {
-      try {
-        const data = JSON.parse(lastMessage);
+      const data = lastMessage;
 
-        // Only handle futures signals
-        if (data.market_type === 'FUTURES' || (data.signal && data.signal.market_type === 'FUTURES')) {
-          if (data.type === 'signal_created') {
-            handleSignalCreated(data.signal);
-          } else if (data.type === 'signal_updated') {
-            handleSignalUpdated(data.signal);
-          } else if (data.type === 'signal_deleted') {
-            handleSignalDeleted(data.signal_id, 'FUTURES');
-          }
+      // Only handle futures signals
+      if (data.market_type === 'FUTURES' || (data.signal && data.signal.market_type === 'FUTURES')) {
+        if (data.type === 'signal_created') {
+          handleSignalCreated(data.signal);
+        } else if (data.type === 'signal_updated') {
+          handleSignalUpdated(data.signal);
+        } else if (data.type === 'signal_deleted') {
+          handleSignalDeleted(data.signal_id, 'FUTURES');
         }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
       }
     }
   }, [lastMessage, handleSignalCreated, handleSignalUpdated, handleSignalDeleted]);
