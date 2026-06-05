@@ -111,6 +111,6 @@ def get_order_book(request, symbol):
     except Exception as e:
         logger.error(f"Error fetching order book for {symbol}: {e}")
         return Response(
-            {'error': str(e)},
+            {'error': 'Failed to fetch order book'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

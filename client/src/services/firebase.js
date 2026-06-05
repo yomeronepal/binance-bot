@@ -1,6 +1,3 @@
-import { initializeApp } from 'firebase/app';
-import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
-
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyC8aVRYOzcPHhohpNzFRUGItaiTBohQMjU',
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'binance-bot-cb351.firebaseapp.com',
@@ -15,19 +12,23 @@ const VAPID_KEY = import.meta.env.VITE_FIREBASE_VAPID_KEY || 'BFIkedelUGPFVfvl_Y
 let app = null;
 let messaging = null;
 
-function getFirebaseApp() {
-  if (!app) app = initializeApp(firebaseConfig);
+async function getFirebaseApp() {
+  if (!app) {
+    const { initializeApp } = await import('firebase/app');
+    app = initializeApp(firebaseConfig);
+  }
   return app;
 }
 
 async function getFirebaseMessaging() {
   if (messaging) return messaging;
   try {
+    const { getMessaging, isSupported } = await import('firebase/messaging');
     const supported = await isSupported();
     if (!supported) return null;
-    messaging = getMessaging(getFirebaseApp());
+    messaging = getMessaging(await getFirebaseApp());
     return messaging;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -49,6 +50,7 @@ async function tryFirebaseToken(swReg) {
   try {
     const msg = await getFirebaseMessaging();
     if (!msg) return [null, 'messaging not supported'];
+    const { getToken } = await import('firebase/messaging');
     const token = await getToken(msg, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
     return [token, null];
   } catch (error) {
@@ -103,6 +105,7 @@ export async function onForegroundMessage(callback) {
   try {
     const msg = await getFirebaseMessaging();
     if (msg) {
+      const { onMessage } = await import('firebase/messaging');
       return onMessage(msg, (payload) => {
         callback(payload);
       });
@@ -126,7 +129,7 @@ export async function getFCMToken() {
     if (fcm) return fcm;
     const [native] = await tryNativePush(swReg);
     return native;
-  } catch (error) {
+  } catch {
     return null;
   }
 }

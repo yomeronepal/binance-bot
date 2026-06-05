@@ -173,6 +173,7 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
             "current_price": 50000.00  // required
         }
         """
+        owned_trade = self.get_object()
         current_price = request.data.get('current_price')
 
         if not current_price:
@@ -183,8 +184,9 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
 
         try:
             trade = paper_trading_service.close_trade_manually(
-                trade_id=int(pk),
-                current_price=Decimal(str(current_price))
+                trade_id=owned_trade.id,
+                current_price=Decimal(str(current_price)),
+                user=request.user
             )
 
             if trade:
@@ -207,8 +209,12 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
         """
         Cancel a pending paper trade.
         """
+        owned_trade = self.get_object()
         try:
-            trade = paper_trading_service.cancel_trade(trade_id=int(pk))
+            trade = paper_trading_service.cancel_trade(
+                trade_id=owned_trade.id,
+                user=request.user
+            )
 
             if trade:
                 serializer = self.get_serializer(trade)
@@ -258,10 +264,9 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
 
         # Fetch current prices and calculate unrealized P/L for open trades
         try:
-            from scanner.services.binance_client import BinanceClient
             from signals.models import PaperTrade
+            from signals.services.price_fetcher import fetch_prices_batch
             from decimal import Decimal
-            import asyncio
 
             # Get open trades for current user only
             open_trades_queryset = PaperTrade.objects.filter(
@@ -271,20 +276,7 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
 
             if open_trades_queryset.exists():
                 symbols = set(trade.symbol for trade in open_trades_queryset)
-
-                async def fetch_prices():
-                    prices = {}
-                    async with BinanceClient() as client:
-                        for symbol in symbols:
-                            try:
-                                price_data = await client.get_price(symbol)
-                                if price_data and 'price' in price_data:
-                                    prices[symbol] = Decimal(str(price_data['price']))
-                            except Exception:
-                                pass
-                    return prices
-
-                current_prices = asyncio.run(fetch_prices())
+                current_prices = fetch_prices_batch(symbols)
 
                 total_unrealized_pnl = Decimal('0')
                 for trade in open_trades_queryset:
@@ -350,24 +342,10 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
             })
 
         try:
-            from scanner.services.binance_client import BinanceClient
-            import asyncio
+            from signals.services.price_fetcher import fetch_prices_batch
 
             symbols = set(trade.symbol for trade in open_trades)
-
-            async def fetch_prices():
-                prices = {}
-                async with BinanceClient() as client:
-                    for symbol in symbols:
-                        try:
-                            price_data = await client.get_price(symbol)
-                            if price_data and 'price' in price_data:
-                                prices[symbol] = Decimal(str(price_data['price']))
-                        except Exception:
-                            pass
-                return prices
-
-            current_prices = asyncio.run(fetch_prices())
+            current_prices = fetch_prices_batch(symbols)
 
         except Exception:
             current_prices = {}
@@ -475,7 +453,7 @@ class PaperTradeViewSet(viewsets.ModelViewSet):
         recent_closed = PaperTrade.objects.filter(
             status__startswith='CLOSED',
             user=request.user
-        ).order_by('-exit_time')[:10]
+        ).select_related('signal').order_by('-exit_time')[:10]
 
         summary = {
             'performance': metrics,
@@ -501,14 +479,11 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
 
     queryset = PaperAccount.objects.all()
     serializer_class = PaperAccountSerializer
-    permission_classes = [AllowAny]  # For developer testing - add auth later
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """Filter to current user's account if authenticated."""
-        queryset = super().get_queryset()
-        if self.request.user.is_authenticated:
-            queryset = queryset.filter(user=self.request.user)
-        return queryset
+        """Filter to the current user's account."""
+        return super().get_queryset().filter(user=self.request.user)
 
     @action(detail=False, methods=['post'], url_path='start')
     def start_auto_trading(self, request):
@@ -638,26 +613,12 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
             account = PaperAccount.objects.get(user=request.user)
 
             try:
-                from scanner.services.binance_client import BinanceClient
-                import asyncio
+                from signals.services.price_fetcher import fetch_prices_batch
 
                 open_trades = PaperTrade.objects.filter(user=request.user, status='OPEN')
                 if open_trades.exists():
                     symbols = set(trade.symbol for trade in open_trades)
-
-                    async def fetch_prices():
-                        prices = {}
-                        async with BinanceClient() as client:
-                            for symbol in symbols:
-                                try:
-                                    price_data = await client.get_price(symbol)
-                                    if price_data and 'price' in price_data:
-                                        prices[symbol] = Decimal(str(price_data['price']))
-                                except Exception:
-                                    pass
-                        return prices
-
-                    current_prices = asyncio.run(fetch_prices())
+                    current_prices = fetch_prices_batch(symbols)
                     from signals.services.auto_trader import auto_trading_service
                     auto_trading_service.update_account_equity(account, current_prices)
 
@@ -703,7 +664,7 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
         limit = int(request.query_params.get('limit', 100))
 
         # Filter trades
-        trades_queryset = PaperTrade.objects.filter(user=request.user)
+        trades_queryset = PaperTrade.objects.filter(user=request.user).select_related('signal')
         if trade_status:
             trades_queryset = trades_queryset.filter(status=trade_status)
 
@@ -753,10 +714,14 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
             performance = paper_trading_service.calculate_performance_metrics(user=request.user)
 
             # Get open positions
-            open_trades = PaperTrade.objects.filter(user=request.user, status='OPEN')
+            open_trades = PaperTrade.objects.filter(
+                user=request.user, status='OPEN'
+            ).select_related('signal')
 
             # Get recent trades
-            recent_trades = PaperTrade.objects.filter(user=request.user).order_by('-created_at')[:10]
+            recent_trades = PaperTrade.objects.filter(
+                user=request.user
+            ).select_related('signal').order_by('-created_at')[:10]
 
             account_serializer = self.get_serializer(account)
             trades_serializer = PaperTradeSerializer(recent_trades, many=True)

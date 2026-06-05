@@ -4,9 +4,11 @@
  */
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useShallow } from 'zustand/react/shallow';
 import { useSignalStore } from '../../store/useSignalStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { usePolling } from '../../hooks/usePolling';
 import SignalCard from '../../components/common/SignalCard';
 import FuturesSignalCard from '../../components/signals/FuturesSignalCard';
 import { Activity } from 'lucide-react';
@@ -68,7 +70,17 @@ const Dashboard = () => {
     isLoading: loading,
     processWebSocketMessage,
     setWsConnected
-  } = useSignalStore();
+  } = useSignalStore(
+    useShallow((s) => ({
+      signals: s.signals,
+      futuresSignals: s.futuresSignals,
+      fetchSignals: s.fetchSignals,
+      fetchFuturesSignals: s.fetchFuturesSignals,
+      isLoading: s.isLoading,
+      processWebSocketMessage: s.processWebSocketMessage,
+      setWsConnected: s.setWsConnected,
+    }))
+  );
   const [useMockData, setUseMockData] = useState(true);
   const [tradingMode, setTradingMode] = useState('paper');
   const [successRate, setSuccessRate] = useState(null);
@@ -100,52 +112,44 @@ const Dashboard = () => {
 
   // Fetch initial signals for both spot and futures
   useEffect(() => {
-    Promise.all([fetchSignals(), fetchFuturesSignals()]).then(() => {
+    const previewOpts = { singlePage: true, pageSize: 50 };
+    Promise.all([
+      fetchSignals({}, previewOpts),
+      fetchFuturesSignals({}, previewOpts),
+    ]).then(() => {
       setUseMockData(false);
     }).catch(() => {
       setUseMockData(true);
     });
   }, [fetchSignals, fetchFuturesSignals]);
 
-  // Fetch success rate from paper trading performance
-  useEffect(() => {
-    const fetchSuccessRate = async () => {
-      try {
-        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-        const response = await fetch(`${API_BASE}/public/paper-trading/performance/`);
-        if (response.ok) {
-          const data = await response.json();
-          setSuccessRate(data.win_rate);
-        }
-      } catch (error) {
-        console.error('Failed to fetch success rate:', error);
-        // Keep default value (null) if fetch fails
+  // Fetch success rate from paper trading performance (pauses when tab hidden)
+  usePolling(async () => {
+    try {
+      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+      const response = await fetch(`${API_BASE}/public/paper-trading/performance/`);
+      if (response.ok) {
+        const data = await response.json();
+        setSuccessRate(data.win_rate);
       }
-    };
+    } catch (error) {
+      console.error('Failed to fetch success rate:', error);
+      // Keep default value (null) if fetch fails
+    }
+  }, 30000);
 
-    fetchSuccessRate();
-    const interval = setInterval(fetchSuccessRate, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    const fetchFearGreed = async () => {
-      try {
-        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-        const response = await fetch(`${API_BASE}/futures/fear-greed/`);
-        if (response.ok) {
-          const data = await response.json();
-          setFearGreed(data);
-        }
-      } catch (error) {
-        console.debug('F&G fetch skipped:', error.message);
+  usePolling(async () => {
+    try {
+      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+      const response = await fetch(`${API_BASE}/futures/fear-greed/`);
+      if (response.ok) {
+        const data = await response.json();
+        setFearGreed(data);
       }
-    };
-
-    fetchFearGreed();
-    const interval = setInterval(fetchFearGreed, 60000);
-    return () => clearInterval(interval);
-  }, []);
+    } catch (error) {
+      console.debug('F&G fetch skipped:', error.message);
+    }
+  }, 60000);
 
   const displaySignals = useMockData ? mockSignals : signals;
   const displayFuturesSignals = useMockData ? [] : futuresSignals;

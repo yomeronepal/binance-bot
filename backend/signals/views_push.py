@@ -125,6 +125,15 @@ def subscribe_push_public(request):
 
     user = request.user if request.user.is_authenticated else system_user
 
+    existing = PushSubscription.objects.filter(fcm_token=fcm_token).first()
+    if existing and existing.user_id not in (user.id, system_user.id):
+        existing.is_active = True
+        if device_name:
+            existing.device_name = device_name
+        existing.save(update_fields=['is_active', 'device_name'])
+        logger.info("Push reactivated (public) for existing owner, device: %s", device_name)
+        return Response({'status': 'reactivated', 'id': existing.id}, status=status.HTTP_200_OK)
+
     sub, created = PushSubscription.objects.update_or_create(
         fcm_token=fcm_token,
         defaults={

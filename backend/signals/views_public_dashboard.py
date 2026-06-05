@@ -5,6 +5,7 @@ No authentication required - open to all users.
 This provides a READ-ONLY view of all paper trading activity.
 Perfect for showcasing the trading bot's performance to visitors.
 """
+import logging
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
@@ -15,6 +16,8 @@ from django.utils import timezone
 from datetime import timedelta
 
 from signals.models import PaperTrade, PaperAccount, Signal
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(['GET'])
@@ -208,10 +211,8 @@ def public_paper_trading_dashboard(request):
         })
 
     except Exception as e:
+        logger.error("Failed to fetch dashboard data: %s", e, exc_info=True)
         return Response(
-            {
-                "error": "Failed to fetch dashboard data",
-                "detail": str(e)
-            },
+            {"error": "Failed to fetch dashboard data"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

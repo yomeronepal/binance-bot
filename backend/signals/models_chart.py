@@ -17,6 +17,13 @@ class ChartAnnotation(models.Model):
         ('NOTE', 'Note'),
     ]
 
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='chart_annotations',
+    )
     symbol = models.CharField(max_length=20, db_index=True)
     annotation_type = models.CharField(max_length=20, choices=ANNOTATION_TYPES, default='FIB')
     price_level = models.DecimalField(max_digits=20, decimal_places=8)
@@ -30,7 +37,7 @@ class ChartAnnotation(models.Model):
     class Meta:
         ordering = ['symbol', 'price_level']
         indexes = [
-            models.Index(fields=['symbol', 'is_active']),
+            models.Index(fields=['user', 'symbol', 'is_active']),
         ]
 
     def __str__(self):
@@ -41,13 +48,23 @@ class FibonacciSetup(models.Model):
     """
     Stores Fibonacci retracement setups (high/low) for auto-calculating levels.
     """
-    symbol = models.CharField(max_length=20, db_index=True, unique=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='fibonacci_setups',
+    )
+    symbol = models.CharField(max_length=20, db_index=True)
     swing_high = models.DecimalField(max_digits=20, decimal_places=8)
     swing_low = models.DecimalField(max_digits=20, decimal_places=8)
     direction = models.CharField(max_length=10, choices=[('UP', 'Uptrend'), ('DOWN', 'Downtrend')], default='UP')
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'symbol')
 
     def get_fib_levels(self):
         """Calculate Fibonacci retracement levels."""

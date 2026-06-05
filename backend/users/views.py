@@ -6,6 +6,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from django.contrib.auth import get_user_model
 
 from .serializers import RegisterSerializer, UserSerializer, ChangePasswordSerializer
@@ -27,6 +28,34 @@ class LoginView(TokenObtainPairView):
     API endpoint for user login (JWT token generation)
     """
     permission_classes = (AllowAny,)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout(request):
+    """
+    Log the user out by blacklisting their refresh token.
+
+    Request body:
+        {"refresh": "<refresh_token>"}
+    """
+    refresh_token = request.data.get('refresh')
+    if not refresh_token:
+        return Response(
+            {"error": "refresh token is required"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    try:
+        RefreshToken(refresh_token).blacklist()
+    except TokenError:
+        return Response(
+            {"error": "Invalid or expired refresh token"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    return Response(
+        {"message": "Logged out successfully"},
+        status=status.HTTP_205_RESET_CONTENT
+    )
 
 
 @api_view(['GET'])

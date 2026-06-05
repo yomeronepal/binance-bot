@@ -13,32 +13,25 @@
  *                                   Defaults to 'full'.
  *   className extra wrapper classes for layout (margins, spans, etc.)
  */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import axios from 'axios';
 import { Bitcoin } from 'lucide-react';
+import { usePolling } from '../../hooks/usePolling';
 
 export default function MacroFilterWidget({ variant = 'full', className = '' }) {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
+  usePolling(async () => {
     const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-    let alive = true;
-    const fetchStatus = async () => {
-      try {
-        const res = await axios.get(`${baseURL}/public/macro-status/`);
-        if (alive) {
-          setStatus(res.data);
-          setError(null);
-        }
-      } catch (err) {
-        if (alive) setError(err?.message || 'fetch failed');
-      }
-    };
-    fetchStatus();
-    const id = setInterval(fetchStatus, 60_000);
-    return () => { alive = false; clearInterval(id); };
-  }, []);
+    try {
+      const res = await axios.get(`${baseURL}/public/macro-status/`);
+      setStatus(res.data);
+      setError(null);
+    } catch (err) {
+      setError(err?.message || 'fetch failed');
+    }
+  }, 60_000);
 
   if (error && !status) {
     return (

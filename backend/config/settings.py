@@ -27,8 +27,16 @@ if not DEBUG and SECRET_KEY == 'django-insecure-please-change-this-key':
         "Generate a secure key with: python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'"
     )
 
-# ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = [
+    h.strip()
+    for h in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+    if h.strip()
+]
+if not DEBUG and (ALLOWED_HOSTS == ['*'] or not ALLOWED_HOSTS):
+    raise ImproperlyConfigured(
+        "ALLOWED_HOSTS must be set to explicit hostnames in production "
+        "(set the ALLOWED_HOSTS environment variable)."
+    )
 # Application definition
 INSTALLED_APPS = [
     'daphne',  # Must be first for channels
@@ -42,6 +50,7 @@ INSTALLED_APPS = [
     # Third-party apps
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'channels',
     'django_filters',
@@ -91,9 +100,14 @@ WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = 'config.asgi.application'
 
 # Database
+DATABASE_URL = os.getenv('DATABASE_URL')
+if not DATABASE_URL:
+    raise ImproperlyConfigured(
+        "DATABASE_URL environment variable is required."
+    )
 DATABASES = {
-    'default': dj_database_url.config(
-        default=os.getenv('DATABASE_URL', 'postgres://binancebot:binancebot123@localhost:5432/binancebot'),
+    'default': dj_database_url.parse(
+        DATABASE_URL,
         conn_max_age=600,
         conn_health_checks=True,
     )
@@ -150,10 +164,13 @@ REST_FRAMEWORK = {
     ],
 }
 
-# JWT Settings - Lifetime tokens (100 years)
+# JWT Settings - lifetimes are env-driven (minutes), with safe defaults
+JWT_ACCESS_TOKEN_LIFETIME = int(os.getenv('JWT_ACCESS_TOKEN_LIFETIME', '60'))
+JWT_REFRESH_TOKEN_LIFETIME = int(os.getenv('JWT_REFRESH_TOKEN_LIFETIME', '10080'))
+
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=36500),  # ~100 years (lifetime)
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=36500),  # ~100 years (lifetime)
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=JWT_ACCESS_TOKEN_LIFETIME),
+    'REFRESH_TOKEN_LIFETIME': timedelta(minutes=JWT_REFRESH_TOKEN_LIFETIME),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
@@ -223,6 +240,22 @@ CSRF_COOKIE_SECURE = not DEBUG
 
 # Channels Configuration
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+
+# Cache Configuration (django-redis; separate DB so cache flushes don't touch
+# the Celery broker / channel layer on DB 0)
+CACHE_REDIS_URL = os.getenv('CACHE_REDIS_URL', REDIS_URL.rsplit('/', 1)[0] + '/1')
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': CACHE_REDIS_URL,
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+        'KEY_PREFIX': 'revx',
+        'TIMEOUT': 300,
+    }
+}
 
 CHANNEL_LAYERS = {
     'default': {

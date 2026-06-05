@@ -9,6 +9,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from decimal import Decimal
 from django.db.models import Sum, Avg, Count, Q, Max, Min, F, ExpressionWrapper, DurationField
+from django.db.models.functions import TruncDate
 from django.core.cache import cache
 from django.utils import timezone
 from datetime import timedelta
@@ -286,11 +287,31 @@ def _apply_time_filters(queryset, params):
     return queryset
 
 
+def _annotate_npt_entry(queryset):
+    """
+    Annotate the queryset with the Nepal-time (UTC+5:45) entry timestamp.
+
+    entry_time is stored in UTC; adding the offset yields a UTC-labelled
+    value whose wall-clock matches Nepal time, so the Extract* helpers
+    below pull NPT components when told to extract in UTC.
+    """
+    from datetime import timedelta
+    from django.db.models import F, ExpressionWrapper, DateTimeField
+
+    return queryset.filter(entry_time__isnull=False).annotate(
+        _npt_entry=ExpressionWrapper(
+            F('entry_time') + timedelta(hours=5, minutes=45),
+            output_field=DateTimeField(),
+        )
+    )
+
+
 def _filter_by_npt_weekday(queryset, iso_weekday):
     """
-    Filter trades by exact Nepal Time weekday.
-    Frontend sends ISO weekday: 1=Monday, 7=Sunday.
-    Python weekday: 0=Monday, 6=Sunday.
+    Filter trades by exact Nepal Time weekday, in the database.
+
+    Frontend sends ISO weekday (1=Mon..7=Sun). Django's ExtractWeekDay
+    returns 1=Sun..7=Sat, so map: django_wd = (iso % 7) + 1.
 
     Args:
         queryset: PaperTrade queryset
@@ -299,28 +320,19 @@ def _filter_by_npt_weekday(queryset, iso_weekday):
     Returns:
         Filtered queryset
     """
-    from datetime import timedelta
+    from datetime import timezone as dt_timezone
+    from django.db.models.functions import ExtractWeekDay
 
-    python_weekday = iso_weekday - 1
-    nepal_offset = timedelta(hours=5, minutes=45)
-    matching_ids = []
+    django_weekday = (iso_weekday % 7) + 1
 
-    for trade_id, entry_time in queryset.filter(
-        entry_time__isnull=False
-    ).values_list('id', 'entry_time'):
-        npt = entry_time + nepal_offset
-        if npt.weekday() == python_weekday:
-            matching_ids.append(trade_id)
-
-    if not matching_ids:
-        return queryset.none()
-
-    return queryset.filter(id__in=matching_ids)
+    return _annotate_npt_entry(queryset).annotate(
+        _npt_weekday=ExtractWeekDay('_npt_entry', tzinfo=dt_timezone.utc)
+    ).filter(_npt_weekday=django_weekday)
 
 
 def _filter_by_npt_hour(queryset, npt_hour):
     """
-    Filter trades by exact Nepal Time hour using entry_time + 5:45 offset.
+    Filter trades by exact Nepal Time hour (entry_time + 5:45) in the database.
 
     Args:
         queryset: PaperTrade queryset
@@ -329,22 +341,12 @@ def _filter_by_npt_hour(queryset, npt_hour):
     Returns:
         Filtered queryset
     """
-    from datetime import timedelta
+    from datetime import timezone as dt_timezone
+    from django.db.models.functions import ExtractHour
 
-    nepal_offset = timedelta(hours=5, minutes=45)
-    matching_ids = []
-
-    for trade_id, entry_time in queryset.filter(
-        entry_time__isnull=False
-    ).values_list('id', 'entry_time'):
-        npt = entry_time + nepal_offset
-        if npt.hour == npt_hour:
-            matching_ids.append(trade_id)
-
-    if not matching_ids:
-        return queryset.none()
-
-    return queryset.filter(id__in=matching_ids)
+    return _annotate_npt_entry(queryset).annotate(
+        _npt_hour=ExtractHour('_npt_entry', tzinfo=dt_timezone.utc)
+    ).filter(_npt_hour=npt_hour)
 
 
 def _get_filter_params(request):
@@ -845,8 +847,9 @@ def public_close_trade(request, trade_id):
         })
 
     except Exception as e:
+        logger.error("Failed to close trade: %s", e, exc_info=True)
         return Response(
-            {'error': f'Failed to close trade: {str(e)}'},
+            {'error': 'Failed to close trade'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -982,7 +985,7 @@ def _build_priority_stats(closed_qs):
 def _build_daily_pnl(closed_qs):
     rows = list(
         closed_qs.filter(exit_time__isnull=False)
-        .extra(select={'day': "DATE(exit_time)"})
+        .annotate(day=TruncDate('exit_time'))
         .values('day')
         .annotate(trades=Count('id'), pnl=Sum('profit_loss'), wins=Count('id', filter=Q(profit_loss__gt=0)))
         .order_by('day')
@@ -1193,7 +1196,30 @@ def _compute_indicators(candles):
 
 
 def _load_candles_from_csv(symbol, timeframe, start_time, end_time):
-    """Load candles from local CSV backtest data if available."""
+    """Load candles from local CSV backtest data, with a short Redis cache.
+
+    Candle slices are immutable historical data, so the same trade window
+    is served from cache instead of re-scanning the CSV on every request.
+    """
+    from django.core.cache import cache
+
+    start_str = start_time.strftime('%Y-%m-%d %H:%M')
+    end_str = end_time.strftime('%Y-%m-%d %H:%M')
+    cache_key = 'candles:' + hashlib.md5(
+        f'{symbol}:{timeframe}:{start_str}:{end_str}'.encode()
+    ).hexdigest()
+
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    candles = _read_candles_from_csv(symbol, timeframe, start_str, end_str)
+    cache.set(cache_key, candles, 300)
+    return candles
+
+
+def _read_candles_from_csv(symbol, timeframe, start_str, end_str):
+    """Read and slice candles from the local CSV backtest data."""
     import csv
     import os
     from django.conf import settings
@@ -1212,8 +1238,6 @@ def _load_candles_from_csv(symbol, timeframe, start_time, end_time):
         return []
 
     candles = []
-    start_str = start_time.strftime('%Y-%m-%d %H:%M')
-    end_str = end_time.strftime('%Y-%m-%d %H:%M')
 
     try:
         with open(csv_path, 'r') as f:
@@ -1252,7 +1276,7 @@ def trade_replay(request, trade_id):
     """
 
     try:
-        trade = PaperTrade.objects.get(id=trade_id)
+        trade = PaperTrade.objects.get(id=trade_id, user__isnull=True)
     except PaperTrade.DoesNotExist:
         return Response({'error': 'Trade not found'}, status=404)
 
