@@ -11,7 +11,7 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import { usePolling } from '../../hooks/usePolling';
 import SignalCard from '../../components/common/SignalCard';
 import FuturesSignalCard from '../../components/signals/FuturesSignalCard';
-import { Activity } from 'lucide-react';
+import { Activity, ChevronDown } from 'lucide-react';
 import FearGreedWidget from '../../components/common/FearGreedWidget';
 import MacroFilterWidget from '../../components/common/MacroFilterWidget';
 import EquityMacroFilterWidget from '../../components/common/EquityMacroFilterWidget';
@@ -85,6 +85,17 @@ const Dashboard = () => {
   const [tradingMode, setTradingMode] = useState('paper');
   const [successRate, setSuccessRate] = useState(null);
   const [fearGreed, setFearGreed] = useState(null);
+  const [regimeOpen, setRegimeOpen] = useState(
+    () => localStorage.getItem('dash_regime_open') !== 'false'
+  );
+
+  const toggleRegime = () => {
+    setRegimeOpen((prev) => {
+      const next = !prev;
+      localStorage.setItem('dash_regime_open', String(next));
+      return next;
+    });
+  };
 
   // WebSocket URL
   const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/signals/';
@@ -269,13 +280,35 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {fearGreed && fearGreed.available && <FearGreedWidget data={fearGreed} />}
+      {/* Market Regime — compact, collapsible. The macro filters show what
+          the strict trade-time gate would say right now (same widgets render
+          on /bot-performance). Kept condensed so they don't dominate. */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+        <button
+          onClick={toggleRegime}
+          className="w-full flex items-center justify-between px-4 py-2.5 text-left"
+          aria-expanded={regimeOpen}
+        >
+          <span className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+            <Activity className="w-4 h-4 text-primary-500" />
+            Market Regime
+          </span>
+          <ChevronDown
+            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${regimeOpen ? 'rotate-180' : ''}`}
+          />
+        </button>
 
-      {/* BTC macro filter — what the strict trade-time gate would say
-          right now. Same widget renders on /bot-performance. */}
-      <MacroFilterWidget />
-      <EquityMacroFilterWidget />
-      <CommodityMacroFilterWidget />
+        {regimeOpen && (
+          <div className="px-3 pb-3 space-y-3">
+            {fearGreed && fearGreed.available && <FearGreedWidget data={fearGreed} />}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <MacroFilterWidget variant="compact" />
+              <EquityMacroFilterWidget variant="compact" />
+              <CommodityMacroFilterWidget variant="compact" />
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Recent Spot Signals */}
       <div>
