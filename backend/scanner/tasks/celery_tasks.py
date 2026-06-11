@@ -527,6 +527,7 @@ def cleanup_expired_signals(self):
             created_at__lt=expire_cutoff
         ).update(status='EXPIRED')
 
+        duplicates_removed = 0
         duplicate_groups = Signal.objects.filter(
             status='ACTIVE'
         ).values(
@@ -536,23 +537,19 @@ def cleanup_expired_signals(self):
             first_id=Min('id')
         ).filter(count__gt=1)
 
-        duplicate_ids = []
         for group in duplicate_groups:
-            # Keep the newest signal in each group, cancel the rest
-            stale_ids = Signal.objects.filter(
+            old_duplicates = Signal.objects.filter(
                 symbol_id=group['symbol'],
                 direction=group['direction'],
                 timeframe=group['timeframe'],
                 market_type=group['market_type'],
                 status='ACTIVE'
-            ).order_by('-created_at').values_list('id', flat=True)[1:]
-            duplicate_ids.extend(stale_ids)
+            ).order_by('-created_at')[1:]
 
-        duplicates_removed = 0
-        if duplicate_ids:
-            duplicates_removed = Signal.objects.filter(
-                id__in=duplicate_ids
-            ).update(status='CANCELLED')
+            for signal in old_duplicates:
+                signal.status = 'CANCELLED'
+                signal.save()
+                duplicates_removed += 1
 
         active_after = Signal.objects.filter(status='ACTIVE').count()
         total_after = Signal.objects.count()
@@ -931,9 +928,10 @@ def check_and_close_paper_trades(self):
     Runs every 30 seconds via Celery Beat.
     """
     try:
+        from decimal import Decimal
         from signals.services.paper_trader import paper_trading_service
         from signals.models import PaperTrade
-        from signals.services.price_fetcher import fetch_prices_batch
+        from scanner.services.binance_client import BinanceClient
         from scanner.services.dispatcher import signal_dispatcher
 
         logger.info("🔍 Checking paper trades for auto-close...")
@@ -949,7 +947,42 @@ def check_and_close_paper_trades(self):
             f"📊 Checking {open_trades.count()} open trades across {len(symbols)} symbols"
         )
 
-        current_prices = fetch_prices_batch(symbols)
+        async def fetch_from(client, sym_list, track_400=False):
+            out = {}
+            missing = []
+            for symbol in sym_list:
+                try:
+                    price_data = await client.get_price(symbol)
+                    if price_data and 'price' in price_data:
+                        out[symbol] = Decimal(str(price_data['price']))
+                except Exception as e:
+                    error_msg = str(e)
+                    if track_400 and ('400' in error_msg or 'Bad Request' in error_msg):
+                        missing.append(symbol)
+                    else:
+                        logger.warning(f"Failed to fetch price for {symbol}: {e}")
+                    continue
+            return out, missing
+
+        async def fetch_prices():
+            from scanner.services.binance_futures_client import BinanceFuturesClient
+            prices = {}
+            async with BinanceFuturesClient() as fut_client, BinanceClient() as spot_client:
+                fut_prices, missing_on_futures = await fetch_from(
+                    fut_client, symbols, track_400=True
+                )
+                prices.update(fut_prices)
+
+                if missing_on_futures:
+                    logger.info(
+                        f"🔁 Falling back to spot ticker for {len(missing_on_futures)} "
+                        f"futures-rejected symbols: {missing_on_futures}"
+                    )
+                    spot_prices, _ = await fetch_from(spot_client, missing_on_futures)
+                    prices.update(spot_prices)
+            return prices
+
+        current_prices = asyncio.run(fetch_prices())
 
         # Check and close trades
         closed_trades = paper_trading_service.check_and_close_trades(current_prices)

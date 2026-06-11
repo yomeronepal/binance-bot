@@ -258,24 +258,19 @@ class PaperTradingService:
 
         return closed_trades
 
-    def close_trade_manually(self, trade_id: int, current_price: Decimal, user=None) -> Optional[PaperTrade]:
+    def close_trade_manually(self, trade_id: int, current_price: Decimal) -> Optional[PaperTrade]:
         """
         Manually close a paper trade.
 
         Args:
             trade_id: ID of trade to close
             current_price: Current market price
-            user: When provided, restricts the lookup to trades owned by
-                this user (defense-in-depth ownership enforcement).
 
         Returns:
             Closed PaperTrade or None
         """
-        lookup = {'id': trade_id, 'status': 'OPEN'}
-        if user is not None:
-            lookup['user'] = user
         try:
-            trade = PaperTrade.objects.get(**lookup)
+            trade = PaperTrade.objects.get(id=trade_id, status='OPEN')
             trade.close_trade(Decimal(str(current_price)), status='CLOSED_MANUAL')
             logger.info(f"✋ Manually closed: {trade.symbol} @ {current_price}")
             return trade
@@ -283,23 +278,18 @@ class PaperTradingService:
             logger.error(f"Trade {trade_id} not found or not open")
             return None
 
-    def cancel_trade(self, trade_id: int, user=None) -> Optional[PaperTrade]:
+    def cancel_trade(self, trade_id: int) -> Optional[PaperTrade]:
         """
         Cancel a pending paper trade.
 
         Args:
             trade_id: ID of trade to cancel
-            user: When provided, restricts the lookup to trades owned by
-                this user (defense-in-depth ownership enforcement).
 
         Returns:
             Cancelled PaperTrade or None
         """
-        lookup = {'id': trade_id, 'status': 'PENDING'}
-        if user is not None:
-            lookup['user'] = user
         try:
-            trade = PaperTrade.objects.get(**lookup)
+            trade = PaperTrade.objects.get(id=trade_id, status='PENDING')
             trade.status = 'CANCELLED'
             trade.save()
             logger.info(f"❌ Cancelled trade: {trade.symbol}")

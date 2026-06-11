@@ -3,7 +3,7 @@ API views for chart annotations (Fib levels, support/resistance)
 """
 import logging
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from decimal import Decimal
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 @api_view(['GET', 'POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def chart_annotations(request, symbol=None):
     """
     GET: List all annotations for a symbol
@@ -23,12 +23,10 @@ def chart_annotations(request, symbol=None):
     if request.method == 'GET':
         if not symbol:
             return Response({'error': 'Symbol required'}, status=400)
-
+        
         symbol = symbol.upper()
-        annotations = ChartAnnotation.objects.filter(
-            user=request.user, symbol=symbol, is_active=True
-        )
-
+        annotations = ChartAnnotation.objects.filter(symbol=symbol, is_active=True)
+        
         return Response({
             'symbol': symbol,
             'annotations': [
@@ -43,12 +41,11 @@ def chart_annotations(request, symbol=None):
                 for a in annotations
             ]
         })
-
+    
     elif request.method == 'POST':
         try:
             data = request.data
             annotation = ChartAnnotation.objects.create(
-                user=request.user,
                 symbol=data['symbol'].upper(),
                 annotation_type=data.get('type', 'FIB'),
                 price_level=Decimal(str(data['price_level'])),
@@ -65,11 +62,11 @@ def chart_annotations(request, symbol=None):
 
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def delete_annotation(request, annotation_id):
     """Delete an annotation."""
     try:
-        annotation = ChartAnnotation.objects.get(id=annotation_id, user=request.user)
+        annotation = ChartAnnotation.objects.get(id=annotation_id)
         annotation.delete()
         return Response({'message': 'Deleted'})
     except ChartAnnotation.DoesNotExist:
@@ -77,7 +74,7 @@ def delete_annotation(request, annotation_id):
 
 
 @api_view(['GET', 'POST', 'DELETE'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def fibonacci_setup(request, symbol=None):
     """
     GET: Get Fib setup for symbol with calculated levels
@@ -91,7 +88,7 @@ def fibonacci_setup(request, symbol=None):
     
     if request.method == 'GET':
         try:
-            setup = FibonacciSetup.objects.get(user=request.user, symbol=symbol)
+            setup = FibonacciSetup.objects.get(symbol=symbol)
             levels = setup.get_fib_levels()
             return Response({
                 'symbol': symbol,
@@ -109,7 +106,6 @@ def fibonacci_setup(request, symbol=None):
         try:
             data = request.data
             setup, created = FibonacciSetup.objects.update_or_create(
-                user=request.user,
                 symbol=symbol,
                 defaults={
                     'swing_high': Decimal(str(data['swing_high'])),
@@ -132,7 +128,7 @@ def fibonacci_setup(request, symbol=None):
     
     elif request.method == 'DELETE':
         try:
-            FibonacciSetup.objects.filter(user=request.user, symbol=symbol).delete()
+            FibonacciSetup.objects.filter(symbol=symbol).delete()
             return Response({'message': 'Deleted'})
         except Exception as e:
             return Response({'error': str(e)}, status=400)

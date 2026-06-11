@@ -2,7 +2,7 @@
  * Spot Signal List page component
  * Displays all spot trading signals with filtering and real-time updates
  */
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useSignalStore } from '../../store/useSignalStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import SignalCard from '../../components/common/SignalCard';
@@ -39,17 +39,21 @@ const SignalList = () => {
   // Handle WebSocket messages for spot signals only
   useEffect(() => {
     if (lastMessage) {
-      const data = lastMessage;
+      try {
+        const data = JSON.parse(lastMessage);
 
-      // Only handle spot signals
-      if (!data.market_type || data.market_type === 'SPOT' || (data.signal && data.signal.market_type === 'SPOT')) {
-        if (data.type === 'signal_created') {
-          handleSignalCreated(data.signal);
-        } else if (data.type === 'signal_updated') {
-          handleSignalUpdated(data.signal);
-        } else if (data.type === 'signal_deleted') {
-          handleSignalDeleted(data.signal_id, 'SPOT');
+        // Only handle spot signals
+        if (!data.market_type || data.market_type === 'SPOT' || (data.signal && data.signal.market_type === 'SPOT')) {
+          if (data.type === 'signal_created') {
+            handleSignalCreated(data.signal);
+          } else if (data.type === 'signal_updated') {
+            handleSignalUpdated(data.signal);
+          } else if (data.type === 'signal_deleted') {
+            handleSignalDeleted(data.signal_id, 'SPOT');
+          }
         }
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error);
       }
     }
   }, [lastMessage, handleSignalCreated, handleSignalUpdated, handleSignalDeleted]);
@@ -60,8 +64,8 @@ const SignalList = () => {
     fetchSpotSymbolsCount();
   }, [fetchSignals, fetchSpotSymbolsCount]);
 
-  // Apply filters (memoized so it only recomputes when signals/filters change)
-  const filteredSignals = useMemo(() => signals.filter((signal) => {
+  // Apply filters
+  const filteredSignals = signals.filter((signal) => {
     if (filters.direction !== 'ALL' && signal.direction !== filters.direction) {
       return false;
     }
@@ -72,15 +76,15 @@ const SignalList = () => {
       return false;
     }
     return true;
-  }), [signals, filters]);
+  });
 
-  // Stats calculation (memoized off the filtered list)
-  const stats = useMemo(() => ({
+  // Stats calculation
+  const stats = {
     total: filteredSignals.length,
     long: filteredSignals.filter(s => s.direction === 'LONG').length,
     short: filteredSignals.filter(s => s.direction === 'SHORT').length,
     active: filteredSignals.filter(s => s.status === 'ACTIVE').length,
-  }), [filteredSignals]);
+  };
 
   return (
     <div className="space-y-6">

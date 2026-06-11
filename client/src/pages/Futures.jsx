@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useSignalStore } from '../store/useSignalStore';
 import FuturesSignalCard from '../components/signals/FuturesSignalCard';
@@ -30,17 +30,21 @@ const Futures = () => {
   // Handle WebSocket messages
   useEffect(() => {
     if (lastMessage) {
-      const data = lastMessage;
+      try {
+        const data = JSON.parse(lastMessage);
 
-      // Only handle futures signals
-      if (data.market_type === 'FUTURES' || (data.signal && data.signal.market_type === 'FUTURES')) {
-        if (data.type === 'signal_created') {
-          handleSignalCreated(data.signal);
-        } else if (data.type === 'signal_updated') {
-          handleSignalUpdated(data.signal);
-        } else if (data.type === 'signal_deleted') {
-          handleSignalDeleted(data.signal_id, 'FUTURES');
+        // Only handle futures signals
+        if (data.market_type === 'FUTURES' || (data.signal && data.signal.market_type === 'FUTURES')) {
+          if (data.type === 'signal_created') {
+            handleSignalCreated(data.signal);
+          } else if (data.type === 'signal_updated') {
+            handleSignalUpdated(data.signal);
+          } else if (data.type === 'signal_deleted') {
+            handleSignalDeleted(data.signal_id, 'FUTURES');
+          }
         }
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error);
       }
     }
   }, [lastMessage, handleSignalCreated, handleSignalUpdated, handleSignalDeleted]);
@@ -51,8 +55,8 @@ const Futures = () => {
     fetchFuturesSymbolsCount();
   }, [fetchFuturesSignals, fetchFuturesSymbolsCount]);
 
-  // Apply filters (memoized so it only recomputes when signals/filters change)
-  const filteredSignals = useMemo(() => futuresSignals.filter((signal) => {
+  // Apply filters
+  const filteredSignals = futuresSignals.filter((signal) => {
     if (filters.direction !== 'ALL' && signal.direction !== filters.direction) {
       return false;
     }
@@ -63,17 +67,17 @@ const Futures = () => {
       return false;
     }
     return true;
-  }), [futuresSignals, filters]);
+  });
 
-  // Stats calculation (memoized off the filtered list)
-  const stats = useMemo(() => ({
+  // Stats calculation
+  const stats = {
     total: filteredSignals.length,
     long: filteredSignals.filter(s => s.direction === 'LONG').length,
     short: filteredSignals.filter(s => s.direction === 'SHORT').length,
     avgConfidence: filteredSignals.length > 0
       ? (filteredSignals.reduce((sum, s) => sum + s.confidence, 0) / filteredSignals.length * 100).toFixed(1)
       : 0,
-  }), [filteredSignals]);
+  };
 
   // Handle pull-to-refresh
   const handleRefresh = async () => {

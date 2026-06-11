@@ -154,18 +154,5 @@ export default defineConfig(({ mode }) => {
       }
     })
   ],
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'charts': ['recharts'],
-          'lightweight-charts': ['lightweight-charts'],
-          'firebase': ['firebase/app', 'firebase/messaging'],
-          'date-fns': ['date-fns'],
-        },
-      },
-    },
-  },
 }
 })

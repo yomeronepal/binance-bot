@@ -11,7 +11,6 @@ from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.response import Response
 from django.db.models import Sum, Count, Q, Avg, Max, Min
-from django.db.models.functions import TruncDate
 from django.http import HttpResponse
 from django.utils import timezone
 
@@ -472,7 +471,7 @@ def futures_report(request):
 
     daily = list(
         closed.filter(exit_time__isnull=False)
-        .annotate(day=TruncDate('exit_time'))
+        .extra(select={'day': "DATE(exit_time)"})
         .values('day')
         .annotate(trades=Count('id'), pnl=Sum('profit_loss'), wins=Count('id', filter=Q(profit_loss__gt=0)))
         .order_by('day')

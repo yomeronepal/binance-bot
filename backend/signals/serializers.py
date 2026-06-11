@@ -39,10 +39,7 @@ class SymbolSerializer(BaseModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def get_signals_count(self, obj):
-        """Get count of active signals, using an annotation when available."""
-        annotated = getattr(obj, 'active_signals_count', None)
-        if annotated is not None:
-            return annotated
+        """Get count of active signals for this symbol."""
         return obj.signals.filter(status='ACTIVE').count()
 
     def validate_symbol(self, value):

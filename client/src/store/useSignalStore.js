@@ -130,37 +130,32 @@ export const useSignalStore = create((set, get) => ({
   },
 
   /**
-   * Fetch spot signals from API.
-   *
-   * options:
-   *   - singlePage: only fetch the first page (for the dashboard preview,
-   *     which renders just a few cards instead of the full corpus)
-   *   - pageSize: results per page (default 100)
+   * Fetch all signals from API with pagination support
    */
-  fetchSignals: async (params = {}, options = {}) => {
-    const { singlePage = false, pageSize = 100 } = options;
-
+  fetchSignals: async (params = {}) => {
     set({ isLoading: true, error: null });
     try {
       let allSignals = [];
       let nextPage = 1;
       let hasMore = true;
 
+      // Fetch all pages
       while (hasMore) {
         const data = await signalService.getAll({
           ...params,
           market_type: 'SPOT',
           page: nextPage,
-          page_size: pageSize,
+          page_size: 100  // Request 100 signals per page
         });
 
         const rawSignals = data.results || data;
         allSignals = [...allSignals, ...(Array.isArray(rawSignals) ? rawSignals : [])];
 
-        if (singlePage || !data.next) {
-          hasMore = false;
-        } else {
+        // Check if there are more pages
+        if (data.next) {
           nextPage++;
+        } else {
+          hasMore = false;
         }
       }
 
@@ -175,32 +170,31 @@ export const useSignalStore = create((set, get) => ({
   },
 
   /**
-   * Fetch futures signals from API. Accepts the same options as fetchSignals.
+   * Fetch futures signals from API with pagination support
    */
-  fetchFuturesSignals: async (params = {}, options = {}) => {
-    const { singlePage = false, pageSize = 100 } = options;
-
+  fetchFuturesSignals: async (params = {}) => {
     set({ isLoading: true, error: null });
     try {
       let allSignals = [];
       let nextPage = 1;
       let hasMore = true;
 
+      // Fetch all pages
       while (hasMore) {
         const data = await signalService.getAll({
           ...params,
           market_type: 'FUTURES',
           page: nextPage,
-          page_size: pageSize,
+          page_size: 100
         });
 
         const rawSignals = data.results || data;
         allSignals = [...allSignals, ...(Array.isArray(rawSignals) ? rawSignals : [])];
 
-        if (singlePage || !data.next) {
-          hasMore = false;
-        } else {
+        if (data.next) {
           nextPage++;
+        } else {
+          hasMore = false;
         }
       }
 

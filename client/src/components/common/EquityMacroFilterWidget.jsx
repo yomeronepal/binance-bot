@@ -11,10 +11,9 @@
  *   variant   'compact' | 'full' — full shows EMA flags and 3d/7d.
  *   className extra wrapper classes for layout.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { LineChart } from 'lucide-react';
-import { usePolling } from '../../hooks/usePolling';
 
 const fmtPct = (v) => `${v >= 0 ? '+' : ''}${(v ?? 0).toFixed(2)}%`;
 
@@ -56,16 +55,24 @@ export default function EquityMacroFilterWidget({ variant = 'full', className = 
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
 
-  usePolling(async () => {
+  useEffect(() => {
     const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-    try {
-      const res = await axios.get(`${baseURL}/public/equity-macro-status/`);
-      setStatus(res.data);
-      setError(null);
-    } catch (err) {
-      setError(err?.message || 'fetch failed');
-    }
-  }, 60_000);
+    let alive = true;
+    const fetchStatus = async () => {
+      try {
+        const res = await axios.get(`${baseURL}/public/equity-macro-status/`);
+        if (alive) {
+          setStatus(res.data);
+          setError(null);
+        }
+      } catch (err) {
+        if (alive) setError(err?.message || 'fetch failed');
+      }
+    };
+    fetchStatus();
+    const id = setInterval(fetchStatus, 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
 
   if (error && !status) {
     return (

@@ -5,8 +5,6 @@ import json
 import asyncio
 import logging
 from channels.generic.websocket import AsyncWebsocketConsumer
-from channels.db import database_sync_to_async
-from django.contrib.auth.models import AnonymousUser
 
 logger = logging.getLogger(__name__)
 
@@ -32,33 +30,13 @@ class BacktestConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.backtest_id = self.scope['url_route']['kwargs']['backtest_id']
         self.group_name = f'backtest_{self.backtest_id}'
-        self.group_joined = False
-
-        user = self.scope.get('user')
-        if not user or isinstance(user, AnonymousUser):
-            await self.close(code=4001)  # Authentication required
-            return
-
-        if not await self._user_can_access_backtest(user):
-            await self.close(code=4003)  # Not authorized for this backtest
-            return
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
-        self.group_joined = True
         await self.accept()
         logger.info(f"Backtest WS connected: #{self.backtest_id}")
 
-    @database_sync_to_async
-    def _user_can_access_backtest(self, user):
-        from signals.models_backtest import BacktestRun
-        run = BacktestRun.objects.filter(id=self.backtest_id).only('user_id').first()
-        if not run:
-            return False
-        return user.is_staff or run.user_id == user.id
-
     async def disconnect(self, close_code):
-        if getattr(self, 'group_joined', False):
-            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def receive(self, text_data=None, bytes_data=None):
         if not text_data:

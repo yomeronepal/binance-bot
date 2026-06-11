@@ -1,46 +1,38 @@
 /**
  * Main application router
  */
-import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import ProtectedRoute from './ProtectedRoute';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { useAuthStore } from '../store/useAuthStore';
 
-// Layout (kept eager - part of the app shell)
+// Layout
 import Layout from '../components/layout/Layout';
 
-// Pages (lazy-loaded so each route ships in its own chunk)
-const LandingPage = lazy(() => import('../pages/LandingPage'));
-const Login = lazy(() => import('../pages/auth/Login'));
-const Register = lazy(() => import('../pages/auth/Register'));
-const Dashboard = lazy(() => import('../pages/dashboard/Dashboard'));
-const SignalDetail = lazy(() => import('../pages/signals/SignalDetail'));
-const SignalList = lazy(() => import('../pages/signals/SignalList'));
-const Futures = lazy(() => import('../pages/Futures'));
-const PaperTrading = lazy(() => import('../pages/PaperTrading'));
-const AutoTrading = lazy(() => import('../pages/AutoTrading'));
-const BotPerformance = lazy(() => import('../pages/BotPerformance'));
-const FuturesPerformance = lazy(() => import('../pages/FuturesPerformance'));
-const Backtesting = lazy(() => import('../pages/Backtesting'));
-const StrategyDashboard = lazy(() => import('../pages/StrategyDashboard'));
-const TradingSessions = lazy(() => import('../pages/TradingSessions'));
-
-const RouteFallback = () => (
-  <div className="flex items-center justify-center min-h-screen">
-    <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
-  </div>
-);
+// Pages
+import LandingPage from '../pages/LandingPage';
+import Login from '../pages/auth/Login';
+import Register from '../pages/auth/Register';
+import Dashboard from '../pages/dashboard/Dashboard';
+import SignalDetail from '../pages/signals/SignalDetail';
+import SignalList from '../pages/signals/SignalList';
+import Futures from '../pages/Futures';
+import PaperTrading from '../pages/PaperTrading';
+import AutoTrading from '../pages/AutoTrading';
+import BotPerformance from '../pages/BotPerformance';
+import FuturesPerformance from '../pages/FuturesPerformance';
+import Backtesting from '../pages/Backtesting';
+import StrategyDashboard from '../pages/StrategyDashboard';
+import TradingSessions from '../pages/TradingSessions';
 
 const RootRedirect = () => {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const { isAuthenticated } = useAuthStore();
   return isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />;
 };
 
 const AppRouter = () => {
   return (
     <BrowserRouter>
-      <Suspense fallback={<RouteFallback />}>
       <Routes>
         {/* Root - Landing page or Dashboard for authenticated users */}
         <Route path="/" element={<RootRedirect />} />
@@ -107,7 +99,6 @@ const AppRouter = () => {
         {/* Catch all - redirect to root */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      </Suspense>
     </BrowserRouter>
   );
 };

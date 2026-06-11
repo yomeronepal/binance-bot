@@ -300,7 +300,10 @@ def optimized_dashboard(request):
     except Exception as e:
         logger.error(f"Dashboard error: {e}", exc_info=True)
         return Response(
-            {"error": "Failed to fetch dashboard data"},
+            {
+                "error": "Failed to fetch dashboard data",
+                "detail": str(e)
+            },
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -430,6 +433,6 @@ def clear_dashboard_cache(request):
     except Exception as e:
         logger.error(f"Failed to clear cache: {e}", exc_info=True)
         return Response(
-            {'error': 'Failed to clear cache'},
+            {'error': 'Failed to clear cache', 'detail': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

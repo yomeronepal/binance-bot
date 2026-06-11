@@ -83,17 +83,15 @@ app.conf.beat_schedule = {
         'options': {'expires': 1800.0},
     },
 
-    # Offset from the spot 30m/15m scans (which run at minute 0/15/30/45)
-    # so futures and spot scanners don't hammer the worker pool together.
     'scan-futures-30m-timeframe': {
         'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_30m',
-        'schedule': crontab(minute='7,37'),
+        'schedule': crontab(minute='*/30'),
         'options': {'expires': 1800.0},
     },
 
     'scan-futures-15m-timeframe': {
         'task': 'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_15m',
-        'schedule': crontab(minute='7,22,37,52'),
+        'schedule': crontab(minute='*/15'),
         'options': {'expires': 900.0},
     },
 
@@ -149,10 +147,10 @@ app.conf.beat_schedule = {
         'options': {'expires': 25.0},
     },
 
-    # Cache maintenance - OPTIMIZED (offset off the :00/:30 scan boundaries)
+    # Cache maintenance - OPTIMIZED
     'check-stale-cache': {
         'task': 'signals.check_stale_cache',
-        'schedule': crontab(minute='10,40'),  # Every 30 minutes
+        'schedule': crontab(minute='*/30'),  # Every 30 minutes
     },
 
     # Performance monitoring - OPTIMIZED
@@ -210,10 +208,7 @@ app.conf.update(
     result_extended=True,
 
     # Worker settings
-    # prefetch=1: these tasks are network-I/O heavy (Binance calls), so a
-    # worker should reserve only one at a time instead of hoarding a queue
-    # of prefetched tasks behind a slow request.
-    worker_prefetch_multiplier=1,
+    worker_prefetch_multiplier=4,
     worker_max_tasks_per_child=1000,  # Restart worker after 1000 tasks
 
     # Task routing
