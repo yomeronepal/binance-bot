@@ -101,7 +101,10 @@ const useBacktestStore = create((set, get) => ({
     get().stopPolling();
 
     const wsBase = import.meta.env.VITE_WS_URL?.replace('/ws/signals/', '') || 'ws://localhost:8000';
-    const wsUrl = `${wsBase}/ws/backtest/${id}/`;
+    const accessToken = localStorage.getItem('accessToken');
+    const wsUrl = accessToken
+      ? `${wsBase}/ws/backtest/${id}/?token=${accessToken}`
+      : `${wsBase}/ws/backtest/${id}/`;
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {

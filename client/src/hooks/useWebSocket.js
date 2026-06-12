@@ -80,7 +80,12 @@ export const useWebSocket = (url, options = {}) => {
     try {
       setConnectionStatus('connecting');
 
-      ws.current = new WebSocket(url);
+      const accessToken = localStorage.getItem('accessToken');
+      const authedUrl = accessToken
+        ? `${url}${url.includes('?') ? '&' : '?'}token=${accessToken}`
+        : url;
+
+      ws.current = new WebSocket(authedUrl);
 
       ws.current.onopen = (event) => {
         setIsConnected(true);

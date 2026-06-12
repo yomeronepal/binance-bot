@@ -22,6 +22,7 @@ django_asgi_app = get_asgi_application()
 
 from websocket.routing import websocket_urlpatterns as websocket_patterns
 from signals.routing import websocket_urlpatterns as signal_patterns
+from config.ws_auth import JWTAuthMiddleware
 
 # Combine all WebSocket URL patterns
 websocket_urlpatterns = websocket_patterns + signal_patterns
@@ -30,8 +31,10 @@ application = ProtocolTypeRouter({
     "http": django_asgi_app,
     "websocket": AllowedHostsOriginValidator(
         AuthMiddlewareStack(
-            URLRouter(
-                websocket_urlpatterns
+            JWTAuthMiddleware(
+                URLRouter(
+                    websocket_urlpatterns
+                )
             )
         )
     ),
