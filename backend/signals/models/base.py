@@ -1255,4 +1255,5 @@ from .daytrade import (
     DayTradePaperTrade,
     DayTradeTradeExit,
     DayTradePaperAccount,
+    DayTradeStrategyConfig,
 )

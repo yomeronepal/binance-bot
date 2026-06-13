@@ -581,3 +581,205 @@ class DayTradePaperAccount(models.Model):
         self.total_pnl = self.realized_pnl + self.unrealized_pnl
         self.equity = self.balance + self.unrealized_pnl
         self.save()
+
+
+class DayTradeStrategyConfig(models.Model):
+    """Admin-tunable parameters for the 15m Market Structure Pullback engine.
+
+    The DayTradeSignalEngine and execution monitor load the active row, so
+    every threshold, ATR multiplier, scale-out size and score weight can be
+    changed from Django admin without a redeploy.
+    """
+
+    VWAP_ANCHOR_CHOICES = [
+        ('daily_utc', _('Daily (00:00 UTC reset)')),
+        ('rolling', _('Rolling N-period')),
+    ]
+
+    name = models.CharField(
+        max_length=50,
+        unique=True,
+        default='default',
+        help_text=_("Config name (one active config drives the engine)"),
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text=_("Whether this config is the one the engine uses"),
+    )
+    symbols = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=_("Symbols to scan, e.g. [\"BTCUSDT\", \"ETHUSDT\"]"),
+    )
+
+    entry_timeframe = models.CharField(max_length=5, default='15m', help_text=_("Entry/execution timeframe"))
+    trend_timeframe = models.CharField(max_length=5, default='1h', help_text=_("Higher-timeframe trend filter"))
+    trend_ema_fast = models.PositiveIntegerField(
+        default=50,
+        validators=[MinValueValidator(2), MaxValueValidator(400)],
+        help_text=_("Fast EMA for the trend filter"),
+    )
+    trend_ema_slow = models.PositiveIntegerField(
+        default=200,
+        validators=[MinValueValidator(5), MaxValueValidator(500)],
+        help_text=_("Slow EMA for the trend filter"),
+    )
+
+    pivot_lookback = models.PositiveIntegerField(
+        default=5,
+        validators=[MinValueValidator(2), MaxValueValidator(20)],
+        help_text=_("Candles each side that define a confirmed swing point"),
+    )
+
+    pullback_ema_fast = models.PositiveIntegerField(
+        default=20,
+        validators=[MinValueValidator(2), MaxValueValidator(200)],
+        help_text=_("Fast EMA of the pullback zone"),
+    )
+    pullback_ema_slow = models.PositiveIntegerField(
+        default=50,
+        validators=[MinValueValidator(5), MaxValueValidator(400)],
+        help_text=_("Slow EMA of the pullback zone"),
+    )
+    use_vwap = models.BooleanField(default=True, help_text=_("Include VWAP in the pullback zone"))
+    vwap_anchor = models.CharField(
+        max_length=12,
+        choices=VWAP_ANCHOR_CHOICES,
+        default='daily_utc',
+        help_text=_("How VWAP is anchored"),
+    )
+
+    rsi_period = models.PositiveIntegerField(
+        default=14,
+        validators=[MinValueValidator(2), MaxValueValidator(100)],
+        help_text=_("RSI period"),
+    )
+    rsi_threshold = models.FloatField(
+        default=50.0,
+        validators=[MinValueValidator(1.0), MaxValueValidator(99.0)],
+        help_text=_("RSI midline (LONG above, SHORT below)"),
+    )
+    macd_fast = models.PositiveIntegerField(default=12, validators=[MinValueValidator(2), MaxValueValidator(100)])
+    macd_slow = models.PositiveIntegerField(default=26, validators=[MinValueValidator(3), MaxValueValidator(200)])
+    macd_signal = models.PositiveIntegerField(default=9, validators=[MinValueValidator(2), MaxValueValidator(100)])
+
+    volume_multiplier = models.FloatField(
+        default=1.3,
+        validators=[MinValueValidator(0.5), MaxValueValidator(5.0)],
+        help_text=_("Volume must exceed this multiple of its average"),
+    )
+    volume_avg_period = models.PositiveIntegerField(
+        default=20,
+        validators=[MinValueValidator(2), MaxValueValidator(200)],
+        help_text=_("Lookback for the average-volume baseline"),
+    )
+
+    adx_min = models.FloatField(
+        default=20.0,
+        validators=[MinValueValidator(5.0), MaxValueValidator(60.0)],
+        help_text=_("Minimum ADX for a tradeable trend"),
+    )
+    adx_period = models.PositiveIntegerField(
+        default=14,
+        validators=[MinValueValidator(2), MaxValueValidator(100)],
+        help_text=_("ADX period"),
+    )
+
+    atr_period = models.PositiveIntegerField(
+        default=14,
+        validators=[MinValueValidator(2), MaxValueValidator(100)],
+        help_text=_("ATR period for stops and targets"),
+    )
+    sl_atr_mult = models.FloatField(
+        default=1.8,
+        validators=[MinValueValidator(0.2), MaxValueValidator(10.0)],
+        help_text=_("Initial stop = entry -/+ this x ATR"),
+    )
+    tp1_atr_mult = models.FloatField(
+        default=2.0,
+        validators=[MinValueValidator(0.2), MaxValueValidator(20.0)],
+        help_text=_("TP1 distance in ATR multiples"),
+    )
+    tp1_close_pct = models.FloatField(
+        default=50.0,
+        validators=[MinValueValidator(0.0), MaxValueValidator(100.0)],
+        help_text=_("Percent of position closed at TP1"),
+    )
+    tp2_atr_mult = models.FloatField(
+        default=4.0,
+        validators=[MinValueValidator(0.2), MaxValueValidator(40.0)],
+        help_text=_("TP2 distance in ATR multiples"),
+    )
+    tp2_close_pct = models.FloatField(
+        default=30.0,
+        validators=[MinValueValidator(0.0), MaxValueValidator(100.0)],
+        help_text=_("Percent of position closed at TP2"),
+    )
+    runner_pct = models.FloatField(
+        default=20.0,
+        validators=[MinValueValidator(0.0), MaxValueValidator(100.0)],
+        help_text=_("Percent left as the trailing runner"),
+    )
+    trail_atr_mult = models.FloatField(
+        default=2.0,
+        validators=[MinValueValidator(0.2), MaxValueValidator(20.0)],
+        help_text=_("Trailing-stop distance in ATR multiples"),
+    )
+    risk_per_trade_pct = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=Decimal('1.00'),
+        validators=[MinValueValidator(Decimal('0.10')), MaxValueValidator(Decimal('5.00'))],
+        help_text=_("Account risk per trade (percent), for position sizing"),
+    )
+
+    enable_liquidity_sweep = models.BooleanField(
+        default=True,
+        help_text=_("Score the optional liquidity-sweep confirmation"),
+    )
+
+    weight_trend = models.FloatField(default=3.0, help_text=_("1H trend filter weight"))
+    weight_structure = models.FloatField(default=3.0, help_text=_("Market-structure weight"))
+    weight_volume = models.FloatField(default=2.0, help_text=_("Volume confirmation weight"))
+    weight_pullback = models.FloatField(default=2.0, help_text=_("Pullback-zone weight"))
+    weight_macd = models.FloatField(default=1.5, help_text=_("MACD momentum weight"))
+    weight_rsi = models.FloatField(default=1.0, help_text=_("RSI momentum weight"))
+    weight_atr = models.FloatField(default=1.0, help_text=_("ATR regime weight"))
+    min_score = models.FloatField(
+        default=8.5,
+        validators=[MinValueValidator(0.0), MaxValueValidator(13.5)],
+        help_text=_("Minimum weighted score (of 13.5) to emit a signal"),
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'daytrade_strategy_configs'
+        ordering = ['-is_active', 'name']
+        verbose_name = _('Day-Trade Strategy Config')
+        verbose_name_plural = _('Day-Trade Strategy Configs')
+
+    def __str__(self):
+        state = 'Active' if self.is_active else 'Inactive'
+        return f"DayTrade config '{self.name}' ({state}, min_score={self.min_score})"
+
+    @property
+    def max_score(self):
+        """Total of all component weights."""
+        return (
+            self.weight_trend + self.weight_structure + self.weight_volume
+            + self.weight_pullback + self.weight_macd + self.weight_rsi
+            + self.weight_atr
+        )
+
+    @classmethod
+    def get_active(cls):
+        """Return the active config, creating a default one if none exists."""
+        config = cls.objects.filter(is_active=True).order_by('name').first()
+        if config is None:
+            config, _created = cls.objects.get_or_create(
+                name='default',
+                defaults={'symbols': ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT']},
+            )
+        return config

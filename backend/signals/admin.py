@@ -2537,6 +2537,7 @@ from .models.daytrade import (
     DayTradePaperTrade,
     DayTradeTradeExit,
     DayTradePaperAccount,
+    DayTradeStrategyConfig,
 )
 
 
@@ -2592,4 +2593,61 @@ class DayTradePaperAccountAdmin(admin.ModelAdmin):
         'updated_at',
     )
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(DayTradeStrategyConfig)
+class DayTradeStrategyConfigAdmin(admin.ModelAdmin):
+    """Tunable parameters that drive the 15m Market Structure engine."""
+
+    list_display = (
+        'name', 'is_active', 'entry_timeframe', 'trend_timeframe',
+        'adx_min', 'sl_atr_mult', 'tp1_atr_mult', 'tp2_atr_mult',
+        'min_score', 'updated_at',
+    )
+    list_filter = ('is_active',)
+    list_editable = ('is_active',)
+    readonly_fields = ('created_at', 'updated_at')
+
+    fieldsets = (
+        ('Identity & Universe', {
+            'fields': ('name', 'is_active', 'symbols', 'entry_timeframe', 'trend_timeframe'),
+        }),
+        ('Trend Filter (1H)', {
+            'fields': ('trend_ema_fast', 'trend_ema_slow'),
+        }),
+        ('Market Structure', {
+            'fields': ('pivot_lookback',),
+        }),
+        ('Pullback Zone', {
+            'fields': ('pullback_ema_fast', 'pullback_ema_slow', 'use_vwap', 'vwap_anchor'),
+        }),
+        ('Momentum', {
+            'fields': ('rsi_period', 'rsi_threshold', 'macd_fast', 'macd_slow', 'macd_signal'),
+        }),
+        ('Volume & Trend Strength', {
+            'fields': ('volume_multiplier', 'volume_avg_period', 'adx_min', 'adx_period'),
+        }),
+        ('Risk: ATR Stops & Scale-Out', {
+            'fields': (
+                'atr_period', 'sl_atr_mult',
+                'tp1_atr_mult', 'tp1_close_pct',
+                'tp2_atr_mult', 'tp2_close_pct',
+                'runner_pct', 'trail_atr_mult',
+                'risk_per_trade_pct',
+            ),
+        }),
+        ('Confirmations', {
+            'fields': ('enable_liquidity_sweep',),
+        }),
+        ('Scoring Weights', {
+            'fields': (
+                'weight_trend', 'weight_structure', 'weight_volume',
+                'weight_pullback', 'weight_macd', 'weight_rsi', 'weight_atr',
+                'min_score',
+            ),
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+        }),
+    )
 
