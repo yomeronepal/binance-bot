@@ -4,8 +4,9 @@ import useDayTradeStore from '../store/useDayTradeStore';
 import DayTradeSignalCard from '../components/signals/DayTradeSignalCard';
 
 const DayTradeSignals = () => {
-  const { signals, loading, error, fetchAll } = useDayTradeStore();
+  const { signals, summary, loading, error, fetchAll } = useDayTradeStore();
   const refresh = useCallback(() => { fetchAll(); }, [fetchAll]);
+  const confPct = summary?.min_confidence != null ? Math.round(summary.min_confidence * 100) : 70;
 
   useEffect(() => {
     refresh();
@@ -23,7 +24,7 @@ const DayTradeSignals = () => {
             </div>
             <div>
               <h1 className="text-xl sm:text-3xl font-bold text-gray-900 dark:text-white">Day Trading Signals</h1>
-              <p className="text-gray-600 dark:text-gray-400 text-xs sm:text-base">15m Market Structure Pullback · signals ≥70% confidence</p>
+              <p className="text-gray-600 dark:text-gray-400 text-xs sm:text-base">15m Market Structure Pullback · signals ≥{confPct}% confidence</p>
             </div>
           </div>
           <button onClick={refresh} disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
@@ -36,7 +37,7 @@ const DayTradeSignals = () => {
 
         {signals.length === 0 ? (
           <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg p-12 text-center shadow-sm">
-            <p className="text-gray-500 dark:text-gray-400">No signals above 70% confidence yet</p>
+            <p className="text-gray-500 dark:text-gray-400">No signals above {confPct}% confidence yet</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

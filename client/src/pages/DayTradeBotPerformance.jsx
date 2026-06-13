@@ -27,6 +27,7 @@ const DayTradeBotPerformance = () => {
   const roi = num(summary?.roi_percent);
   const pnl = num(summary?.total_profit_loss);
   const balance = num(summary?.account?.balance ?? summary?.initial_balance);
+  const confPct = summary?.min_confidence != null ? Math.round(summary.min_confidence * 100) : 70;
 
   const stats = [
     { label: 'ROI', value: `${signed(roi)}%`, icon: Percent, color: roi >= 0 ? 'text-green-500' : 'text-red-500', bgGradient: 'from-green-500/10 to-emerald-500/10', subtext: 'Return on capital', isLive: true },
@@ -73,7 +74,7 @@ const DayTradeBotPerformance = () => {
           <div className="bg-gradient-to-r from-indigo-50 to-cyan-50 dark:from-indigo-500/10 dark:to-cyan-500/10 border border-indigo-200 dark:border-indigo-500/30 rounded-lg p-3 sm:p-4">
             <p className="text-indigo-600 dark:text-indigo-300 text-xs sm:text-sm flex items-center flex-wrap gap-1">
               <Activity className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-pulse flex-shrink-0" />
-              <span>Scans every minute · $100 margin · 10x leverage · TP1/TP2/runner exits · signals ≥70% confidence</span>
+              <span>Scans every minute · $100 margin · 10x leverage · TP1/TP2/runner exits · signals ≥{confPct}% confidence</span>
               <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-500/20 border border-green-300 dark:border-green-500/50 rounded text-[10px] sm:text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
                 LIVE

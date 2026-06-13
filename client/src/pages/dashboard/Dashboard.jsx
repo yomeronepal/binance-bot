@@ -310,7 +310,7 @@ const Dashboard = () => {
         ) : (
           <div className="card text-center py-12">
             <p className="text-gray-500 dark:text-gray-400">
-              No day trading signals above 70% confidence yet
+              No day trading signals yet
             </p>
           </div>
         )}

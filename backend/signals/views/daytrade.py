@@ -217,6 +217,8 @@ def daytrade_summary(request):
     winners = stats['winners'] or 0
     open_count = trades.filter(status__in=OPEN_TRADE_STATUSES).count()
 
+    from signals.models.daytrade import DayTradeStrategyConfig
+    config = DayTradeStrategyConfig.get_active()
     account = _bot_account()
     initial_balance = float(account.initial_balance) if account else 10000.0
     realized_pnl = float(stats['total_pnl'] or 0)
@@ -244,6 +246,7 @@ def daytrade_summary(request):
         'worst_trade': round(float(stats['worst'] or 0), 2),
         'initial_balance': initial_balance,
         'roi_percent': round((total_pnl / initial_balance * 100), 2) if initial_balance else 0,
+        'min_confidence': config.min_confidence,
     }
     if account:
         summary['account'] = DayTradePaperAccountSerializer(account).data
