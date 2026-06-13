@@ -59,13 +59,13 @@ def _bot_account():
 
 
 async def _fetch_prices_async(symbols):
-    """Fetch prices for the requested symbols in a single all-tickers call."""
-    from scanner.services.binance_client import BinanceClient
+    """Fetch futures prices for the requested symbols in a single all-tickers call."""
+    from scanner.services.binance_futures_client import BinanceFuturesClient
     wanted = set(symbols)
     prices = {}
-    async with BinanceClient() as client:
+    async with BinanceFuturesClient() as client:
         try:
-            tickers = await client._request('GET', '/api/v3/ticker/price')
+            tickers = await client._request('GET', '/fapi/v1/ticker/price')
             for ticker in tickers:
                 if ticker['symbol'] in wanted:
                     prices[ticker['symbol']] = Decimal(str(ticker['price']))

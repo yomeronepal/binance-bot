@@ -2611,7 +2611,7 @@ class DayTradeStrategyConfigAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Identity & Universe', {
-            'fields': ('name', 'is_active', 'symbols', 'entry_timeframe', 'trend_timeframe'),
+            'fields': ('name', 'is_active', 'symbols', 'universe_top_n', 'entry_timeframe', 'trend_timeframe'),
         }),
         ('Trend Filter (1H)', {
             'fields': ('trend_ema_fast', 'trend_ema_slow'),

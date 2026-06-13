@@ -38,6 +38,7 @@ class DayTradeSignalConfig:
     """Engine parameters, mirroring DayTradeStrategyConfig."""
 
     symbols: List[str] = field(default_factory=lambda: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'])
+    universe_top_n: int = 30
     entry_timeframe: str = '15m'
     trend_timeframe: str = '1h'
     trend_ema_fast: int = 50
@@ -92,6 +93,7 @@ class DayTradeSignalConfig:
         """Build a config from a DayTradeStrategyConfig row."""
         return cls(
             symbols=db_config.symbols or [],
+            universe_top_n=db_config.universe_top_n,
             entry_timeframe=db_config.entry_timeframe,
             trend_timeframe=db_config.trend_timeframe,
             trend_ema_fast=db_config.trend_ema_fast,

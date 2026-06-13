@@ -14,7 +14,7 @@ from celery import shared_task
 from django.core.cache import cache
 
 from scanner.indicators.indicator_utils import klines_to_dataframe
-from scanner.services.binance_client import BinanceClient
+from scanner.services.binance_futures_client import BinanceFuturesClient
 from scanner.strategies.daytrade_signal_engine import (
     DayTradeSignalEngine,
     DayTradeSignalConfig,
@@ -29,11 +29,31 @@ ENTRY_KLINES_LIMIT = 150
 BATCH_SIZE = 10
 
 
-async def _resolve_symbols(client, configured):
-    """Return the universe to scan: all USDT pairs for ``*``, else the list."""
+async def _top_by_volume(client, pairs, top_n):
+    """Return the ``top_n`` pairs ranked by 24h quote volume."""
+    valid = set(pairs)
+    tickers = await client._request('GET', '/fapi/v1/ticker/24hr')
+    ranked = sorted(
+        (t for t in tickers if t['symbol'] in valid),
+        key=lambda t: float(t.get('quoteVolume') or 0),
+        reverse=True,
+    )
+    return [t['symbol'] for t in ranked[:top_n]]
+
+
+async def _resolve_symbols(client, configured, top_n):
+    """Resolve the scan universe.
+
+    For ``*`` (or empty): all USDT perpetuals, optionally trimmed to the
+    top_n most-liquid by 24h volume. Otherwise the configured list.
+    """
     if not configured or '*' in configured:
-        pairs = await client.get_usdt_pairs()
-        logger.info("DayTrade universe: ALL (%d USDT pairs)", len(pairs))
+        pairs = await client.get_usdt_futures_pairs()
+        if top_n and top_n > 0:
+            pairs = await _top_by_volume(client, pairs, top_n)
+            logger.info("DayTrade universe: top %d USDT futures pairs by volume", len(pairs))
+        else:
+            logger.info("DayTrade universe: ALL (%d USDT futures pairs)", len(pairs))
         return pairs
     symbols = [s.upper() for s in configured]
     logger.info("DayTrade universe: %d configured symbols", len(symbols))
@@ -82,8 +102,8 @@ async def _scan_daytrade_async():
 
     counts = {'symbols': 0, 'created': 0, 'errors': 0}
 
-    async with BinanceClient() as client:
-        symbols = await _resolve_symbols(client, cfg.symbols)
+    async with BinanceFuturesClient() as client:
+        symbols = await _resolve_symbols(client, cfg.symbols, cfg.universe_top_n)
         counts['symbols'] = len(symbols)
 
         klines_1h = await _fetch_1h_cached(client, symbols, trend_limit)

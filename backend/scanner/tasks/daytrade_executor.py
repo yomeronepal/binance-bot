@@ -18,7 +18,7 @@ from asgiref.sync import sync_to_async
 from celery import shared_task
 from django.utils import timezone
 
-from scanner.services.binance_client import BinanceClient
+from scanner.services.binance_futures_client import BinanceFuturesClient
 from scanner.strategies.daytrade_signal_engine import DayTradeSignalConfig
 
 logger = logging.getLogger(__name__)
@@ -262,7 +262,7 @@ async def _monitor_async():
         return {'monitored': 0, 'closed': 0}
 
     symbols = sorted({t.symbol for t in open_trades})
-    async with BinanceClient() as client:
+    async with BinanceFuturesClient() as client:
         prices = await _fetch_prices(client, symbols)
 
     closed = 0

@@ -609,7 +609,12 @@ class DayTradeStrategyConfig(models.Model):
     symbols = models.JSONField(
         default=list,
         blank=True,
-        help_text=_("Symbols to scan, e.g. [\"BTCUSDT\", \"ETHUSDT\"]"),
+        help_text=_("Symbols to scan, e.g. [\"BTCUSDT\", \"ETHUSDT\"]. Use [\"*\"] for all."),
+    )
+    universe_top_n = models.PositiveIntegerField(
+        default=30,
+        validators=[MinValueValidator(0), MaxValueValidator(1000)],
+        help_text=_("When symbols is [\"*\"], scan only the top N pairs by 24h volume (0 = all)"),
     )
 
     entry_timeframe = models.CharField(max_length=5, default='15m', help_text=_("Entry/execution timeframe"))
