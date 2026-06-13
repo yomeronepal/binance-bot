@@ -53,7 +53,12 @@ from .golden_window_trader import (
     sync_futures_trades_with_binance,
 )
 
+from .daytrade_scanner import (
+    scan_daytrade,
+)
+
 __all__ = [
+    'scan_daytrade',
     'scan_binance_market',
     'scan_futures_market',
     'full_data_refresh',

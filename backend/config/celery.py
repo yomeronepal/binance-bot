@@ -184,6 +184,16 @@ app.conf.beat_schedule = {
         'options': {'expires': 55.0},
     },
 
+    # ============================================================================
+    # DAY-TRADE SCANNING (15m Market Structure Pullback) - every 1 minute
+    # ============================================================================
+
+    'scan-daytrade': {
+        'task': 'scanner.tasks.daytrade_scanner.scan_daytrade',
+        'schedule': crontab(minute='*/1'),
+        'options': {'expires': 55.0},
+    },
+
 }
 
 # Celery Configuration
@@ -246,6 +256,8 @@ app.conf.update(
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_30m': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_15m': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_5m': {'queue': 'scanner'},
+        # Day-trade scanning
+        'scanner.tasks.daytrade_scanner.scan_daytrade': {'queue': 'scanner'},
     },
 )
 
