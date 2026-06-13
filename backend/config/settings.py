@@ -46,7 +46,7 @@ ALLOWED_HOSTS = sorted(BASELINE_ALLOWED_HOSTS | _configured_hosts)
 # Application definition
 INSTALLED_APPS = [
     'daphne',  # Must be first for channels
-    'django.contrib.admin',
+    'config.admin_config.AutoRegisterAdminConfig',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
