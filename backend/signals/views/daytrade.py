@@ -67,12 +67,18 @@ def daytrade_signals_list(request):
     symbol = request.query_params.get('symbol')
     signal_status = request.query_params.get('status')
     direction = request.query_params.get('direction')
+    min_confidence = request.query_params.get('min_confidence')
     if symbol:
         queryset = queryset.filter(symbol=symbol.upper())
     if signal_status:
         queryset = queryset.filter(status=signal_status.upper())
     if direction and direction != 'ALL':
         queryset = queryset.filter(direction=direction.upper())
+    if min_confidence:
+        try:
+            queryset = queryset.filter(confidence__gte=float(min_confidence))
+        except (TypeError, ValueError):
+            pass
 
     queryset = queryset.order_by('-created_at')
     paginator = _paginator()
