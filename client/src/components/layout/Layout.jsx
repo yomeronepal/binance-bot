@@ -36,21 +36,49 @@ const Layout = () => {
     navigate('/login');
   };
 
-  const navLinks = [
-    { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/spot-signals', label: 'Spot Signals', icon: Signal },
-    { to: '/futures', label: 'Futures', icon: TrendingUp },
-    { to: '/paper-trading', label: 'Paper Trading', icon: FileText },
-    { to: '/bot-performance', label: 'Bot Performance', icon: Bot },
-    { to: '/daytrade-performance', label: 'Day-Trade Bot', icon: Activity },
-    { to: '/trading-sessions', label: 'Trading Sessions', icon: Calendar },
-    { to: '/backtesting', label: 'Backtesting', icon: FlaskConical },
-    ...(user?.is_superuser ? [
-      { to: '/futures-performance', label: 'Futures Trade', icon: BarChart3 }
-    ] : [])
+  const navSections = [
+    { type: 'item', to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    {
+      type: 'group', label: 'Signal Engine V1', items: [
+        { to: '/spot-signals', label: 'Spot Signals', icon: Signal },
+        { to: '/futures', label: 'Future Signals', icon: TrendingUp },
+        { to: '/bot-performance', label: 'Bot Performance', icon: Bot },
+        { to: '/trading-sessions', label: 'Trading Session', icon: Calendar },
+      ],
+    },
+    {
+      type: 'group', label: 'Day Trading', items: [
+        { to: '/daytrade-signals', label: 'Signals', icon: Signal },
+        { to: '/daytrade-performance', label: 'Bot Performance', icon: Activity },
+        { to: '/daytrade-sessions', label: 'Trading Session', icon: Calendar },
+      ],
+    },
+    { type: 'item', to: '/paper-trading', label: 'Paper Trading', icon: FileText },
+    { type: 'item', to: '/backtesting', label: 'Backtesting', icon: FlaskConical },
+    { type: 'item', to: '/futures-performance', label: 'Future Trade', icon: BarChart3 },
   ];
 
   const isActiveLink = (path) => location.pathname === path;
+
+  const renderNavLink = (link, isMobile) => {
+    const Icon = link.icon;
+    const active = isActiveLink(link.to);
+    return (
+      <Link
+        key={link.to}
+        to={link.to}
+        title={collapsed && !isMobile ? link.label : undefined}
+        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group ${
+          active
+            ? 'bg-primary-500/10 text-primary-600 dark:text-primary-400 border-r-2 border-primary-500'
+            : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700/50 dark:hover:text-white'
+        }`}
+      >
+        <Icon className={`w-5 h-5 flex-shrink-0 ${active ? 'text-primary-500' : 'text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300'}`} />
+        {(!collapsed || isMobile) && <span className="truncate">{link.label}</span>}
+      </Link>
+    );
+  };
 
   const SidebarContent = ({ isMobile = false }) => (
     <div className="flex flex-col h-full">
@@ -79,24 +107,24 @@ const Layout = () => {
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {navLinks.map((link) => {
-          const Icon = link.icon;
-          const active = isActiveLink(link.to);
-          return (
-            <Link
-              key={link.to}
-              to={link.to}
-              title={collapsed && !isMobile ? link.label : undefined}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group ${
-                active
-                  ? 'bg-primary-500/10 text-primary-600 dark:text-primary-400 border-r-2 border-primary-500'
-                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700/50 dark:hover:text-white'
-              }`}
-            >
-              <Icon className={`w-5 h-5 flex-shrink-0 ${active ? 'text-primary-500' : 'text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300'}`} />
-              {(!collapsed || isMobile) && <span className="truncate">{link.label}</span>}
-            </Link>
-          );
+        {navSections.map((section, idx) => {
+          if (section.type === 'group') {
+            return (
+              <div key={`group-${idx}`} className="pt-3 first:pt-0">
+                {(!collapsed || isMobile) ? (
+                  <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                    {section.label}
+                  </p>
+                ) : (
+                  <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
+                )}
+                <div className="space-y-1">
+                  {section.items.map((link) => renderNavLink(link, isMobile))}
+                </div>
+              </div>
+            );
+          }
+          return renderNavLink(section, isMobile);
         })}
       </nav>
 

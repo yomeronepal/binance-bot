@@ -12,6 +12,7 @@ import { usePolling } from '../../hooks/usePolling';
 import SignalCard from '../../components/common/SignalCard';
 import FuturesSignalCard from '../../components/signals/FuturesSignalCard';
 import MarketRegimePanel from '../../components/common/MarketRegimePanel';
+import api from '../../services/api';
 
 // Mock signals data for development
 const mockSignals = [
@@ -80,6 +81,27 @@ const Dashboard = () => {
   const [useMockData, setUseMockData] = useState(true);
   const [tradingMode, setTradingMode] = useState('paper');
   const [successRate, setSuccessRate] = useState(null);
+  const [futuresTrades, setFuturesTrades] = useState([]);
+  const [dayTrades, setDayTrades] = useState([]);
+
+  // Recent Future Trade + Recent Day Trading feeds for the dashboard
+  useEffect(() => {
+    const loadTrades = async () => {
+      try {
+        const [ft, dt] = await Promise.all([
+          api.get('/futures/trades/?page_size=6'),
+          api.get('/daytrade/trades/?page_size=6'),
+        ]);
+        setFuturesTrades(ft.data?.results || ft.data?.trades || ft.data || []);
+        setDayTrades(dt.data?.results || dt.data?.trades || []);
+      } catch (e) {
+        // leave feeds empty on failure
+      }
+    };
+    loadTrades();
+    const id = setInterval(() => { if (!document.hidden) loadTrades(); }, 30000);
+    return () => clearInterval(id);
+  }, []);
 
   // WebSocket URL
   const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/signals/';
@@ -201,19 +223,7 @@ const Dashboard = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="card bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20">
-          <h3 className="text-sm font-medium text-blue-700 dark:text-blue-300">
-            Active Spot Signals
-          </h3>
-          <p className="mt-2 text-3xl font-bold text-blue-900 dark:text-blue-100">
-            {activeSignals.length}
-          </p>
-          <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">
-            Spot market
-          </p>
-        </div>
-
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="card bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20">
           <h3 className="text-sm font-medium text-purple-700 dark:text-purple-300">
             Active Futures Signals
@@ -226,15 +236,15 @@ const Dashboard = () => {
           </p>
         </div>
 
-        <div className="card bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20">
-          <h3 className="text-sm font-medium text-green-700 dark:text-green-300">
-            Total Active
+        <div className="card bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900/20 dark:to-indigo-800/20">
+          <h3 className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+            Open Day Trades
           </h3>
-          <p className="mt-2 text-3xl font-bold text-green-900 dark:text-green-100">
-            {activeSignals.length + activeFuturesSignals.length}
+          <p className="mt-2 text-3xl font-bold text-indigo-900 dark:text-indigo-100">
+            {dayTrades.filter((t) => ['OPEN', 'PARTIAL', 'PENDING'].includes(t.status)).length}
           </p>
-          <p className="mt-1 text-xs text-green-600 dark:text-green-400">
-            All markets
+          <p className="mt-1 text-xs text-indigo-600 dark:text-indigo-400">
+            Day-trade bot
           </p>
         </div>
 
@@ -253,41 +263,6 @@ const Dashboard = () => {
 
       {/* Market Regime — collapsible macro filters (shared with /bot-performance) */}
       <MarketRegimePanel />
-
-      {/* Recent Spot Signals */}
-      <div>
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Recent Spot Signals
-          </h2>
-          <Link to="/spot-signals" className="btn btn-primary">
-            View All Spot
-          </Link>
-        </div>
-
-        {loading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-          </div>
-        ) : displaySignals.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {displaySignals.slice(0, 4).map((signal) => (
-              <div
-                key={signal.id}
-                className="transform transition-all duration-200 hover:scale-105"
-              >
-                <SignalCard signal={signal} tradingMode={tradingMode} />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="card text-center py-12">
-            <p className="text-gray-500 dark:text-gray-400">
-              No spot signals available yet
-            </p>
-          </div>
-        )}
-      </div>
 
       {/* Recent Futures Signals */}
       <div>
@@ -324,12 +299,74 @@ const Dashboard = () => {
         )}
       </div>
 
+      {/* Recent Future Trade */}
+      <RecentTrades
+        title="Recent Future Trade"
+        trades={futuresTrades}
+        viewAllTo="/futures-performance"
+        emptyLabel="No futures trades yet"
+      />
+
+      {/* Recent Day Trading */}
+      <RecentTrades
+        title="Recent Day Trading"
+        trades={dayTrades}
+        viewAllTo="/daytrade-performance"
+        emptyLabel="No day trades yet"
+      />
+
       {useMockData && (
         <div className="card bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
           <p className="text-sm text-blue-800 dark:text-blue-200">
             📊 <strong>Note:</strong> Currently displaying mock data for demo purposes.
             Connect your backend API to see live signals.
           </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const RecentTrades = ({ title, trades, viewAllTo, emptyLabel }) => {
+  const rows = (trades || []).slice(0, 6);
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h2>
+        <Link to={viewAllTo} className="btn btn-primary">View All</Link>
+      </div>
+      {rows.length > 0 ? (
+        <div className="card overflow-hidden overflow-x-auto p-0">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-100 dark:bg-gray-800/50">
+              <tr>
+                {['Symbol', 'Dir', 'Entry', 'Exit', 'P/L', 'Status'].map((h) => (
+                  <th key={h} className="px-4 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              {rows.map((t) => {
+                const pnl = Number(t.profit_loss) || 0;
+                return (
+                  <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                    <td className="px-4 py-2 font-medium text-gray-900 dark:text-white">{t.symbol}</td>
+                    <td className="px-4 py-2">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${t.direction === 'LONG' ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>{t.direction}</span>
+                    </td>
+                    <td className="px-4 py-2 font-mono text-gray-700 dark:text-gray-300">{Number(t.entry_price).toFixed(4)}</td>
+                    <td className="px-4 py-2 font-mono text-gray-700 dark:text-gray-300">{t.exit_price ? Number(t.exit_price).toFixed(4) : '-'}</td>
+                    <td className={`px-4 py-2 font-semibold ${pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>{pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}</td>
+                    <td className="px-4 py-2"><span className="text-xs text-gray-500 dark:text-gray-400">{(t.status || '').replace('CLOSED_', '')}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="card text-center py-12">
+          <p className="text-gray-500 dark:text-gray-400">{emptyLabel}</p>
         </div>
       )}
     </div>
