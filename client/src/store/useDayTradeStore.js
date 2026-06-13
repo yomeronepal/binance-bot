@@ -18,7 +18,7 @@ const useDayTradeStore = create((set) => ({
         axios.get(`${baseURL}/daytrade/summary/`),
         axios.get(`${baseURL}/daytrade/positions/`),
         axios.get(`${baseURL}/daytrade/trades/?page_size=25`),
-        axios.get(`${baseURL}/daytrade/signals/?page_size=25&min_confidence=0.7`),
+        axios.get(`${baseURL}/daytrade/signals/?page_size=25`),
       ]);
       set({
         summary: summaryRes.data,
