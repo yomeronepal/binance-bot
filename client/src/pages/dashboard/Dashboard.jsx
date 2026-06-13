@@ -12,6 +12,8 @@ import { usePolling } from '../../hooks/usePolling';
 import SignalCard from '../../components/common/SignalCard';
 import FuturesSignalCard from '../../components/signals/FuturesSignalCard';
 import MarketRegimePanel from '../../components/common/MarketRegimePanel';
+import DayTradeSignalCard from '../../components/signals/DayTradeSignalCard';
+import useDayTradeStore from '../../store/useDayTradeStore';
 
 // Mock signals data for development
 const mockSignals = [
@@ -80,6 +82,16 @@ const Dashboard = () => {
   const [useMockData, setUseMockData] = useState(true);
   const [tradingMode, setTradingMode] = useState('paper');
   const [successRate, setSuccessRate] = useState(null);
+  const dayTradeSignals = useDayTradeStore((s) => s.signals);
+  const dayTradePositions = useDayTradeStore((s) => s.positions);
+  const fetchDayTrade = useDayTradeStore((s) => s.fetchAll);
+
+  // Day-trade feed (signals >=70% confidence + open positions count)
+  useEffect(() => {
+    fetchDayTrade();
+    const id = setInterval(() => { if (!document.hidden) fetchDayTrade(); }, 30000);
+    return () => clearInterval(id);
+  }, [fetchDayTrade]);
 
   // WebSocket URL
   const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/signals/';
@@ -201,19 +213,7 @@ const Dashboard = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="card bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20">
-          <h3 className="text-sm font-medium text-blue-700 dark:text-blue-300">
-            Active Spot Signals
-          </h3>
-          <p className="mt-2 text-3xl font-bold text-blue-900 dark:text-blue-100">
-            {activeSignals.length}
-          </p>
-          <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">
-            Spot market
-          </p>
-        </div>
-
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="card bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20">
           <h3 className="text-sm font-medium text-purple-700 dark:text-purple-300">
             Active Futures Signals
@@ -226,15 +226,15 @@ const Dashboard = () => {
           </p>
         </div>
 
-        <div className="card bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20">
-          <h3 className="text-sm font-medium text-green-700 dark:text-green-300">
-            Total Active
+        <div className="card bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900/20 dark:to-indigo-800/20">
+          <h3 className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+            Open Day Trades
           </h3>
-          <p className="mt-2 text-3xl font-bold text-green-900 dark:text-green-100">
-            {activeSignals.length + activeFuturesSignals.length}
+          <p className="mt-2 text-3xl font-bold text-indigo-900 dark:text-indigo-100">
+            {dayTradePositions.length}
           </p>
-          <p className="mt-1 text-xs text-green-600 dark:text-green-400">
-            All markets
+          <p className="mt-1 text-xs text-indigo-600 dark:text-indigo-400">
+            Day-trade bot
           </p>
         </div>
 
@@ -253,41 +253,6 @@ const Dashboard = () => {
 
       {/* Market Regime — collapsible macro filters (shared with /bot-performance) */}
       <MarketRegimePanel />
-
-      {/* Recent Spot Signals */}
-      <div>
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Recent Spot Signals
-          </h2>
-          <Link to="/spot-signals" className="btn btn-primary">
-            View All Spot
-          </Link>
-        </div>
-
-        {loading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-          </div>
-        ) : displaySignals.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {displaySignals.slice(0, 4).map((signal) => (
-              <div
-                key={signal.id}
-                className="transform transition-all duration-200 hover:scale-105"
-              >
-                <SignalCard signal={signal} tradingMode={tradingMode} />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="card text-center py-12">
-            <p className="text-gray-500 dark:text-gray-400">
-              No spot signals available yet
-            </p>
-          </div>
-        )}
-      </div>
 
       {/* Recent Futures Signals */}
       <div>
@@ -319,6 +284,33 @@ const Dashboard = () => {
           <div className="card text-center py-12">
             <p className="text-gray-500 dark:text-gray-400">
               No futures signals available yet
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Recent Day Trading signals */}
+      <div>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+            Recent Day Trading
+          </h2>
+          <Link to="/daytrade-signals" className="btn btn-primary">
+            View All
+          </Link>
+        </div>
+        {dayTradeSignals.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {dayTradeSignals.slice(0, 4).map((signal) => (
+              <div key={signal.id} className="transform transition-all duration-200 hover:scale-105">
+                <DayTradeSignalCard signal={signal} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="card text-center py-12">
+            <p className="text-gray-500 dark:text-gray-400">
+              No day trading signals yet
             </p>
           </div>
         )}

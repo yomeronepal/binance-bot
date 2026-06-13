@@ -19,11 +19,6 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 
 # Load task modules from all registered Django apps.
 app.autodiscover_tasks()
-app.autodiscover_tasks(related_name='tasks_strategy_performance')
-app.autodiscover_tasks(related_name='tasks_optimization')
-app.autodiscover_tasks(related_name='tasks_golden_window')
-app.autodiscover_tasks(related_name='tasks_top_performers')
-app.autodiscover_tasks(related_name='tasks_balance_rebalance')
 
 # Celery Beat Schedule (Periodic Tasks)
 app.conf.beat_schedule = {
@@ -189,6 +184,28 @@ app.conf.beat_schedule = {
         'options': {'expires': 55.0},
     },
 
+    # ============================================================================
+    # DAY-TRADE SCANNING (15m Market Structure Pullback) - every 1 minute
+    # ============================================================================
+
+    'scan-daytrade': {
+        'task': 'scanner.tasks.daytrade_scanner.scan_daytrade',
+        'schedule': crontab(minute='*/1'),
+        'options': {'expires': 55.0},
+    },
+
+    'open-daytrade-positions': {
+        'task': 'scanner.tasks.daytrade_executor.open_daytrade_positions',
+        'schedule': crontab(minute='*/1'),
+        'options': {'expires': 55.0},
+    },
+
+    'monitor-daytrade-positions': {
+        'task': 'scanner.tasks.daytrade_executor.monitor_daytrade_positions',
+        'schedule': crontab(minute='*/1'),
+        'options': {'expires': 55.0},
+    },
+
 }
 
 # Celery Configuration
@@ -251,6 +268,10 @@ app.conf.update(
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_30m': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_15m': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_5m': {'queue': 'scanner'},
+        # Day-trade scanning + execution (dedicated daytrade worker/queue)
+        'scanner.tasks.daytrade_scanner.scan_daytrade': {'queue': 'daytrade'},
+        'scanner.tasks.daytrade_executor.open_daytrade_positions': {'queue': 'daytrade'},
+        'scanner.tasks.daytrade_executor.monitor_daytrade_positions': {'queue': 'daytrade'},
     },
 )
 

@@ -375,7 +375,7 @@ async def scan_timeframe(
 
     try:
         from asgiref.sync import sync_to_async
-        from signals.models_strategy_config import StrategyConfig
+        from signals.models.strategy_config import StrategyConfig
         db_config = None
         cached_config = None
         try:

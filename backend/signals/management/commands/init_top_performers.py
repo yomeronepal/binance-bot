@@ -32,7 +32,7 @@ from datetime import date
 from django.core.management.base import BaseCommand
 from django.utils import timezone as dj_timezone
 
-from signals.models_top_performers import TopPerformingSymbol
+from signals.models.top_performers import TopPerformingSymbol
 from signals.services.top_performers_calculator import (
     calendar_month_bounds,
     compute_and_snapshot,

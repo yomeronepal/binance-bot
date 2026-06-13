@@ -23,7 +23,7 @@ def run_backtest_async(self, backtest_id: int):
     Returns:
         Dictionary with backtest results
     """
-    from signals.models_backtest import BacktestRun, BacktestTrade, BacktestMetric
+    from signals.models.backtest import BacktestRun, BacktestTrade, BacktestMetric
     from scanner.services.historical_data_fetcher import historical_data_fetcher
     from scanner.services.backtest_engine import BacktestEngine
     from scanner.strategies.signal_engine import SignalDetectionEngine, SignalConfig
@@ -301,7 +301,7 @@ def run_optimization_async(
         Dictionary with optimization results
     """
     from django.contrib.auth import get_user_model
-    from signals.models_backtest import StrategyOptimization, BacktestRun
+    from signals.models.backtest import StrategyOptimization, BacktestRun
     from scanner.services.parameter_optimizer import parameter_optimizer
 
     User = get_user_model()

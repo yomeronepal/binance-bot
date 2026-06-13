@@ -130,6 +130,26 @@ services:
     networks:
       - revx_network
 
+  # Celery Worker (Day-Trade - Dedicated)
+  celery-daytrade:
+    build:
+      context: ../backend
+      dockerfile: ../docker/Dockerfile
+    container_name: revx_celery_daytrade
+    command: celery -A config worker -l info --concurrency=2 -Q daytrade -n daytrade@%h
+    volumes:
+      - ../backend:/app
+    env_file:
+      - ../backend/.env
+    environment:
+      - DOCKER_CONTAINER=true
+    depends_on:
+      - db
+      - redis
+      - web
+    networks:
+      - revx_network
+
   celery-beat:
     build:
       context: ../backend

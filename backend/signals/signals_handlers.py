@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
 from .models import Signal, Symbol, PaperTrade, TradingSession
-from .models_futures import FuturesTrade
+from .models.futures import FuturesTrade
 from .services.realtime import realtime_signal_service
 from scanner.services.asset_classifier import classify_symbol
 
@@ -83,7 +83,7 @@ def track_closed_paper_trade(sender, instance, created, **kwargs):
 
     try:
         from .services.optimizer_service import TradeCounterService
-        from .tasks_optimization import auto_optimize_strategy
+        from .tasks.optimization import auto_optimize_strategy
 
         # Determine volatility level based on symbol
         volatility_level = _determine_volatility_from_symbol(instance.symbol)
@@ -347,7 +347,7 @@ def auto_execute_trade_on_signal(sender, instance, created, **kwargs):
         return
 
     # Check if symbol is blacklisted
-    from .models_blacklist import BlacklistedSymbol
+    from .models.blacklist import BlacklistedSymbol
     if BlacklistedSymbol.is_blacklisted(instance.symbol.symbol):
         logger.info(f"📛 Signal {instance.id} ({instance.symbol.symbol}) is blacklisted, skipping auto-trade")
         return
@@ -419,7 +419,7 @@ def create_system_paper_trade(sender, instance, created, **kwargs):
         return
 
     # Check if symbol is blacklisted
-    from .models_blacklist import BlacklistedSymbol
+    from .models.blacklist import BlacklistedSymbol
     if BlacklistedSymbol.is_blacklisted(instance.symbol.symbol):
         logger.info(f"📛 Signal {instance.id} ({instance.symbol.symbol}) is blacklisted, skipping system paper trade")
         return
@@ -527,7 +527,7 @@ def _execute_futures_trade(instance):
             )
             return
 
-        from .models_blacklist import BlacklistedSymbol
+        from .models.blacklist import BlacklistedSymbol
         if BlacklistedSymbol.is_blacklisted(instance.symbol.symbol):
             logger.warning(f"Signal {instance.id} ({instance.symbol.symbol}) blacklisted, blocking futures trade")
             return

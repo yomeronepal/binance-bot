@@ -18,7 +18,7 @@ import aiohttp
 from django.conf import settings
 from django.utils import timezone as dj_timezone
 
-from ..models_futures import FuturesTradingSettings, FuturesTrade
+from ..models.futures import FuturesTradingSettings, FuturesTrade
 from ..models import Signal
 
 logger = logging.getLogger(__name__)
@@ -1586,7 +1586,7 @@ class FuturesTradingService:
              symbol='', direction='', is_priority=False, force_execute=False, details=None):
         """Write a FuturesTradeLog entry."""
         try:
-            from ..models_futures import FuturesTradeLog
+            from ..models.futures import FuturesTradeLog
             FuturesTradeLog.objects.create(
                 signal=signal, trade=trade, action=action, level=level,
                 symbol=symbol, direction=direction, is_priority=is_priority,

@@ -4,7 +4,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from backend.signals.models_backtest import BacktestRun
+from backend.signals.models.backtest import BacktestRun
 
 # --- Setup Django environment ---
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "your_project.settings")

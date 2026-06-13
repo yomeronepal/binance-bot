@@ -2,7 +2,7 @@
 Django management command to monitor backtest progress and generate reports
 """
 from django.core.management.base import BaseCommand
-from signals.models_backtest import BacktestRun
+from signals.models.backtest import BacktestRun
 import time
 from datetime import datetime
 

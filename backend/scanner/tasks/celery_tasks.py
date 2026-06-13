@@ -114,7 +114,7 @@ async def _scan_market_async(engine):
         )
 
         # Get blacklisted symbols
-        from signals.models_blacklist import BlacklistedSymbol
+        from signals.models.blacklist import BlacklistedSymbol
         blacklisted_symbols = BlacklistedSymbol.get_blacklisted_symbols()
         logger.info(f"📛 Skipping {len(blacklisted_symbols)} blacklisted symbols: {blacklisted_symbols}")
 

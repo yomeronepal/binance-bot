@@ -11,14 +11,14 @@ from signals.views import (
     AnalyticsViewSet,
     TradingSessionViewSet
 )
-from signals.views_paper_trading import PaperTradeViewSet, PaperAccountViewSet
-from signals.views_public_dashboard import public_paper_trading_dashboard
-from signals.views_public_dashboard_optimized import (
+from signals.views.paper_trading import PaperTradeViewSet, PaperAccountViewSet
+from signals.views.public_dashboard import public_paper_trading_dashboard
+from signals.views.public_dashboard_optimized import (
     optimized_dashboard,
     dashboard_lightweight,
     clear_dashboard_cache
 )
-from signals.views_public_paper_trading import (
+from signals.views.public_paper_trading import (
     public_paper_trades_list,
     public_performance,
     public_open_positions,
@@ -32,21 +32,21 @@ from signals.views_public_paper_trading import (
     public_equity_macro_status,
     public_commodity_macro_status,
 )
-from signals.views_backtest import (
+from signals.views.backtest import (
     BacktestViewSet,
     OptimizationViewSet,
     RecommendationViewSet
 )
-from signals.views_walkforward import WalkForwardOptimizationViewSet
-from signals.views_montecarlo import MonteCarloSimulationViewSet
-from signals.views_mltuning import MLTuningJobViewSet, MLModelViewSet
-from signals.views_strategy_performance import strategy_performance
-from signals.views_strategy_performance_optimized import (
+from signals.views.walkforward import WalkForwardOptimizationViewSet
+from signals.views.montecarlo import MonteCarloSimulationViewSet
+from signals.views.mltuning import MLTuningJobViewSet, MLModelViewSet
+from signals.views.strategy_performance import strategy_performance
+from signals.views.strategy_performance_optimized import (
     strategy_performance_optimized,
     strategy_performance_lite,
     clear_performance_cache
 )
-from signals.views_optimization import (
+from signals.views.optimization import (
     optimization_history,
     config_history,
     active_configs,
@@ -57,7 +57,7 @@ from signals.views_optimization import (
     learning_metrics,
     apply_config
 )
-from signals.views_futures import (
+from signals.views.futures import (
     futures_settings,
     toggle_futures_trading,
     futures_trades_list,
@@ -70,11 +70,18 @@ from signals.views_futures import (
     futures_balance,
     futures_export,
 )
-from signals.views_market import get_order_book
-from signals.views_chart import chart_annotations, delete_annotation, fibonacci_setup
-from signals.views_blacklist import BlacklistedSymbolViewSet
-from signals.views_push import subscribe_push, unsubscribe_push, push_status, subscribe_push_public
-from signals.views_top_performers import top_performers, top_performers_periods
+from signals.views.market import get_order_book
+from signals.views.chart import chart_annotations, delete_annotation, fibonacci_setup
+from signals.views.blacklist import BlacklistedSymbolViewSet
+from signals.views.push import subscribe_push, unsubscribe_push, push_status, subscribe_push_public
+from signals.views.top_performers import top_performers, top_performers_periods
+from signals.views.daytrade import (
+    daytrade_signals_list,
+    daytrade_trades_list,
+    daytrade_open_positions,
+    daytrade_summary,
+    daytrade_close_trade,
+)
 
 app_name = 'api'
 
@@ -164,6 +171,13 @@ urlpatterns = [
     path('futures/fear-greed/', fear_greed_status, name='fear-greed-status'),
     path('futures/report/', futures_report, name='futures-report'),
     path('futures/export/', futures_export, name='futures-export'),
+
+    # Day-Trade (15m Market Structure) endpoints
+    path('daytrade/signals/', daytrade_signals_list, name='daytrade-signals'),
+    path('daytrade/trades/', daytrade_trades_list, name='daytrade-trades'),
+    path('daytrade/positions/', daytrade_open_positions, name='daytrade-positions'),
+    path('daytrade/summary/', daytrade_summary, name='daytrade-summary'),
+    path('daytrade/trades/<int:trade_id>/close/', daytrade_close_trade, name='daytrade-close-trade'),
 
     # Market Data endpoints
     path('market/orderbook/<str:symbol>/', get_order_book, name='orderbook'),

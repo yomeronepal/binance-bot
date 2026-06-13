@@ -346,7 +346,7 @@ class Command(BaseCommand):
 
         self.stdout.write("\n4️⃣  MONITOR LEARNING SYSTEM:")
         self.stdout.write("   • Check trade counters: python manage.py shell -c \"")
-        self.stdout.write("     from signals.models_optimization import TradeCounter;")
+        self.stdout.write("     from signals.models.optimization import TradeCounter;")
         self.stdout.write("     for c in TradeCounter.objects.all(): print(f'{c.volatility_level}: {c.trade_count}/{c.threshold}')\"")
 
         self.stdout.write("\n5️⃣  TRIGGER MANUAL OPTIMIZATION:")

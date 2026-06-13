@@ -10,7 +10,7 @@ Usage:
 from django.core.management.base import BaseCommand
 
 from signals.services.push_notification import broadcast, get_firebase_app
-from signals.models_push import PushSubscription
+from signals.models.push import PushSubscription
 
 
 class Command(BaseCommand):

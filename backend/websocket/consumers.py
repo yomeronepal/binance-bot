@@ -50,7 +50,7 @@ class BacktestConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def _user_can_access_backtest(self, user):
-        from signals.models_backtest import BacktestRun
+        from signals.models.backtest import BacktestRun
         run = BacktestRun.objects.filter(id=self.backtest_id).only('user_id').first()
         if not run:
             return False

@@ -13,17 +13,17 @@ from django.utils.safestring import mark_safe
 from django.http import HttpResponse
 from django.utils import timezone
 from .models import Symbol, Signal, UserSubscription, PaperTrade, PaperAccount, TradingSession
-from .models_strategy_config import StrategyConfig
-from .models_futures import (
+from .models.strategy_config import StrategyConfig
+from .models.futures import (
     FuturesTradingSettings,
     FuturesTrade,
     FuturesTradeLog,
     BalanceRebalanceLog,
 )
-from .models_blacklist import BlacklistedSymbol
-from .models_push import PushSubscription, NotificationLog
-from .models_backtest import BacktestRun, BacktestTrade, BacktestMetric
-from .models_top_performers import TopPerformingSymbol
+from .models.blacklist import BlacklistedSymbol
+from .models.push import PushSubscription, NotificationLog
+from .models.backtest import BacktestRun, BacktestTrade, BacktestMetric
+from .models.top_performers import TopPerformingSymbol
 
 
 @admin.register(TopPerformingSymbol)
@@ -2530,4 +2530,129 @@ class BalanceRebalanceLogAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+from .models.daytrade import (
+    DayTradeSignal,
+    DayTradePaperTrade,
+    DayTradeTradeExit,
+    DayTradePaperAccount,
+    DayTradeStrategyConfig,
+)
+
+
+@admin.register(DayTradeSignal)
+class DayTradeSignalAdmin(admin.ModelAdmin):
+    """Day-trade signals emitted by the 15m Market Structure engine."""
+
+    list_display = (
+        'symbol', 'direction', 'entry_timeframe', 'entry', 'stop_loss',
+        'tp1', 'tp2', 'confidence', 'score', 'status', 'created_at',
+    )
+    list_filter = ('status', 'direction', 'entry_timeframe', 'symbol')
+    search_fields = ('symbol',)
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+    list_per_page = 50
+
+
+@admin.register(DayTradePaperTrade)
+class DayTradePaperTradeAdmin(admin.ModelAdmin):
+    """Day-trade paper positions with scale-out and trailing-stop state."""
+
+    list_display = (
+        'symbol', 'direction', 'status', 'entry_price', 'remaining_quantity',
+        'stop_loss', 'trailing_stop', 'tp1_filled', 'tp2_filled',
+        'profit_loss', 'entry_time',
+    )
+    list_filter = ('status', 'direction', 'symbol', 'tp1_filled', 'tp2_filled')
+    search_fields = ('symbol',)
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+    list_per_page = 50
+
+
+@admin.register(DayTradeTradeExit)
+class DayTradeTradeExitAdmin(admin.ModelAdmin):
+    """Individual scale-out legs (TP1/TP2/trail/SL) of a day-trade."""
+
+    list_display = ('trade', 'exit_type', 'price', 'quantity', 'pnl', 'exit_time')
+    list_filter = ('exit_type',)
+    search_fields = ('trade__symbol',)
+    ordering = ('-exit_time',)
+    list_per_page = 50
+
+
+@admin.register(DayTradePaperAccount)
+class DayTradePaperAccountAdmin(admin.ModelAdmin):
+    """Virtual account tracking day-trade bot performance."""
+
+    list_display = (
+        '__str__', 'balance', 'equity', 'total_pnl', 'realized_pnl',
+        'win_rate', 'total_trades', 'winning_trades', 'losing_trades',
+        'updated_at',
+    )
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(DayTradeStrategyConfig)
+class DayTradeStrategyConfigAdmin(admin.ModelAdmin):
+    """Tunable parameters that drive the 15m Market Structure engine."""
+
+    list_display = (
+        'name', 'is_active', 'entry_timeframe', 'trend_timeframe',
+        'min_confidence', 'margin_per_trade', 'leverage',
+        'sl_atr_mult', 'tp1_atr_mult', 'tp2_atr_mult',
+        'min_score', 'updated_at',
+    )
+    list_filter = ('is_active',)
+    list_editable = ('is_active',)
+    readonly_fields = ('created_at', 'updated_at')
+
+    fieldsets = (
+        ('Identity & Universe', {
+            'fields': ('name', 'is_active', 'symbols', 'universe_top_n', 'entry_timeframe', 'trend_timeframe'),
+        }),
+        ('Trend Filter (1H)', {
+            'fields': ('trend_ema_fast', 'trend_ema_slow'),
+        }),
+        ('Market Structure', {
+            'fields': ('pivot_lookback',),
+        }),
+        ('Pullback Zone', {
+            'fields': ('pullback_ema_fast', 'pullback_ema_slow', 'use_vwap', 'vwap_anchor'),
+        }),
+        ('Momentum', {
+            'fields': ('rsi_period', 'rsi_threshold', 'macd_fast', 'macd_slow', 'macd_signal'),
+        }),
+        ('Volume & Trend Strength', {
+            'fields': ('volume_multiplier', 'volume_avg_period', 'adx_min', 'adx_period'),
+        }),
+        ('Risk: ATR Stops & Scale-Out', {
+            'fields': (
+                'atr_period', 'sl_atr_mult',
+                'tp1_atr_mult', 'tp1_close_pct',
+                'tp2_atr_mult', 'tp2_close_pct',
+                'runner_pct', 'trail_atr_mult',
+                'risk_per_trade_pct',
+            ),
+        }),
+        ('Position Sizing (paper)', {
+            'fields': ('margin_per_trade', 'leverage'),
+            'description': 'Each paper trade uses this fixed margin and leverage',
+        }),
+        ('Confirmations', {
+            'fields': ('enable_liquidity_sweep',),
+        }),
+        ('Scoring Weights', {
+            'fields': (
+                'weight_trend', 'weight_structure', 'weight_volume',
+                'weight_pullback', 'weight_macd', 'weight_rsi', 'weight_atr',
+                'min_score', 'min_confidence',
+            ),
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+        }),
+    )
 

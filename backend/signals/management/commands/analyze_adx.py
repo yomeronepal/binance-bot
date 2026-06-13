@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from signals.models_backtest import BacktestRun
+from signals.models.backtest import BacktestRun
 
 
 class Command(BaseCommand):

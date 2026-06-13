@@ -17,8 +17,8 @@ from datetime import datetime, timezone, timedelta
 from django.core.management.base import BaseCommand
 
 from signals.models import Signal, Symbol, TradingSession
-from signals.models_futures import FuturesTradingSettings, FuturesTrade
-from signals.models_blacklist import BlacklistedSymbol
+from signals.models.futures import FuturesTradingSettings, FuturesTrade
+from signals.models.blacklist import BlacklistedSymbol
 from signals.services.futures_trader import BinanceFuturesTrader, FuturesTradingService
 
 logger = logging.getLogger(__name__)

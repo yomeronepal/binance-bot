@@ -21,7 +21,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db.models.signals import post_save
 
 from signals.models import Signal, Symbol
-from signals.models_futures import FuturesTradingSettings, FuturesTrade
+from signals.models.futures import FuturesTradingSettings, FuturesTrade
 from signals.signals_handlers import execute_futures_trade_on_signal
 from signals.services.futures_trader import (
     BinanceFuturesTrader,
