@@ -59,16 +59,18 @@ def _bot_account():
 
 
 async def _fetch_prices_async(symbols):
-    """Fetch the latest price for each symbol from Binance."""
+    """Fetch prices for the requested symbols in a single all-tickers call."""
     from scanner.services.binance_client import BinanceClient
+    wanted = set(symbols)
     prices = {}
     async with BinanceClient() as client:
-        for symbol in symbols:
-            try:
-                data = await client.get_price(symbol)
-                prices[symbol] = Decimal(str(data['price']))
-            except Exception:
-                pass
+        try:
+            tickers = await client._request('GET', '/api/v3/ticker/price')
+            for ticker in tickers:
+                if ticker['symbol'] in wanted:
+                    prices[ticker['symbol']] = Decimal(str(ticker['price']))
+        except Exception:
+            pass
     return prices
 
 

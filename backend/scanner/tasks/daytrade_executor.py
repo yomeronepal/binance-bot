@@ -112,9 +112,6 @@ def open_daytrade_positions(self):
             continue
         if DayTradePaperTrade.objects.filter(symbol=signal.symbol, status__in=OPEN_STATUSES).exists():
             continue
-        open_count = DayTradePaperTrade.objects.filter(status__in=OPEN_STATUSES).count()
-        if open_count >= account.max_open_trades:
-            break
         trade = _open_trade_from_signal(signal, db_config)
         if trade:
             signal.status = 'EXECUTED'
