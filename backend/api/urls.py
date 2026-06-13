@@ -75,6 +75,13 @@ from signals.views.chart import chart_annotations, delete_annotation, fibonacci_
 from signals.views.blacklist import BlacklistedSymbolViewSet
 from signals.views.push import subscribe_push, unsubscribe_push, push_status, subscribe_push_public
 from signals.views.top_performers import top_performers, top_performers_periods
+from signals.views.daytrade import (
+    daytrade_signals_list,
+    daytrade_trades_list,
+    daytrade_open_positions,
+    daytrade_summary,
+    daytrade_close_trade,
+)
 
 app_name = 'api'
 
@@ -164,6 +171,13 @@ urlpatterns = [
     path('futures/fear-greed/', fear_greed_status, name='fear-greed-status'),
     path('futures/report/', futures_report, name='futures-report'),
     path('futures/export/', futures_export, name='futures-export'),
+
+    # Day-Trade (15m Market Structure) endpoints
+    path('daytrade/signals/', daytrade_signals_list, name='daytrade-signals'),
+    path('daytrade/trades/', daytrade_trades_list, name='daytrade-trades'),
+    path('daytrade/positions/', daytrade_open_positions, name='daytrade-positions'),
+    path('daytrade/summary/', daytrade_summary, name='daytrade-summary'),
+    path('daytrade/trades/<int:trade_id>/close/', daytrade_close_trade, name='daytrade-close-trade'),
 
     # Market Data endpoints
     path('market/orderbook/<str:symbol>/', get_order_book, name='orderbook'),
