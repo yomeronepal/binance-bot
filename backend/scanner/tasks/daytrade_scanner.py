@@ -22,6 +22,11 @@ from scanner.strategies.daytrade_signal_engine import (
 
 logger = logging.getLogger(__name__)
 
+MAJOR_PAIRS = [
+    'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
+    'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'LINKUSDT', 'LTCUSDT',
+]
+
 SCAN_LOCK_KEY = 'daytrade_scan_lock'
 SCAN_LOCK_TTL = 290
 KLINES_1H_TTL = 300
@@ -49,11 +54,17 @@ async def _resolve_symbols(client, configured, top_n):
     """
     if not configured or '*' in configured:
         pairs = await client.get_usdt_futures_pairs()
+        valid = set(pairs)
         if top_n and top_n > 0:
-            pairs = await _top_by_volume(client, pairs, top_n)
-            logger.info("DayTrade universe: top %d USDT futures pairs by volume", len(pairs))
-        else:
-            logger.info("DayTrade universe: ALL (%d USDT futures pairs)", len(pairs))
+            top = await _top_by_volume(client, pairs, top_n)
+            majors = [m for m in MAJOR_PAIRS if m in valid]
+            universe = list(dict.fromkeys(top + majors))
+            logger.info(
+                "DayTrade universe: top %d by volume + %d majors -> %d pairs",
+                top_n, len(majors), len(universe)
+            )
+            return universe
+        logger.info("DayTrade universe: ALL (%d USDT futures pairs)", len(pairs))
         return pairs
     symbols = [s.upper() for s in configured]
     logger.info("DayTrade universe: %d configured symbols", len(symbols))
