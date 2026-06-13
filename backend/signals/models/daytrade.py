@@ -730,7 +730,19 @@ class DayTradeStrategyConfig(models.Model):
         decimal_places=2,
         default=Decimal('1.00'),
         validators=[MinValueValidator(Decimal('0.10')), MaxValueValidator(Decimal('5.00'))],
-        help_text=_("Account risk per trade (percent), for position sizing"),
+        help_text=_("Account risk per trade (percent) — unused while fixed margin sizing is on"),
+    )
+    margin_per_trade = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('100.00'),
+        validators=[MinValueValidator(Decimal('1.00'))],
+        help_text=_("Fixed margin (USDT) committed per paper trade"),
+    )
+    leverage = models.PositiveIntegerField(
+        default=10,
+        validators=[MinValueValidator(1), MaxValueValidator(125)],
+        help_text=_("Leverage applied to each paper trade"),
     )
 
     enable_liquidity_sweep = models.BooleanField(
@@ -749,6 +761,11 @@ class DayTradeStrategyConfig(models.Model):
         default=8.5,
         validators=[MinValueValidator(0.0), MaxValueValidator(13.5)],
         help_text=_("Minimum weighted score (of 13.5) to emit a signal"),
+    )
+    min_confidence = models.FloatField(
+        default=0.70,
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+        help_text=_("Minimum confidence (0-1) to emit a signal and paper trade it"),
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

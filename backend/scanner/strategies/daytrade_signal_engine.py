@@ -73,6 +73,9 @@ class DayTradeSignalConfig:
     weight_rsi: float = 1.0
     weight_atr: float = 1.0
     min_score: float = 8.5
+    min_confidence: float = 0.70
+    margin_per_trade: float = 100.0
+    leverage: int = 10
     signal_expiry_hours: int = 6
 
     @property
@@ -124,6 +127,9 @@ class DayTradeSignalConfig:
             weight_rsi=db_config.weight_rsi,
             weight_atr=db_config.weight_atr,
             min_score=db_config.min_score,
+            min_confidence=db_config.min_confidence,
+            margin_per_trade=float(db_config.margin_per_trade),
+            leverage=db_config.leverage,
         )
 
 
@@ -316,6 +322,10 @@ class DayTradeSignalEngine:
         if score < self.config.min_score:
             return None
 
+        confidence = score / self.config.max_score
+        if confidence < self.config.min_confidence:
+            return None
+
         current = prepared.iloc[-1]
         atr = float(current['atr'])
         if pd.isna(atr) or atr <= 0:
@@ -334,7 +344,7 @@ class DayTradeSignalEngine:
             'tp1': levels['tp1'],
             'tp2': levels['tp2'],
             'score': round(score, 3),
-            'confidence': round(score / self.config.max_score, 4),
+            'confidence': round(confidence, 4),
             'candle_open_time': _to_utc(current.name),
             'conditions': conditions,
         }

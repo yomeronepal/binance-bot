@@ -2601,7 +2601,8 @@ class DayTradeStrategyConfigAdmin(admin.ModelAdmin):
 
     list_display = (
         'name', 'is_active', 'entry_timeframe', 'trend_timeframe',
-        'adx_min', 'sl_atr_mult', 'tp1_atr_mult', 'tp2_atr_mult',
+        'min_confidence', 'margin_per_trade', 'leverage',
+        'sl_atr_mult', 'tp1_atr_mult', 'tp2_atr_mult',
         'min_score', 'updated_at',
     )
     list_filter = ('is_active',)
@@ -2636,6 +2637,10 @@ class DayTradeStrategyConfigAdmin(admin.ModelAdmin):
                 'risk_per_trade_pct',
             ),
         }),
+        ('Position Sizing (paper)', {
+            'fields': ('margin_per_trade', 'leverage'),
+            'description': 'Each paper trade uses this fixed margin and leverage',
+        }),
         ('Confirmations', {
             'fields': ('enable_liquidity_sweep',),
         }),
@@ -2643,7 +2648,7 @@ class DayTradeStrategyConfigAdmin(admin.ModelAdmin):
             'fields': (
                 'weight_trend', 'weight_structure', 'weight_volume',
                 'weight_pullback', 'weight_macd', 'weight_rsi', 'weight_atr',
-                'min_score',
+                'min_score', 'min_confidence',
             ),
         }),
         ('Timestamps', {

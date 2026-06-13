@@ -45,25 +45,32 @@ def _active_config():
     return DayTradeSignalConfig.from_db(DayTradeStrategyConfig.get_active()), DayTradeStrategyConfig.get_active()
 
 
-def _position_size(account, db_config, entry, stop_loss):
-    """Return (quantity, notional) sized to risk risk_per_trade_pct of balance."""
-    stop_distance = abs(entry - stop_loss)
-    if stop_distance <= 0:
-        return None, None, None
-    risk_amount = account.balance * (db_config.risk_per_trade_pct / Decimal('100'))
-    quantity = risk_amount / stop_distance
-    notional = quantity * entry
-    return quantity, notional, stop_distance
+def _position_size(db_config, entry, stop_loss):
+    """Size a trade with fixed margin and leverage.
+
+    notional = margin x leverage; quantity = notional / entry. P/L is then
+    (price move) x quantity, so it already reflects leverage.
+    """
+    if entry <= 0:
+        return None
+    margin = db_config.margin_per_trade
+    leverage = db_config.leverage
+    notional = margin * leverage
+    quantity = notional / entry
+    return {
+        'quantity': quantity,
+        'margin': margin,
+        'leverage': leverage,
+        'stop_distance': abs(entry - stop_loss),
+    }
 
 
-def _open_trade_from_signal(signal, account, db_config):
-    """Create a DayTradePaperTrade from a signal with risk-based sizing."""
+def _open_trade_from_signal(signal, db_config):
+    """Create a DayTradePaperTrade sized to a fixed margin x leverage."""
     from signals.models.daytrade import DayTradePaperTrade
 
-    quantity, notional, stop_distance = _position_size(
-        account, db_config, signal.entry, signal.stop_loss
-    )
-    if quantity is None or quantity <= 0:
+    sizing = _position_size(db_config, signal.entry, signal.stop_loss)
+    if not sizing or sizing['quantity'] <= 0:
         return None
 
     now = timezone.now()
@@ -76,17 +83,17 @@ def _open_trade_from_signal(signal, account, db_config):
         confidence=signal.confidence,
         entry_price=signal.entry,
         entry_time=now,
-        position_size=notional,
-        quantity=quantity,
-        remaining_quantity=quantity,
+        position_size=sizing['margin'],
+        quantity=sizing['quantity'],
+        remaining_quantity=sizing['quantity'],
         initial_stop_loss=signal.stop_loss,
         stop_loss=signal.stop_loss,
         tp1_price=signal.tp1,
         tp2_price=signal.tp2,
         atr_at_entry=signal.atr,
         account_risk_pct=db_config.risk_per_trade_pct,
-        stop_distance=stop_distance,
-        leverage=signal.leverage,
+        stop_distance=sizing['stop_distance'],
+        leverage=sizing['leverage'],
         status='OPEN',
     )
 
@@ -101,12 +108,14 @@ def open_daytrade_positions(self):
     opened = 0
 
     for signal in DayTradeSignal.objects.filter(status='ACTIVE').order_by('created_at'):
+        if signal.confidence is not None and signal.confidence < db_config.min_confidence:
+            continue
         if DayTradePaperTrade.objects.filter(symbol=signal.symbol, status__in=OPEN_STATUSES).exists():
             continue
         open_count = DayTradePaperTrade.objects.filter(status__in=OPEN_STATUSES).count()
         if open_count >= account.max_open_trades:
             break
-        trade = _open_trade_from_signal(signal, account, db_config)
+        trade = _open_trade_from_signal(signal, db_config)
         if trade:
             signal.status = 'EXECUTED'
             signal.save(update_fields=['status', 'updated_at'])
