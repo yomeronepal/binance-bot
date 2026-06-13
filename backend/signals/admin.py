@@ -2531,3 +2531,65 @@ class BalanceRebalanceLogAdmin(admin.ModelAdmin):
     def has_change_permission(self, request, obj=None):
         return False
 
+
+from .models.daytrade import (
+    DayTradeSignal,
+    DayTradePaperTrade,
+    DayTradeTradeExit,
+    DayTradePaperAccount,
+)
+
+
+@admin.register(DayTradeSignal)
+class DayTradeSignalAdmin(admin.ModelAdmin):
+    """Day-trade signals emitted by the 15m Market Structure engine."""
+
+    list_display = (
+        'symbol', 'direction', 'entry_timeframe', 'entry', 'stop_loss',
+        'tp1', 'tp2', 'confidence', 'score', 'status', 'created_at',
+    )
+    list_filter = ('status', 'direction', 'entry_timeframe', 'symbol')
+    search_fields = ('symbol',)
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+    list_per_page = 50
+
+
+@admin.register(DayTradePaperTrade)
+class DayTradePaperTradeAdmin(admin.ModelAdmin):
+    """Day-trade paper positions with scale-out and trailing-stop state."""
+
+    list_display = (
+        'symbol', 'direction', 'status', 'entry_price', 'remaining_quantity',
+        'stop_loss', 'trailing_stop', 'tp1_filled', 'tp2_filled',
+        'profit_loss', 'entry_time',
+    )
+    list_filter = ('status', 'direction', 'symbol', 'tp1_filled', 'tp2_filled')
+    search_fields = ('symbol',)
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+    list_per_page = 50
+
+
+@admin.register(DayTradeTradeExit)
+class DayTradeTradeExitAdmin(admin.ModelAdmin):
+    """Individual scale-out legs (TP1/TP2/trail/SL) of a day-trade."""
+
+    list_display = ('trade', 'exit_type', 'price', 'quantity', 'pnl', 'exit_time')
+    list_filter = ('exit_type',)
+    search_fields = ('trade__symbol',)
+    ordering = ('-exit_time',)
+    list_per_page = 50
+
+
+@admin.register(DayTradePaperAccount)
+class DayTradePaperAccountAdmin(admin.ModelAdmin):
+    """Virtual account tracking day-trade bot performance."""
+
+    list_display = (
+        '__str__', 'balance', 'equity', 'total_pnl', 'realized_pnl',
+        'win_rate', 'total_trades', 'winning_trades', 'losing_trades',
+        'updated_at',
+    )
+    readonly_fields = ('created_at', 'updated_at')
+

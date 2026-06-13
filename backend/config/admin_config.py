@@ -21,6 +21,8 @@ LOCAL_APP_LABELS = {
 class AutoRegisterAdminConfig(AdminConfig):
     """Admin config that auto-registers leftover first-party models."""
 
+    default_site = 'config.admin_site.DayTradeAdminSite'
+
     def ready(self):
         """Run default admin autodiscovery, then auto-register models."""
         super().ready()
