@@ -323,7 +323,7 @@ async def scan_futures_timeframe(
 
     try:
         from asgiref.sync import sync_to_async
-        from signals.models_strategy_config import StrategyConfig
+        from signals.models.strategy_config import StrategyConfig
         db_config = await sync_to_async(StrategyConfig.get_config)(timeframe)
         if not db_config.is_active:
             logger.info(f"Timeframe {timeframe} is disabled in StrategyConfig, skipping")

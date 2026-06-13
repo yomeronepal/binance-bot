@@ -321,7 +321,7 @@ def run_walkforward_optimization_async(self, walkforward_id: int):
     OPTIMIZED Walk-Forward Optimization Task
     Enhanced with robustness metrics, regime detection, and multi-objective optimization.
     """
-    from signals.models_walkforward import WalkForwardOptimization, WalkForwardWindow
+    from signals.models.walkforward import WalkForwardOptimization, WalkForwardWindow
     from scanner.services.walkforward_engine import WalkForwardEngine
     from scanner.services.parameter_optimizer import ParameterOptimizer
     from scanner.services.backtest_engine import BacktestEngine

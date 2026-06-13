@@ -12,8 +12,8 @@ from datetime import datetime, timezone, timedelta
 from django.core.management.base import BaseCommand
 
 from signals.models import Signal, TradingSession
-from signals.models_futures import FuturesTradingSettings, FuturesTrade
-from signals.models_blacklist import BlacklistedSymbol
+from signals.models.futures import FuturesTradingSettings, FuturesTrade
+from signals.models.blacklist import BlacklistedSymbol
 
 NEPAL_TZ_OFFSET = timedelta(hours=5, minutes=45)
 

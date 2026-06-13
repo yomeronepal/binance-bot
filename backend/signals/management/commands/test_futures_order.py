@@ -17,7 +17,7 @@ from decimal import Decimal
 from django.core.management.base import BaseCommand
 
 from signals.services.futures_trader import BinanceFuturesTrader
-from signals.models_futures import FuturesTradingSettings
+from signals.models.futures import FuturesTradingSettings
 
 
 class Command(BaseCommand):

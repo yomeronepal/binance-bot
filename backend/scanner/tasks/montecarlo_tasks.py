@@ -35,7 +35,7 @@ def run_montecarlo_simulation_async(self, simulation_id: int):
     Returns:
         Dict with summary results
     """
-    from signals.models_montecarlo import MonteCarloSimulation, MonteCarloRun, MonteCarloDistribution
+    from signals.models.montecarlo import MonteCarloSimulation, MonteCarloRun, MonteCarloDistribution
     from scanner.services.montecarlo_engine import MonteCarloEngine
     from scanner.strategies.signal_engine import SignalDetectionEngine
     from scanner.services.backtest_engine import BacktestEngine

@@ -11,7 +11,7 @@ into ``TopPerformingSymbol`` so admin and users can see "top 10
 performers of <month>" without recomputing on every page load.
 
 Pure functions; no Celery / no DB writes here. The Celery task at
-``signals.tasks_top_performers.compute_monthly_top_performers`` calls
+``signals.tasks.top_performers.compute_monthly_top_performers`` calls
 ``compute_top_n`` then persists via ``snapshot_top_performers``.
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ from django.db.models import Avg, Count, Max, Min, Q, Sum
 from django.utils import timezone as dj_timezone
 
 from ..models import PaperTrade
-from ..models_top_performers import TopPerformingSymbol
+from ..models.top_performers import TopPerformingSymbol
 
 logger = logging.getLogger(__name__)
 

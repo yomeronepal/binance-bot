@@ -19,11 +19,6 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 
 # Load task modules from all registered Django apps.
 app.autodiscover_tasks()
-app.autodiscover_tasks(related_name='tasks_strategy_performance')
-app.autodiscover_tasks(related_name='tasks_optimization')
-app.autodiscover_tasks(related_name='tasks_golden_window')
-app.autodiscover_tasks(related_name='tasks_top_performers')
-app.autodiscover_tasks(related_name='tasks_balance_rebalance')
 
 # Celery Beat Schedule (Periodic Tasks)
 app.conf.beat_schedule = {

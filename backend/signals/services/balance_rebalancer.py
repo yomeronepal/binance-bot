@@ -30,7 +30,7 @@ import logging
 from decimal import Decimal, ROUND_DOWN
 from typing import Optional
 
-from signals.models_futures import FuturesTradingSettings, BalanceRebalanceLog
+from signals.models.futures import FuturesTradingSettings, BalanceRebalanceLog
 
 logger = logging.getLogger(__name__)
 

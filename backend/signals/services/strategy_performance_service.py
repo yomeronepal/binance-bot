@@ -6,7 +6,7 @@ from django.db.models import Avg, Sum, Count, Q
 from collections import defaultdict
 import logging
 
-from signals.models_backtest import BacktestRun, BacktestTrade
+from signals.models.backtest import BacktestRun, BacktestTrade
 
 logger = logging.getLogger(__name__)
 

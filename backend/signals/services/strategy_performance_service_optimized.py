@@ -14,7 +14,7 @@ from django.core.cache import cache
 from collections import defaultdict
 import logging
 
-from signals.models_backtest import BacktestRun, BacktestTrade
+from signals.models.backtest import BacktestRun, BacktestTrade
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +290,7 @@ def generate_performance_heatmap_optimized(backtests):
 def get_ml_optimization_results():
     """Get ML optimization results (unchanged)"""
     try:
-        from signals.models_ml_tuning import MLTuningJob
+        from signals.models.ml_tuning import MLTuningJob
 
         # Get most recent successful ML tuning job
         latest_job = MLTuningJob.objects.filter(

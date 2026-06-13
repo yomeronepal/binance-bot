@@ -43,7 +43,7 @@ def apply_neutral_adjustment(
         return direction, Decimal(str(sl)), Decimal(str(tp)), None
 
     try:
-        from signals.models_futures import FuturesTradingSettings
+        from signals.models.futures import FuturesTradingSettings
         settings = FuturesTradingSettings.get_settings()
 
         if not settings.fear_greed_enabled:

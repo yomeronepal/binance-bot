@@ -20,8 +20,8 @@ from django.db.models import Q, Case, When, Value, IntegerField
 from django.utils import timezone as dj_timezone
 
 from signals.models import Signal, TradingSession
-from signals.models_futures import FuturesTradingSettings, FuturesTrade
-from signals.models_blacklist import BlacklistedSymbol
+from signals.models.futures import FuturesTradingSettings, FuturesTrade
+from signals.models.blacklist import BlacklistedSymbol
 from signals.services.futures_trader import BinanceFuturesTrader
 
 logger = logging.getLogger(__name__)

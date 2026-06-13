@@ -10,8 +10,8 @@ import logging
 import json
 import uuid
 
-from signals.models_backtest import BacktestRun, BacktestTrade
-from signals.models_optimization import (
+from signals.models.backtest import BacktestRun, BacktestTrade
+from signals.models.optimization import (
     StrategyConfigHistory,
     OptimizationRun,
     TradeCounter

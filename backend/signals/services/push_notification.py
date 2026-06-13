@@ -82,7 +82,7 @@ def _deactivate_stale_tokens(token_list):
     """
     if not token_list:
         return
-    from signals.models_push import PushSubscription
+    from signals.models.push import PushSubscription
     count = PushSubscription.objects.filter(
         fcm_token__in=token_list, is_active=True
     ).update(is_active=False)
@@ -104,7 +104,7 @@ def send_to_user(user, title, body, data=None, signal_obj=None):
     Returns:
         dict with keys: sent, failed, total.
     """
-    from signals.models_push import PushSubscription, NotificationLog
+    from signals.models.push import PushSubscription, NotificationLog
 
     tokens = list(
         PushSubscription.objects.filter(user=user, is_active=True)
@@ -146,7 +146,7 @@ def broadcast(title, body, data=None, signal_obj=None):
     Returns:
         dict with keys: sent, failed, total.
     """
-    from signals.models_push import PushSubscription, NotificationLog
+    from signals.models.push import PushSubscription, NotificationLog
 
     tokens = list(
         PushSubscription.objects.filter(is_active=True)

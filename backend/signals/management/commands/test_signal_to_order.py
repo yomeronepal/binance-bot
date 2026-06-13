@@ -20,7 +20,7 @@ from datetime import datetime, timezone, timedelta
 from django.core.management.base import BaseCommand
 
 from signals.models import Signal, Symbol, TradingSession
-from signals.models_futures import FuturesTradingSettings, FuturesTrade
+from signals.models.futures import FuturesTradingSettings, FuturesTrade
 from signals.services.futures_trader import (
     BinanceFuturesTrader, futures_trading_service, _run_in_thread, NEPAL_TZ_OFFSET,
 )
@@ -230,7 +230,7 @@ class Command(BaseCommand):
     def _get_sl_tp_pct(self, timeframe):
         """Get SL/TP percentages from DB config or defaults."""
         try:
-            from signals.models_strategy_config import StrategyConfig
+            from signals.models.strategy_config import StrategyConfig
             db_config = StrategyConfig.get_config(timeframe)
             if db_config and db_config.is_active:
                 return float(db_config.sl_percentage), float(db_config.tp_percentage)
@@ -263,7 +263,7 @@ class Command(BaseCommand):
     def _load_config(self, timeframe):
         """Load signal config from DB StrategyConfig or fall back to hardcoded defaults."""
         try:
-            from signals.models_strategy_config import StrategyConfig
+            from signals.models.strategy_config import StrategyConfig
             db_config = StrategyConfig.get_config(timeframe)
             if db_config and db_config.is_active:
                 config = db_config.to_signal_config()
@@ -309,7 +309,7 @@ class Command(BaseCommand):
         from scanner.indicators.indicator_utils import klines_to_dataframe, calculate_all_indicators
 
         try:
-            from signals.models_strategy_config import StrategyConfig
+            from signals.models.strategy_config import StrategyConfig
             db_config = StrategyConfig.get_config(timeframe)
         except Exception:
             db_config = None
@@ -389,7 +389,7 @@ class Command(BaseCommand):
         from scanner.strategies.signal_engine import SignalDetectionEngine
 
         try:
-            from signals.models_strategy_config import StrategyConfig
+            from signals.models.strategy_config import StrategyConfig
             db_config = StrategyConfig.get_config(timeframe)
         except Exception:
             db_config = None

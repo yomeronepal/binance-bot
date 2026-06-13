@@ -185,7 +185,7 @@ class Command(BaseCommand):
         FuturesTradeLog row is written exactly when blocked.
         """
         from signals.services.futures_trader import futures_trading_service
-        from signals.models_futures import FuturesTradeLog
+        from signals.models.futures import FuturesTradeLog
 
         class _MockSignal:
             id = 0
@@ -243,7 +243,7 @@ class Command(BaseCommand):
         the queryset; no HTTP layer involved.
         """
         from signals.models import PaperTrade
-        from signals.views_public_paper_trading import (
+        from signals.views.public_paper_trading import (
             _apply_macro_filter,
         )
 

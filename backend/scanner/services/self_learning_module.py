@@ -10,7 +10,7 @@ import numpy as np
 from collections import defaultdict
 
 from django.db.models import Avg, Count, Q
-from signals.models_backtest import (
+from signals.models.backtest import (
     StrategyOptimization,
     OptimizationRecommendation,
     BacktestRun

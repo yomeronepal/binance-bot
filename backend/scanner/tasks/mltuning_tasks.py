@@ -38,7 +38,7 @@ def run_ml_tuning_async(self, tuning_job_id: int):
     Returns:
         Dict with summary results
     """
-    from signals.models_mltuning import MLTuningJob, MLTuningSample, MLPrediction
+    from signals.models.mltuning import MLTuningJob, MLTuningSample, MLPrediction
     from scanner.services.ml_tuning_engine import MLTuningEngine
     from scanner.strategies.signal_engine import SignalDetectionEngine, SignalConfig
     from scanner.services.backtest_engine import BacktestEngine

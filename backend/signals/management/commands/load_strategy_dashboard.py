@@ -4,7 +4,7 @@ Management command to manually load/refresh strategy dashboard data
 from django.core.management.base import BaseCommand
 from django.core.cache import cache
 from django.utils import timezone
-from signals.tasks_strategy_performance import aggregate_strategy_performance
+from signals.tasks.strategy_performance import aggregate_strategy_performance
 import logging
 
 logger = logging.getLogger(__name__)

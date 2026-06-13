@@ -13,17 +13,17 @@ from django.utils.safestring import mark_safe
 from django.http import HttpResponse
 from django.utils import timezone
 from .models import Symbol, Signal, UserSubscription, PaperTrade, PaperAccount, TradingSession
-from .models_strategy_config import StrategyConfig
-from .models_futures import (
+from .models.strategy_config import StrategyConfig
+from .models.futures import (
     FuturesTradingSettings,
     FuturesTrade,
     FuturesTradeLog,
     BalanceRebalanceLog,
 )
-from .models_blacklist import BlacklistedSymbol
-from .models_push import PushSubscription, NotificationLog
-from .models_backtest import BacktestRun, BacktestTrade, BacktestMetric
-from .models_top_performers import TopPerformingSymbol
+from .models.blacklist import BlacklistedSymbol
+from .models.push import PushSubscription, NotificationLog
+from .models.backtest import BacktestRun, BacktestTrade, BacktestMetric
+from .models.top_performers import TopPerformingSymbol
 
 
 @admin.register(TopPerformingSymbol)
