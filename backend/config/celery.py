@@ -256,8 +256,8 @@ app.conf.update(
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_30m': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_15m': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_5m': {'queue': 'scanner'},
-        # Day-trade scanning
-        'scanner.tasks.daytrade_scanner.scan_daytrade': {'queue': 'scanner'},
+        # Day-trade scanning (dedicated daytrade worker/queue)
+        'scanner.tasks.daytrade_scanner.scan_daytrade': {'queue': 'daytrade'},
     },
 )
 

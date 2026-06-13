@@ -148,6 +148,23 @@ services:
       - binancebot_network
     restart: unless-stopped
 
+  # -------------------------
+  # Celery Worker (Day-Trade - Dedicated)
+  # -------------------------
+  celery-daytrade:
+    image: yomeronepal/binance-bot-backend:latest
+    container_name: binancebot_celery_daytrade_prod
+    command: sh -c "celery -A config worker -l info --concurrency=2 -Q daytrade -n daytrade@%h"
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+      - web
+    networks:
+      - binancebot_network
+    restart: unless-stopped
+
   celery-backtest:
     image: yomeronepal/binance-bot-backend:latest
     container_name: binancebot_celery_backtest_prod
