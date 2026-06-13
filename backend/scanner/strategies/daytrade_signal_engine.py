@@ -59,7 +59,11 @@ class DayTradeSignalConfig:
     atr_period: int = 14
     sl_atr_mult: float = 1.8
     tp1_atr_mult: float = 2.0
+    tp1_close_pct: float = 50.0
     tp2_atr_mult: float = 4.0
+    tp2_close_pct: float = 30.0
+    runner_pct: float = 20.0
+    trail_atr_mult: float = 2.0
     enable_liquidity_sweep: bool = True
     weight_trend: float = 3.0
     weight_structure: float = 3.0
@@ -106,7 +110,11 @@ class DayTradeSignalConfig:
             atr_period=db_config.atr_period,
             sl_atr_mult=db_config.sl_atr_mult,
             tp1_atr_mult=db_config.tp1_atr_mult,
+            tp1_close_pct=db_config.tp1_close_pct,
             tp2_atr_mult=db_config.tp2_atr_mult,
+            tp2_close_pct=db_config.tp2_close_pct,
+            runner_pct=db_config.runner_pct,
+            trail_atr_mult=db_config.trail_atr_mult,
             enable_liquidity_sweep=db_config.enable_liquidity_sweep,
             weight_trend=db_config.weight_trend,
             weight_structure=db_config.weight_structure,

@@ -194,6 +194,18 @@ app.conf.beat_schedule = {
         'options': {'expires': 55.0},
     },
 
+    'open-daytrade-positions': {
+        'task': 'scanner.tasks.daytrade_executor.open_daytrade_positions',
+        'schedule': crontab(minute='*/1'),
+        'options': {'expires': 55.0},
+    },
+
+    'monitor-daytrade-positions': {
+        'task': 'scanner.tasks.daytrade_executor.monitor_daytrade_positions',
+        'schedule': crontab(minute='*/1'),
+        'options': {'expires': 55.0},
+    },
+
 }
 
 # Celery Configuration
@@ -256,8 +268,10 @@ app.conf.update(
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_30m': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_15m': {'queue': 'scanner'},
         'scanner.tasks.futures_multi_timeframe_scanner.scan_futures_5m': {'queue': 'scanner'},
-        # Day-trade scanning (dedicated daytrade worker/queue)
+        # Day-trade scanning + execution (dedicated daytrade worker/queue)
         'scanner.tasks.daytrade_scanner.scan_daytrade': {'queue': 'daytrade'},
+        'scanner.tasks.daytrade_executor.open_daytrade_positions': {'queue': 'daytrade'},
+        'scanner.tasks.daytrade_executor.monitor_daytrade_positions': {'queue': 'daytrade'},
     },
 )
 

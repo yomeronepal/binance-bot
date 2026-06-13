@@ -57,8 +57,15 @@ from .daytrade_scanner import (
     scan_daytrade,
 )
 
+from .daytrade_executor import (
+    open_daytrade_positions,
+    monitor_daytrade_positions,
+)
+
 __all__ = [
     'scan_daytrade',
+    'open_daytrade_positions',
+    'monitor_daytrade_positions',
     'scan_binance_market',
     'scan_futures_market',
     'full_data_refresh',
