@@ -3,8 +3,10 @@
 Mirrors the public paper-trading endpoints but for the isolated DayTrade*
 models, so the day-trade bot is monitored separately.
 """
+import asyncio
 from decimal import Decimal
 
+from django.core.cache import cache
 from django.db.models import Sum, Count, Q, Avg, Max, Min
 from django.utils import timezone
 from rest_framework import status
@@ -54,6 +56,73 @@ def _apply_trade_filters(queryset, request):
 def _bot_account():
     """Return the system-wide day-trade account, or None."""
     return DayTradePaperAccount.objects.filter(user__isnull=True).first()
+
+
+async def _fetch_prices_async(symbols):
+    """Fetch the latest price for each symbol from Binance."""
+    from scanner.services.binance_client import BinanceClient
+    prices = {}
+    async with BinanceClient() as client:
+        for symbol in symbols:
+            try:
+                data = await client.get_price(symbol)
+                prices[symbol] = Decimal(str(data['price']))
+            except Exception:
+                pass
+    return prices
+
+
+def _live_prices(symbols):
+    """Return current prices for symbols, briefly cached to limit API calls."""
+    if not symbols:
+        return {}
+    result = {}
+    missing = []
+    for symbol in symbols:
+        cached = cache.get(f'daytrade:price:{symbol}')
+        if cached is not None:
+            result[symbol] = Decimal(str(cached))
+        else:
+            missing.append(symbol)
+    if missing:
+        fetched = asyncio.run(_fetch_prices_async(missing))
+        for symbol, price in fetched.items():
+            cache.set(f'daytrade:price:{symbol}', str(price), 5)
+            result[symbol] = price
+    return result
+
+
+def _unrealized_pnl(direction, entry, current, remaining_qty):
+    """Mark-to-market P/L for the still-open quantity of a position."""
+    if direction == 'LONG':
+        return (current - entry) * remaining_qty
+    return (entry - current) * remaining_qty
+
+
+def _attach_live_pnl(positions):
+    """Annotate serialized open positions with current price + unrealized P/L.
+
+    Returns (positions, total_unrealized_pnl).
+    """
+    symbols = list({p['symbol'] for p in positions})
+    prices = _live_prices(symbols)
+    total_unrealized = Decimal('0')
+    for p in positions:
+        price = prices.get(p['symbol'])
+        if price is None:
+            continue
+        entry = Decimal(str(p['entry_price']))
+        remaining = Decimal(str(p['remaining_quantity']))
+        realized = Decimal(str(p.get('realized_pnl') or 0))
+        unrealized = _unrealized_pnl(p['direction'], entry, price, remaining)
+        live = realized + unrealized
+        margin = Decimal(str(p['position_size'] or 0))
+        p['current_price'] = float(price)
+        p['unrealized_pnl'] = float(unrealized)
+        p['profit_loss'] = float(live)
+        p['profit_loss_percentage'] = float(live / margin * 100) if margin else 0
+        total_unrealized += unrealized
+    return positions, total_unrealized
 
 
 @api_view(['GET'])
@@ -116,8 +185,9 @@ def daytrade_open_positions(request):
         .prefetch_related('exits')
         .order_by('-entry_time')
     )
-    serializer = DayTradePaperTradeSerializer(queryset, many=True)
-    return Response({'count': queryset.count(), 'positions': serializer.data})
+    positions = list(DayTradePaperTradeSerializer(queryset, many=True).data)
+    positions, _unrealized = _attach_live_pnl(positions)
+    return Response({'count': len(positions), 'positions': positions})
 
 
 @api_view(['GET'])
@@ -145,7 +215,16 @@ def daytrade_summary(request):
 
     account = _bot_account()
     initial_balance = float(account.initial_balance) if account else 10000.0
-    total_pnl = float(stats['total_pnl'] or 0)
+    realized_pnl = float(stats['total_pnl'] or 0)
+
+    open_positions = list(
+        DayTradePaperTradeSerializer(
+            trades.filter(status__in=OPEN_TRADE_STATUSES), many=True
+        ).data
+    )
+    _attached, unrealized = _attach_live_pnl(open_positions)
+    unrealized_pnl = float(unrealized)
+    total_pnl = realized_pnl + unrealized_pnl
 
     summary = {
         'total_trades': total_closed,
@@ -153,6 +232,8 @@ def daytrade_summary(request):
         'win_rate': round((winners / total_closed * 100), 2) if total_closed else 0,
         'profitable_trades': winners,
         'losing_trades': stats['losers'] or 0,
+        'realized_pnl': round(realized_pnl, 2),
+        'unrealized_pnl': round(unrealized_pnl, 2),
         'total_profit_loss': round(total_pnl, 2),
         'avg_profit_loss': round(float(stats['avg_pnl'] or 0), 2),
         'best_trade': round(float(stats['best'] or 0), 2),

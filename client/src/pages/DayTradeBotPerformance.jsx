@@ -206,6 +206,7 @@ const PositionCard = ({ position }) => {
         </div>
         <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
           <Field label="Entry" value={fmt(position.entry_price, 4)} mono />
+          <Field label="Current" value={position.current_price ? fmt(position.current_price, 4) : '—'} mono />
           <Field label="Stop" value={fmt(position.trailing_stop || position.stop_loss, 4)} mono />
           <Field label="TP1 / TP2" value={`${fmt(position.tp1_price, 2)} / ${fmt(position.tp2_price, 2)}`} mono />
           <Field label="Remaining" value={fmt(position.remaining_quantity, 4)} />
