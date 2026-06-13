@@ -1,16 +1,7 @@
 import React, { useEffect, useCallback } from 'react';
-import { Signal as SignalIcon, RefreshCw, TrendingUp, TrendingDown, Clock } from 'lucide-react';
+import { Signal as SignalIcon, RefreshCw } from 'lucide-react';
 import useDayTradeStore from '../store/useDayTradeStore';
-
-const num = (v) => { const n = Number(v); return Number.isNaN(n) ? 0 : n; };
-const fmt = (v, d = 2) => num(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
-
-const DirBadge = ({ direction }) => (
-  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold ${direction === 'LONG' ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
-    {direction === 'LONG' ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-    {direction}
-  </span>
-);
+import DayTradeSignalCard from '../components/signals/DayTradeSignalCard';
 
 const DayTradeSignals = () => {
   const { signals, loading, error, fetchAll } = useDayTradeStore();
@@ -48,34 +39,10 @@ const DayTradeSignals = () => {
             <p className="text-gray-500 dark:text-gray-400">No signals above 70% confidence yet</p>
           </div>
         ) : (
-          <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden overflow-x-auto shadow-sm">
-            <table className="w-full text-xs sm:text-sm">
-              <thead className="bg-gray-100 dark:bg-gray-800/50">
-                <tr>
-                  {['Symbol', 'Dir', 'Entry', 'Stop', 'TP1', 'TP2', 'Conf', 'Score', 'Status', 'Time'].map((h, i) => (
-                    <th key={h} className={`px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase ${[3, 4, 5, 7].includes(i) ? 'hidden md:table-cell' : ''} ${i === 9 ? 'hidden sm:table-cell' : ''}`}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {signals.map((s) => (
-                  <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30">
-                    <td className="px-2 sm:px-4 py-2 sm:py-3 text-gray-900 dark:text-white font-medium">{s.symbol}</td>
-                    <td className="px-2 sm:px-4 py-2 sm:py-3"><DirBadge direction={s.direction} /></td>
-                    <td className="px-2 sm:px-4 py-2 sm:py-3 font-mono text-gray-700 dark:text-gray-300">{fmt(s.entry, 4)}</td>
-                    <td className="px-2 sm:px-4 py-2 sm:py-3 font-mono text-gray-700 dark:text-gray-300 hidden md:table-cell">{fmt(s.stop_loss, 4)}</td>
-                    <td className="px-2 sm:px-4 py-2 sm:py-3 font-mono text-gray-700 dark:text-gray-300 hidden md:table-cell">{fmt(s.tp1, 4)}</td>
-                    <td className="px-2 sm:px-4 py-2 sm:py-3 font-mono text-gray-700 dark:text-gray-300 hidden md:table-cell">{fmt(s.tp2, 4)}</td>
-                    <td className="px-2 sm:px-4 py-2 sm:py-3">
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-semibold">{(num(s.confidence) * 100).toFixed(0)}%</span>
-                    </td>
-                    <td className="px-2 sm:px-4 py-2 sm:py-3 text-gray-600 dark:text-gray-400 hidden md:table-cell">{fmt(s.score)}</td>
-                    <td className="px-2 sm:px-4 py-2 sm:py-3"><span className="text-[10px] text-gray-500 dark:text-gray-400">{s.status}</span></td>
-                    <td className="px-2 sm:px-4 py-2 sm:py-3 text-gray-500 hidden sm:table-cell"><span className="flex items-center gap-1"><Clock className="w-3 h-3" />{s.created_at}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {signals.map((s) => (
+              <DayTradeSignalCard key={s.id} signal={s} />
+            ))}
           </div>
         )}
       </div>

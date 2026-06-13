@@ -5,7 +5,7 @@ import useThemeStore from '../../store/useThemeStore';
 import {
   LayoutDashboard, Signal, TrendingUp, FileText, Bot,
   Calendar, BarChart3, Sun, Moon, LogOut, LogIn, Menu,
-  X, ChevronLeft, ChevronRight, User, FlaskConical, Activity
+  X, ChevronLeft, ChevronRight, ChevronDown, User, FlaskConical, Activity
 } from 'lucide-react';
 import PushNotificationBanner from '../common/PushNotificationBanner';
 
@@ -18,6 +18,7 @@ const Layout = () => {
     return localStorage.getItem('sidebar_collapsed') === 'true';
   });
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [openGroups, setOpenGroups] = useState({});
 
   useEffect(() => {
     initTheme();
@@ -109,18 +110,26 @@ const Layout = () => {
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {navSections.map((section, idx) => {
           if (section.type === 'group') {
+            const expandedSidebar = !collapsed || isMobile;
+            const isOpen = openGroups[section.label] !== false;
             return (
               <div key={`group-${idx}`} className="pt-3 first:pt-0">
-                {(!collapsed || isMobile) ? (
-                  <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                    {section.label}
-                  </p>
+                {expandedSidebar ? (
+                  <button
+                    onClick={() => setOpenGroups((prev) => ({ ...prev, [section.label]: !isOpen }))}
+                    className="flex items-center justify-between w-full px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                  >
+                    <span>{section.label}</span>
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? '' : '-rotate-90'}`} />
+                  </button>
                 ) : (
                   <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
                 )}
-                <div className="space-y-1">
-                  {section.items.map((link) => renderNavLink(link, isMobile))}
-                </div>
+                {(!expandedSidebar || isOpen) && (
+                  <div className="space-y-1">
+                    {section.items.map((link) => renderNavLink(link, isMobile))}
+                  </div>
+                )}
               </div>
             );
           }

@@ -20,7 +20,7 @@ const DayTradeBotPerformance = () => {
 
   useEffect(() => {
     refresh();
-    const interval = setInterval(() => { if (!document.hidden) refresh(); }, 30000);
+    const interval = setInterval(() => { if (!document.hidden) refresh(); }, 10000);
     return () => clearInterval(interval);
   }, [refresh]);
 
