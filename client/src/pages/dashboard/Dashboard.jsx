@@ -12,7 +12,8 @@ import { usePolling } from '../../hooks/usePolling';
 import SignalCard from '../../components/common/SignalCard';
 import FuturesSignalCard from '../../components/signals/FuturesSignalCard';
 import MarketRegimePanel from '../../components/common/MarketRegimePanel';
-import api from '../../services/api';
+import DayTradeSignalCard from '../../components/signals/DayTradeSignalCard';
+import useDayTradeStore from '../../store/useDayTradeStore';
 
 // Mock signals data for development
 const mockSignals = [
@@ -81,27 +82,16 @@ const Dashboard = () => {
   const [useMockData, setUseMockData] = useState(true);
   const [tradingMode, setTradingMode] = useState('paper');
   const [successRate, setSuccessRate] = useState(null);
-  const [futuresTrades, setFuturesTrades] = useState([]);
-  const [dayTrades, setDayTrades] = useState([]);
+  const dayTradeSignals = useDayTradeStore((s) => s.signals);
+  const dayTradePositions = useDayTradeStore((s) => s.positions);
+  const fetchDayTrade = useDayTradeStore((s) => s.fetchAll);
 
-  // Recent Future Trade + Recent Day Trading feeds for the dashboard
+  // Day-trade feed (signals >=70% confidence + open positions count)
   useEffect(() => {
-    const loadTrades = async () => {
-      try {
-        const [ft, dt] = await Promise.all([
-          api.get('/futures/trades/?page_size=6'),
-          api.get('/daytrade/trades/?page_size=6'),
-        ]);
-        setFuturesTrades(ft.data?.results || ft.data?.trades || ft.data || []);
-        setDayTrades(dt.data?.results || dt.data?.trades || []);
-      } catch (e) {
-        // leave feeds empty on failure
-      }
-    };
-    loadTrades();
-    const id = setInterval(() => { if (!document.hidden) loadTrades(); }, 30000);
+    fetchDayTrade();
+    const id = setInterval(() => { if (!document.hidden) fetchDayTrade(); }, 30000);
     return () => clearInterval(id);
-  }, []);
+  }, [fetchDayTrade]);
 
   // WebSocket URL
   const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/signals/';
@@ -241,7 +231,7 @@ const Dashboard = () => {
             Open Day Trades
           </h3>
           <p className="mt-2 text-3xl font-bold text-indigo-900 dark:text-indigo-100">
-            {dayTrades.filter((t) => ['OPEN', 'PARTIAL', 'PENDING'].includes(t.status)).length}
+            {dayTradePositions.length}
           </p>
           <p className="mt-1 text-xs text-indigo-600 dark:text-indigo-400">
             Day-trade bot
@@ -299,21 +289,32 @@ const Dashboard = () => {
         )}
       </div>
 
-      {/* Recent Future Trade */}
-      <RecentTrades
-        title="Recent Future Trade"
-        trades={futuresTrades}
-        viewAllTo="/futures-performance"
-        emptyLabel="No futures trades yet"
-      />
-
-      {/* Recent Day Trading */}
-      <RecentTrades
-        title="Recent Day Trading"
-        trades={dayTrades}
-        viewAllTo="/daytrade-performance"
-        emptyLabel="No day trades yet"
-      />
+      {/* Recent Day Trading signals */}
+      <div>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+            Recent Day Trading
+          </h2>
+          <Link to="/daytrade-signals" className="btn btn-primary">
+            View All
+          </Link>
+        </div>
+        {dayTradeSignals.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {dayTradeSignals.slice(0, 4).map((signal) => (
+              <div key={signal.id} className="transform transition-all duration-200 hover:scale-105">
+                <DayTradeSignalCard signal={signal} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="card text-center py-12">
+            <p className="text-gray-500 dark:text-gray-400">
+              No day trading signals above 70% confidence yet
+            </p>
+          </div>
+        )}
+      </div>
 
       {useMockData && (
         <div className="card bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
@@ -321,52 +322,6 @@ const Dashboard = () => {
             📊 <strong>Note:</strong> Currently displaying mock data for demo purposes.
             Connect your backend API to see live signals.
           </p>
-        </div>
-      )}
-    </div>
-  );
-};
-
-const RecentTrades = ({ title, trades, viewAllTo, emptyLabel }) => {
-  const rows = (trades || []).slice(0, 6);
-  return (
-    <div>
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h2>
-        <Link to={viewAllTo} className="btn btn-primary">View All</Link>
-      </div>
-      {rows.length > 0 ? (
-        <div className="card overflow-hidden overflow-x-auto p-0">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-100 dark:bg-gray-800/50">
-              <tr>
-                {['Symbol', 'Dir', 'Entry', 'Exit', 'P/L', 'Status'].map((h) => (
-                  <th key={h} className="px-4 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {rows.map((t) => {
-                const pnl = Number(t.profit_loss) || 0;
-                return (
-                  <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30">
-                    <td className="px-4 py-2 font-medium text-gray-900 dark:text-white">{t.symbol}</td>
-                    <td className="px-4 py-2">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${t.direction === 'LONG' ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>{t.direction}</span>
-                    </td>
-                    <td className="px-4 py-2 font-mono text-gray-700 dark:text-gray-300">{Number(t.entry_price).toFixed(4)}</td>
-                    <td className="px-4 py-2 font-mono text-gray-700 dark:text-gray-300">{t.exit_price ? Number(t.exit_price).toFixed(4) : '-'}</td>
-                    <td className={`px-4 py-2 font-semibold ${pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>{pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}</td>
-                    <td className="px-4 py-2"><span className="text-xs text-gray-500 dark:text-gray-400">{(t.status || '').replace('CLOSED_', '')}</span></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="card text-center py-12">
-          <p className="text-gray-500 dark:text-gray-400">{emptyLabel}</p>
         </div>
       )}
     </div>
