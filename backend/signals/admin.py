@@ -2628,7 +2628,12 @@ class DayTradeStrategyConfigAdmin(admin.ModelAdmin):
         ('Volume & Trend Strength', {
             'fields': ('volume_multiplier', 'volume_avg_period', 'adx_min', 'adx_period'),
         }),
-        ('Risk: ATR Stops & Scale-Out', {
+        ('SL/TP (v1-style fixed percentage)', {
+            'fields': ('sl_percentage', 'tp_percentage'),
+            'description': 'Single stop and take-profit as percent from entry (active exit model)',
+        }),
+        ('Risk: ATR (legacy/scoring only)', {
+            'classes': ('collapse',),
             'fields': (
                 'atr_period', 'sl_atr_mult',
                 'tp1_atr_mult', 'tp1_close_pct',

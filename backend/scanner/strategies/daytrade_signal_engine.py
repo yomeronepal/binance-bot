@@ -57,6 +57,8 @@ class DayTradeSignalConfig:
     volume_avg_period: int = 20
     adx_min: float = 20.0
     adx_period: int = 14
+    sl_percentage: float = 2.5
+    tp_percentage: float = 6.0
     atr_period: int = 14
     sl_atr_mult: float = 1.8
     tp1_atr_mult: float = 2.0
@@ -112,6 +114,8 @@ class DayTradeSignalConfig:
             volume_avg_period=db_config.volume_avg_period,
             adx_min=db_config.adx_min,
             adx_period=db_config.adx_period,
+            sl_percentage=float(db_config.sl_percentage),
+            tp_percentage=float(db_config.tp_percentage),
             atr_period=db_config.atr_period,
             sl_atr_mult=db_config.sl_atr_mult,
             tp1_atr_mult=db_config.tp1_atr_mult,
@@ -285,20 +289,20 @@ class DayTradeSignalEngine:
 
         return score, conditions
 
-    def _build_levels(self, entry: float, atr: float, direction: str) -> Dict[str, float]:
-        """Compute ATR-based stop and TP1/TP2 targets."""
+    def _build_levels(self, entry: float, direction: str) -> Dict[str, float]:
+        """Compute v1-style fixed-percentage single stop and take-profit.
+
+        tp1 and tp2 are set to the same target so the single-exit executor
+        and the model's two TP fields stay consistent.
+        """
         cfg = self.config
+        sl = cfg.sl_percentage / 100.0
+        tp = cfg.tp_percentage / 100.0
         if direction == BULLISH:
-            return {
-                'stop_loss': entry - cfg.sl_atr_mult * atr,
-                'tp1': entry + cfg.tp1_atr_mult * atr,
-                'tp2': entry + cfg.tp2_atr_mult * atr,
-            }
-        return {
-            'stop_loss': entry + cfg.sl_atr_mult * atr,
-            'tp1': entry - cfg.tp1_atr_mult * atr,
-            'tp2': entry - cfg.tp2_atr_mult * atr,
-        }
+            stop, target = entry * (1 - sl), entry * (1 + tp)
+        else:
+            stop, target = entry * (1 + sl), entry * (1 - tp)
+        return {'stop_loss': stop, 'tp1': target, 'tp2': target}
 
     def _has_enough_data(self, df_15m: pd.DataFrame, df_1h: pd.DataFrame) -> bool:
         """Guard against insufficient history for the configured periods."""
@@ -334,7 +338,7 @@ class DayTradeSignalEngine:
             return None
 
         entry = float(current['close'])
-        levels = self._build_levels(entry, atr, trend)
+        levels = self._build_levels(entry, trend)
         direction = 'LONG' if trend == BULLISH else 'SHORT'
 
         return {

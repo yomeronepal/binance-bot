@@ -690,10 +690,25 @@ class DayTradeStrategyConfig(models.Model):
         help_text=_("ADX period"),
     )
 
+    sl_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('2.50'),
+        validators=[MinValueValidator(Decimal('0.10')), MaxValueValidator(Decimal('20.00'))],
+        help_text=_("Stop loss as percent from entry (v1-style single SL)"),
+    )
+    tp_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('6.00'),
+        validators=[MinValueValidator(Decimal('0.10')), MaxValueValidator(Decimal('50.00'))],
+        help_text=_("Take profit as percent from entry (v1-style single TP)"),
+    )
+
     atr_period = models.PositiveIntegerField(
         default=14,
         validators=[MinValueValidator(2), MaxValueValidator(100)],
-        help_text=_("ATR period for stops and targets"),
+        help_text=_("ATR period (used for the ATR-regime score component)"),
     )
     sl_atr_mult = models.FloatField(
         default=1.8,
