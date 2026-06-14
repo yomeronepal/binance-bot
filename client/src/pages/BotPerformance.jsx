@@ -991,6 +991,18 @@ const PositionCard = ({ position, isSuperUser, onClose }) => {
               </div>
             </div>
           )}
+          {position.take_profit != null && (
+            <div>
+              <span className="text-gray-500 dark:text-gray-500">TP</span>
+              <div className="text-green-600 dark:text-green-400 font-mono text-xs">{formatPrice(position.take_profit)}</div>
+            </div>
+          )}
+          {position.stop_loss != null && (
+            <div>
+              <span className="text-gray-500 dark:text-gray-500">SL</span>
+              <div className="text-red-600 dark:text-red-400 font-mono text-xs">{formatPrice(position.stop_loss)}</div>
+            </div>
+          )}
           <div>
             <span className="text-gray-500 dark:text-gray-500">Size</span>
             <div className="text-gray-900 dark:text-white text-xs">${parseFloat(position.position_size).toFixed(2)}</div>
