@@ -197,45 +197,20 @@ def _update_trailing(trade, price, cfg):
 
 
 def apply_price(trade, price, cfg, now) -> bool:
-    """Advance a trade's exit state machine for the current price.
+    """Close the trade in one exit when price hits the stop or take-profit.
 
-    Returns True if the trade changed (and was saved).
+    v1-style: a single fixed-percentage SL and TP, no scale-out or trailing.
+    Returns True if the trade closed (and was saved).
     """
-    effective_stop = trade.trailing_stop if trade.trailing_stop is not None else trade.stop_loss
-    if _stop_hit(trade, price, effective_stop):
-        exit_type = 'TRAIL' if trade.trailing_stop is not None else 'SL'
-        _close_remaining(trade, exit_type, effective_stop, now)
+    if _stop_hit(trade, price, trade.stop_loss):
+        _close_remaining(trade, 'SL', trade.stop_loss, now)
         trade.save()
         return True
-
-    changed = False
-    if not trade.tp1_filled and _target_hit(trade, price, trade.tp1_price):
-        _partial_exit(trade, 'TP1', trade.tp1_price, cfg.tp1_close_pct, now)
-        trade.tp1_filled = True
-        trade.status = 'PARTIAL'
-        changed = True
-
-    if trade.tp1_filled and not trade.tp2_filled and _target_hit(trade, price, trade.tp2_price):
-        _partial_exit(trade, 'TP2', trade.tp2_price, cfg.tp2_close_pct, now)
-        trade.tp2_filled = True
-        changed = True
-
-    if trade.tp2_filled and trade.remaining_quantity > 0:
-        _update_trailing(trade, price, cfg)
-        changed = True
-        if _stop_hit(trade, price, trade.trailing_stop):
-            _close_remaining(trade, 'TRAIL', trade.trailing_stop, now)
-            trade.save()
-            return True
-
-    if changed and trade.remaining_quantity <= Decimal('0.00000001'):
-        _finalize(trade, 'CLOSED_TP', trade.tp2_price, now)
-
-    if changed:
-        if trade.status not in CLOSE_STATUS.values():
-            trade.profit_loss = trade.realized_pnl
+    if _target_hit(trade, price, trade.tp1_price):
+        _close_remaining(trade, 'TP', trade.tp1_price, now)
         trade.save()
-    return changed
+        return True
+    return False
 
 
 async def _fetch_prices(client, symbols):
