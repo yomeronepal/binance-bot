@@ -110,12 +110,14 @@ def open_daytrade_positions(self):
     for signal in DayTradeSignal.objects.filter(status='ACTIVE').order_by('created_at'):
         if signal.confidence is not None and signal.confidence < db_config.min_confidence:
             continue
+        # One trade per signal — the signal stays ACTIVE (like the v1 engine),
+        # so it is not re-traded after its trade closes.
+        if DayTradePaperTrade.objects.filter(signal=signal).exists():
+            continue
         if DayTradePaperTrade.objects.filter(symbol=signal.symbol, status__in=OPEN_STATUSES).exists():
             continue
         trade = _open_trade_from_signal(signal, db_config)
         if trade:
-            signal.status = 'EXECUTED'
-            signal.save(update_fields=['status', 'updated_at'])
             opened += 1
             logger.info("DayTrade opened %s %s @ %s", trade.direction, trade.symbol, trade.entry_price)
 
