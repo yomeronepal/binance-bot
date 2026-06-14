@@ -102,6 +102,19 @@ def _generate_for_symbol(engine, symbol, klines_15m, klines_1h):
     return engine.generate(symbol, df_15m, df_1h)
 
 
+def _expire_stale_signals():
+    """Mark ACTIVE signals past their expiry as EXPIRED.
+
+    A signal stays ACTIVE (like the v1 engine) and blocks new signals for its
+    symbol until it expires, after which the symbol becomes eligible again.
+    """
+    from django.utils import timezone
+    from signals.models.daytrade import DayTradeSignal
+    return DayTradeSignal.objects.filter(
+        status='ACTIVE', expires_at__lt=timezone.now()
+    ).update(status='EXPIRED')
+
+
 async def _scan_daytrade_async():
     """Resolve the universe, fetch candles, and run the engine per symbol."""
     from signals.models.daytrade import DayTradeStrategyConfig
@@ -110,6 +123,8 @@ async def _scan_daytrade_async():
     cfg = DayTradeSignalConfig.from_db(db_config)
     engine = DayTradeSignalEngine(cfg)
     trend_limit = cfg.trend_ema_slow + 15
+
+    await sync_to_async(_expire_stale_signals)()
 
     counts = {'symbols': 0, 'created': 0, 'errors': 0}
 
