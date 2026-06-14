@@ -320,6 +320,20 @@ def is_in_golden_window() -> Tuple[bool, bool, Optional[str]]:
     return is_in_gw, is_gw2, session_name
 
 
+def is_in_gw2_ai_window() -> bool:
+    """Return True if now (NPT) is inside an auto-generated GOLDEN_WINDOW.
+
+    The "GW2 AI" session is the optimizer's auto-generated GOLDEN_WINDOW
+    trading sessions. Futures auto-trading is restricted to these windows.
+    """
+    from signals.models import TradingSession
+    nepal_now = get_nepal_time()
+    sessions = TradingSession.objects.filter(
+        auto_generated=True, active=True, session_type='GOLDEN_WINDOW'
+    )
+    return any(session.matches(nepal_now) for session in sessions)
+
+
 def get_prioritized_signals(settings: FuturesTradingSettings, limit: int) -> List[Signal]:
     """
     Get active FUTURES signals prioritized for golden window trading.
@@ -554,12 +568,14 @@ def golden_window_auto_trader(self):
     Should be scheduled to run every 30-60 seconds.
     """
     try:
-        # Check if in golden window
-        is_in_gw, is_gw2, session_name = is_in_golden_window()
+        # Futures auto-trading is restricted to the GW2 AI session
+        # (auto-generated GOLDEN_WINDOW windows) only.
+        if not is_in_gw2_ai_window():
+            logger.debug("Not in GW2 AI window, skipping auto-trader")
+            return {"status": "skipped", "reason": "not_in_gw2_ai_window"}
 
-        if not is_in_gw:
-            logger.debug("Not in golden window, skipping auto-trader")
-            return {"status": "skipped", "reason": "outside_golden_window"}
+        is_gw2 = True
+        session_name = "GW2 AI"
 
         # Get settings
         settings = FuturesTradingSettings.get_settings()

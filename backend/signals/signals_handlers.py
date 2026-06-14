@@ -46,6 +46,19 @@ def is_within_trading_window():
     return session is not None
 
 
+def is_within_gw2_ai_window():
+    """
+    Check if current Nepal Time is within an auto-generated GOLDEN_WINDOW
+    (the "GW2 AI" session). Futures auto-trading is restricted to these
+    windows only.
+    """
+    nepal_now = _get_nepal_now()
+    sessions = TradingSession.objects.filter(
+        auto_generated=True, active=True, session_type='GOLDEN_WINDOW'
+    )
+    return any(session.matches(nepal_now) for session in sessions)
+
+
 def get_nepal_time_str():
     """Get current Nepal time as formatted string."""
     return _get_nepal_now().strftime("%H:%M NPT")
@@ -352,8 +365,8 @@ def auto_execute_trade_on_signal(sender, instance, created, **kwargs):
         logger.info(f"📛 Signal {instance.id} ({instance.symbol.symbol}) is blacklisted, skipping auto-trade")
         return
 
-    if not is_within_trading_window():
-        logger.debug(f"Signal {instance.id} outside trading window, skipping auto-trade")
+    if not is_within_gw2_ai_window():
+        logger.debug(f"Signal {instance.id} outside GW2 AI window, skipping futures auto-trade")
         return
 
     try:
