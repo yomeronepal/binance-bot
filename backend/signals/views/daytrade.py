@@ -123,6 +123,12 @@ def _attach_live_pnl(positions):
         p['unrealized_pnl'] = float(unrealized)
         p['profit_loss'] = float(live)
         p['profit_loss_percentage'] = float(live / margin * 100) if margin else 0
+        p['trade_id'] = p['id']
+        p['current_value'] = float(margin + live)
+        p['asset_class'] = p.get('asset_class', 'CRYPTO')
+        p['has_real_time_price'] = True
+        p['unrealized_pnl_pct'] = float(unrealized / margin * 100) if margin else 0
+        p['price_change_pct'] = float((price - entry) / entry * 100) if entry else 0
         total_unrealized += unrealized
     return positions, total_unrealized
 
@@ -190,8 +196,16 @@ def daytrade_open_positions(request):
         .order_by('-entry_time')
     )
     positions = list(DayTradePaperTradeSerializer(queryset, many=True).data)
-    positions, _unrealized = _attach_live_pnl(positions)
-    return Response({'count': len(positions), 'positions': positions})
+    positions, unrealized = _attach_live_pnl(positions)
+    total_investment = sum(float(p['position_size'] or 0) for p in positions)
+    total_current_value = sum(float(p.get('current_value') or 0) for p in positions)
+    return Response({
+        'count': len(positions),
+        'positions': positions,
+        'total_unrealized_pnl': float(unrealized),
+        'total_investment': round(total_investment, 2),
+        'total_current_value': round(total_current_value, 2),
+    })
 
 
 @api_view(['GET'])
@@ -201,49 +215,49 @@ def daytrade_summary(request):
 
     GET /api/daytrade/summary/
     """
-    trades = DayTradePaperTrade.objects.filter(user__isnull=True)
-    closed = trades.filter(status__startswith='CLOSED')
-
-    stats = closed.aggregate(
-        total_closed=Count('id'),
-        winners=Count('id', filter=Q(profit_loss__gt=0)),
-        losers=Count('id', filter=Q(profit_loss__lt=0)),
-        total_pnl=Sum('profit_loss'),
-        avg_pnl=Avg('profit_loss'),
-        best=Max('profit_loss'),
-        worst=Min('profit_loss'),
-    )
-    total_closed = stats['total_closed'] or 0
-    winners = stats['winners'] or 0
-    open_count = trades.filter(status__in=OPEN_TRADE_STATUSES).count()
-
     from signals.models.daytrade import DayTradeStrategyConfig
+    from signals.views.public_paper_trading import _compute_performance_metrics
+
+    base = DayTradePaperTrade.objects.filter(user__isnull=True)
+    metrics = _compute_performance_metrics(base)
+
+    open_positions = list(
+        DayTradePaperTradeSerializer(base.filter(status__in=OPEN_TRADE_STATUSES), many=True).data
+    )
+    _attached, unrealized = _attach_live_pnl(open_positions)
+    unrealized_pnl = round(float(unrealized), 2)
+    realized_pnl = metrics['total_profit_loss']
+    total_pnl = round(realized_pnl + unrealized_pnl, 2)
+    metrics['unrealized_pnl'] = unrealized_pnl
+    metrics['total_pnl'] = total_pnl
+
     config = DayTradeStrategyConfig.get_active()
     account = _bot_account()
     initial_balance = float(account.initial_balance) if account else 10000.0
-    realized_pnl = float(stats['total_pnl'] or 0)
 
-    open_positions = list(
-        DayTradePaperTradeSerializer(
-            trades.filter(status__in=OPEN_TRADE_STATUSES), many=True
-        ).data
-    )
-    _attached, unrealized = _attach_live_pnl(open_positions)
-    unrealized_pnl = float(unrealized)
-    total_pnl = realized_pnl + unrealized_pnl
+    recent_closed = base.filter(status__startswith='CLOSED').order_by('-exit_time')[:10]
+    recent_closed_data = DayTradePaperTradeSerializer(recent_closed, many=True).data
 
     summary = {
-        'total_trades': total_closed,
-        'open_trades': open_count,
-        'win_rate': round((winners / total_closed * 100), 2) if total_closed else 0,
-        'profitable_trades': winners,
-        'losing_trades': stats['losers'] or 0,
-        'realized_pnl': round(realized_pnl, 2),
-        'unrealized_pnl': round(unrealized_pnl, 2),
-        'total_profit_loss': round(total_pnl, 2),
-        'avg_profit_loss': round(float(stats['avg_pnl'] or 0), 2),
-        'best_trade': round(float(stats['best'] or 0), 2),
-        'worst_trade': round(float(stats['worst'] or 0), 2),
+        'performance': metrics,
+        'open_trades_count': metrics['open_trades'],
+        'recent_closed_trades': recent_closed_data,
+        'bot_total_pnl': total_pnl,
+        'bot_win_rate': metrics['win_rate'],
+        'bot_total_trades': metrics['total_trades'],
+        'bot_realized_pnl': realized_pnl,
+        'bot_unrealized_pnl': unrealized_pnl,
+        'total_trades': metrics['total_trades'],
+        'open_trades': metrics['open_trades'],
+        'win_rate': metrics['win_rate'],
+        'profitable_trades': metrics['profitable_trades'],
+        'losing_trades': metrics['losing_trades'],
+        'realized_pnl': realized_pnl,
+        'unrealized_pnl': unrealized_pnl,
+        'total_profit_loss': total_pnl,
+        'avg_profit_loss': metrics['avg_profit_loss'],
+        'best_trade': metrics['best_trade'],
+        'worst_trade': metrics['worst_trade'],
         'initial_balance': initial_balance,
         'roi_percent': round((total_pnl / initial_balance * 100), 2) if initial_balance else 0,
         'min_confidence': config.min_confidence,

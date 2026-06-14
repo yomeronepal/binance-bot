@@ -21,7 +21,20 @@ import { useAuthStore } from '../store/useAuthStore';
 import api from '../services/api';
 import PullToRefresh from '../components/common/PullToRefresh';
 
-const BotPerformance = () => {
+export const DEFAULT_BOT_SOURCE = {
+  title: 'Bot Performance',
+  subtitle: 'Live tracking of all signals with automated paper trading',
+  summaryUrl: '/public/paper-trading/summary/',
+  positionsUrl: '/public/paper-trading/open-positions/',
+  listUrl: '/public/paper-trading/',
+  exportUrl: '/public/paper-trading/export/',
+  reportUrl: '/public/paper-trading/report/',
+  closeUrl: (id) => `/public/paper-trading/${id}/close/`,
+  features: { filters: true, export: true, report: true, graphs: true, replay: true },
+};
+
+const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
+  const feat = source.features || {};
   const { user } = useAuthStore();
   const isSuperUser = user?.is_superuser;
   const [loading, setLoading] = useState(true);
@@ -74,7 +87,7 @@ const BotPerformance = () => {
     if (hour !== 'ALL') params.append('hour', hour);
     if (month !== 'ALL') params.append('month', month);
     if (year !== 'ALL') params.append('year', year);
-    return `${baseURL}/public/paper-trading/export/?${params.toString()}`;
+    return `${baseURL}${source.exportUrl}?${params.toString()}`;
   };
 
   const handleExport = (format) => {
@@ -132,7 +145,7 @@ const BotPerformance = () => {
     if (!window.confirm('ADMIN ACTION: Are you sure you want to CLOSE this trade immediately at market price?')) return;
 
     try {
-      await api.post(`/public/paper-trading/${tradeId}/close/`);
+      await api.post(source.closeUrl(tradeId));
       alert('Trade closed successfully by Admin.');
       fetchPerformanceData();
       fetchTradeHistory();
@@ -171,8 +184,8 @@ const BotPerformance = () => {
       const queryParams = params.toString() ? `?${params.toString()}` : '';
 
       const [summaryRes, positionsRes] = await Promise.all([
-        axios.get(`${baseURL}/public/paper-trading/summary/${queryParams}`),
-        axios.get(`${baseURL}/public/paper-trading/open-positions/${queryParams}`)
+        axios.get(`${baseURL}${source.summaryUrl}${queryParams}`),
+        axios.get(`${baseURL}${source.positionsUrl}${queryParams}`)
       ]);
 
       const positionsData = positionsRes.data;
@@ -226,7 +239,7 @@ const BotPerformance = () => {
       if (month !== 'ALL') params.append('month', month);
       if (year !== 'ALL') params.append('year', year);
 
-      const res = await axios.get(`${baseURL}/public/paper-trading/?${params.toString()}`);
+      const res = await axios.get(`${baseURL}${source.listUrl}?${params.toString()}`);
 
       // DRF Pagination returns { count: ..., results: ... }
       if (res.data.results) {
@@ -396,8 +409,8 @@ const BotPerformance = () => {
               <Bot className="w-8 h-8 text-blue-500 dark:text-blue-400" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-3xl font-bold text-gray-900 dark:text-white">Bot Performance</h1>
-              <p className="text-gray-600 dark:text-gray-400 text-xs sm:text-base">Live tracking of all signals with automated paper trading</p>
+              <h1 className="text-xl sm:text-3xl font-bold text-gray-900 dark:text-white">{source.title}</h1>
+              <p className="text-gray-600 dark:text-gray-400 text-xs sm:text-base">{source.subtitle}</p>
             </div>
           </div>
 
@@ -417,6 +430,7 @@ const BotPerformance = () => {
 
 
           {/* New Trading Sessions & Filter Bar */}
+          {feat.filters && (
           <div className="mt-6 mb-6 space-y-4">
             {/* BTC / equity / commodity macro filter readout — what the strict
                 trade-time gate will say right now. Drives confidence in the
@@ -663,6 +677,7 @@ const BotPerformance = () => {
               </select>
             </div>
           </div>
+          )}
         </div>
 
         {/* Performance Metrics */}
@@ -697,8 +712,8 @@ const BotPerformance = () => {
               { key: 'overview', label: 'Overview' },
               { key: 'open', label: `Open (${openTradesCount})` },
               { key: 'history', label: 'History' },
-              { key: 'report', label: 'Report', icon: FileBarChart },
-              { key: 'graphs', label: 'Graphs', icon: LineChart },
+              ...(feat.report ? [{ key: 'report', label: 'Report', icon: FileBarChart }] : []),
+              ...(feat.graphs ? [{ key: 'graphs', label: 'Graphs', icon: LineChart }] : []),
             ].map((tab) => (
               <button
                 key={tab.key}
@@ -745,7 +760,7 @@ const BotPerformance = () => {
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Recent Closed Trades</h2>
                 {recentTrades.length > 0 ? (
                   <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden shadow-sm">
-                    <TradeHistoryTable trades={recentTrades.slice(0, 10)} onReplay={setReplayTradeId} />
+                    <TradeHistoryTable trades={recentTrades.slice(0, 10)} onReplay={feat.replay ? setReplayTradeId : undefined} />
                   </div>
                 ) : (
                   <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center shadow-sm">
@@ -824,7 +839,7 @@ const BotPerformance = () => {
                   <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4 shadow-sm">
                     <TradeHistoryTable
                       trades={recentTrades}
-                      onReplay={setReplayTradeId}
+                      onReplay={feat.replay ? setReplayTradeId : undefined}
                     />
                   </div>
 
