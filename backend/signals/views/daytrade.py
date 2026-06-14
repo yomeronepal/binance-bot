@@ -126,6 +126,7 @@ def _attach_live_pnl(positions):
         p['trade_id'] = p['id']
         p['current_value'] = float(margin + live)
         p['asset_class'] = p.get('asset_class', 'CRYPTO')
+        p['take_profit'] = p.get('tp1_price')
         p['has_real_time_price'] = True
         p['unrealized_pnl_pct'] = float(unrealized / margin * 100) if margin else 0
         p['price_change_pct'] = float((price - entry) / entry * 100) if entry else 0
