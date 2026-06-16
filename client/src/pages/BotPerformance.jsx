@@ -946,6 +946,25 @@ const formatPrice = (price) => {
   return `$${p.toPrecision(4)}`;
 };
 
+const formatClock = (value, utc = false) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  const opts = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+  if (utc) opts.timeZone = 'UTC';
+  return date.toLocaleString([], opts);
+};
+
+const DualTime = ({ value, align = 'left' }) => {
+  if (!value) return <span className="text-gray-400">—</span>;
+  return (
+    <div className={`leading-tight ${align === 'right' ? 'text-right' : ''}`}>
+      <div className="text-gray-700 dark:text-gray-300">{formatClock(value)}</div>
+      <div className="text-[10px] text-gray-400 dark:text-gray-500">{formatClock(value, true)} UTC</div>
+    </div>
+  );
+};
+
 const PositionCard = ({ position, isSuperUser, onClose }) => {
   const pnl = parseFloat(position.unrealized_pnl || 0);
   const pnlPct = parseFloat(position.unrealized_pnl_pct || 0);
@@ -1042,9 +1061,9 @@ const PositionCard = ({ position, isSuperUser, onClose }) => {
               ({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%)
             </span>
           </div>
-          <div className="flex items-center text-[10px] text-gray-500">
-            <Clock className="w-3 h-3 mr-0.5" />
-            {new Date(position.entry_time).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}
+          <div className="flex items-start text-[10px] text-gray-500">
+            <Clock className="w-3 h-3 mr-0.5 mt-0.5 flex-shrink-0" />
+            <DualTime value={position.entry_time} align="right" />
           </div>
         </div>
       </div>
@@ -1066,7 +1085,7 @@ const TradeHistoryTable = ({ trades, onReplay }) => {
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">P/L</th>
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Status</th>
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase hidden lg:table-cell">Duration</th>
-            <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase hidden sm:table-cell">Date</th>
+            <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase hidden sm:table-cell">Entry (Local / UTC)</th>
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase w-8"></th>
           </tr>
         </thead>
@@ -1126,7 +1145,7 @@ const TradeHistoryTable = ({ trades, onReplay }) => {
                   {trade.duration_hours ? `${parseFloat(trade.duration_hours).toFixed(1)}h` : '-'}
                 </td>
                 <td className="px-2 sm:px-4 py-2 sm:py-3 text-gray-500 hidden sm:table-cell">
-                  <div>{new Date(trade.entry_time).toLocaleDateString()}</div>
+                  <DualTime value={trade.entry_time} />
                 </td>
                 <td className="px-2 sm:px-4 py-2 sm:py-3">
                   <button onClick={() => onReplay?.(trade.id)} title="Replay trade"
