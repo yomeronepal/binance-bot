@@ -9,7 +9,8 @@ const DAYTRADE_SOURCE = {
   exportUrl: '/daytrade/export/',
   reportUrl: '/daytrade/report/',
   closeUrl: (id) => `/daytrade/trades/${id}/close/`,
-  features: { filters: false, export: false, report: false, graphs: false, replay: false },
+  storagePrefix: 'daytrade_perf_',
+  features: { filters: true, windowFilters: false, export: false, report: false, graphs: false, replay: false },
 };
 
 const DayTradeBotPerformance = () => <BotPerformance source={DAYTRADE_SOURCE} />;
