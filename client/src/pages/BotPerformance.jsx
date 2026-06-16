@@ -30,11 +30,13 @@ export const DEFAULT_BOT_SOURCE = {
   exportUrl: '/public/paper-trading/export/',
   reportUrl: '/public/paper-trading/report/',
   closeUrl: (id) => `/public/paper-trading/${id}/close/`,
-  features: { filters: true, export: true, report: true, graphs: true, replay: true },
+  storagePrefix: 'bot_perf_',
+  features: { filters: true, windowFilters: true, export: true, report: true, graphs: true, replay: true },
 };
 
 const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
   const feat = source.features || {};
+  const sk = source.storagePrefix || 'bot_perf_';
   const { user } = useAuthStore();
   const isSuperUser = user?.is_superuser;
   const [loading, setLoading] = useState(true);
@@ -45,22 +47,22 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [replayTradeId, setReplayTradeId] = useState(null);
   const [activeWindow, setActiveWindow] = useState(() => {
-    return localStorage.getItem('bot_perf_active_window') || 'all';
+    return localStorage.getItem(`${sk}active_window`) || 'all';
   });
   const [direction, setDirection] = useState(() => {
-    return localStorage.getItem('bot_perf_direction') || 'ALL';
+    return localStorage.getItem(`${sk}direction`) || 'ALL';
   });
   const [weekday, setWeekday] = useState(() => {
-    return localStorage.getItem('bot_perf_weekday') || 'ALL';
+    return localStorage.getItem(`${sk}weekday`) || 'ALL';
   });
   const [hour, setHour] = useState(() => {
-    return localStorage.getItem('bot_perf_hour') || 'ALL';
+    return localStorage.getItem(`${sk}hour`) || 'ALL';
   });
   const [month, setMonth] = useState(() => {
-    return localStorage.getItem('bot_perf_month') || 'ALL';
+    return localStorage.getItem(`${sk}month`) || 'ALL';
   });
   const [year, setYear] = useState(() => {
-    return localStorage.getItem('bot_perf_year') || 'ALL';
+    return localStorage.getItem(`${sk}year`) || 'ALL';
   });
   const [totalTradesCount, setTotalTradesCount] = useState(0);
   const [exportOpen, setExportOpen] = useState(false);
@@ -74,14 +76,16 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
     // 'fmt' rather than 'format' — DRF reserves '?format=' for content
     // negotiation and would short-circuit the request before our view runs.
     params.append('fmt', format);
-    if (activeWindow === 'gw1') params.append('golden_window', 'true');
-    if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
-    if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
-    if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
-    if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
-    if (activeWindow === 'top') params.append('top_performer', 'true');
-    if (activeWindow === 'macro_allow') params.append('macro_filter', 'allow');
-    if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
+    if (feat.windowFilters) {
+      if (activeWindow === 'gw1') params.append('golden_window', 'true');
+      if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
+      if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
+      if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
+      if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
+      if (activeWindow === 'top') params.append('top_performer', 'true');
+      if (activeWindow === 'macro_allow') params.append('macro_filter', 'allow');
+      if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
+    }
     if (direction !== 'ALL') params.append('direction', direction);
     if (weekday !== 'ALL') params.append('weekday', weekday);
     if (hour !== 'ALL') params.append('hour', hour);
@@ -108,27 +112,27 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
   }, [exportOpen]);
 
   useEffect(() => {
-    localStorage.setItem('bot_perf_active_window', activeWindow);
+    localStorage.setItem(`${sk}active_window`, activeWindow);
   }, [activeWindow]);
 
   useEffect(() => {
-    localStorage.setItem('bot_perf_direction', direction);
+    localStorage.setItem(`${sk}direction`, direction);
   }, [direction]);
 
   useEffect(() => {
-    localStorage.setItem('bot_perf_weekday', weekday);
+    localStorage.setItem(`${sk}weekday`, weekday);
   }, [weekday]);
 
   useEffect(() => {
-    localStorage.setItem('bot_perf_hour', hour);
+    localStorage.setItem(`${sk}hour`, hour);
   }, [hour]);
 
   useEffect(() => {
-    localStorage.setItem('bot_perf_month', month);
+    localStorage.setItem(`${sk}month`, month);
   }, [month]);
 
   useEffect(() => {
-    localStorage.setItem('bot_perf_year', year);
+    localStorage.setItem(`${sk}year`, year);
   }, [year]);
 
   // Pagination state
@@ -167,14 +171,16 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
 
       // Build query params
       const params = new URLSearchParams();
-      if (activeWindow === 'gw1') params.append('golden_window', 'true');
-      if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
-      if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
-      if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
-      if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
-      if (activeWindow === 'top') params.append('top_performer', 'true');
-    if (activeWindow === 'macro_allow') params.append('macro_filter', 'allow');
-    if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
+      if (feat.windowFilters) {
+        if (activeWindow === 'gw1') params.append('golden_window', 'true');
+        if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
+        if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
+        if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
+        if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
+        if (activeWindow === 'top') params.append('top_performer', 'true');
+        if (activeWindow === 'macro_allow') params.append('macro_filter', 'allow');
+        if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
+      }
       if (direction !== 'ALL') params.append('direction', direction);
       if (weekday !== 'ALL') params.append('weekday', weekday);
       if (hour !== 'ALL') params.append('hour', hour);
@@ -225,14 +231,16 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
       // Construct query params
       const params = new URLSearchParams();
       params.append('page', currentPage);
-      if (activeWindow === 'gw1') params.append('golden_window', 'true');
-      if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
-      if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
-      if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
-      if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
-      if (activeWindow === 'top') params.append('top_performer', 'true');
-    if (activeWindow === 'macro_allow') params.append('macro_filter', 'allow');
-    if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
+      if (feat.windowFilters) {
+        if (activeWindow === 'gw1') params.append('golden_window', 'true');
+        if (activeWindow === 'gw2') params.append('golden_window_2', 'true');
+        if (activeWindow === 'outside_gw') params.append('outside_golden_window', 'true');
+        if (activeWindow === 'gw1_ai') params.append('gw1_ai', 'true');
+        if (activeWindow === 'gw2_ai') params.append('gw2_ai', 'true');
+        if (activeWindow === 'top') params.append('top_performer', 'true');
+        if (activeWindow === 'macro_allow') params.append('macro_filter', 'allow');
+        if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
+      }
       if (direction !== 'ALL') params.append('direction', direction);
       if (weekday !== 'ALL') params.append('weekday', weekday);
       if (hour !== 'ALL') params.append('hour', hour);
@@ -435,12 +443,13 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
             {/* BTC / equity / commodity macro filter readout — what the strict
                 trade-time gate will say right now. Drives confidence in the
                 Macro Allowed / Macro Blocked tabs and surfaces regime shifts. */}
-            <MarketRegimePanel />
+            {feat.windowFilters && <MarketRegimePanel />}
 
             {/* Golden Window Filter */}
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 bg-white dark:bg-gray-800 rounded-xl p-2 shadow-sm border border-gray-100 dark:border-gray-700">
 
               {/* Session Tabs */}
+              {feat.windowFilters && (
               <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto w-full md:w-auto p-1 no-scrollbar">
                 <button
                   onClick={() => setActiveWindow('all')}
@@ -550,9 +559,11 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
                   Macro Blocked
                 </button>
               </div>
+              )}
 
               <div className="flex items-center gap-2 w-full md:w-auto">
                 {/* Export dropdown — applies the page's current filters */}
+                {feat.export && (
                 <div className="relative w-full md:w-auto" data-export-menu>
                   <button
                     type="button"
@@ -594,6 +605,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
                     </div>
                   )}
                 </div>
+                )}
 
                 {/* Refresh Button */}
                 <button
@@ -934,6 +946,25 @@ const formatPrice = (price) => {
   return `$${p.toPrecision(4)}`;
 };
 
+const formatClock = (value, utc = false) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  const opts = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+  if (utc) opts.timeZone = 'UTC';
+  return date.toLocaleString([], opts);
+};
+
+const DualTime = ({ value, align = 'left' }) => {
+  if (!value) return <span className="text-gray-400">—</span>;
+  return (
+    <div className={`leading-tight ${align === 'right' ? 'text-right' : ''}`}>
+      <div className="text-gray-700 dark:text-gray-300">{formatClock(value)}</div>
+      <div className="text-[10px] text-gray-400 dark:text-gray-500">{formatClock(value, true)} UTC</div>
+    </div>
+  );
+};
+
 const PositionCard = ({ position, isSuperUser, onClose }) => {
   const pnl = parseFloat(position.unrealized_pnl || 0);
   const pnlPct = parseFloat(position.unrealized_pnl_pct || 0);
@@ -1030,9 +1061,9 @@ const PositionCard = ({ position, isSuperUser, onClose }) => {
               ({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%)
             </span>
           </div>
-          <div className="flex items-center text-[10px] text-gray-500">
-            <Clock className="w-3 h-3 mr-0.5" />
-            {new Date(position.entry_time).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}
+          <div className="flex items-start text-[10px] text-gray-500">
+            <Clock className="w-3 h-3 mr-0.5 mt-0.5 flex-shrink-0" />
+            <DualTime value={position.entry_time} align="right" />
           </div>
         </div>
       </div>
@@ -1054,7 +1085,7 @@ const TradeHistoryTable = ({ trades, onReplay }) => {
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">P/L</th>
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Status</th>
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase hidden lg:table-cell">Duration</th>
-            <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase hidden sm:table-cell">Date</th>
+            <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase hidden sm:table-cell">Entry (Local / UTC)</th>
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase w-8"></th>
           </tr>
         </thead>
@@ -1114,7 +1145,7 @@ const TradeHistoryTable = ({ trades, onReplay }) => {
                   {trade.duration_hours ? `${parseFloat(trade.duration_hours).toFixed(1)}h` : '-'}
                 </td>
                 <td className="px-2 sm:px-4 py-2 sm:py-3 text-gray-500 hidden sm:table-cell">
-                  <div>{new Date(trade.entry_time).toLocaleDateString()}</div>
+                  <DualTime value={trade.entry_time} />
                 </td>
                 <td className="px-2 sm:px-4 py-2 sm:py-3">
                   <button onClick={() => onReplay?.(trade.id)} title="Replay trade"

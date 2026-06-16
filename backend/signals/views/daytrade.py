@@ -40,7 +40,13 @@ def _paginator():
 
 
 def _apply_trade_filters(queryset, request):
-    """Apply optional symbol/direction/status filters to a trade queryset."""
+    """Apply optional symbol/direction/status + NPT time filters to a trade queryset.
+
+    Time filters (weekday/hour/month/year) reuse the v1 helpers so day-trade
+    slices trades exactly the way the v1 Bot Performance page does.
+    """
+    from signals.views.public_paper_trading import _apply_time_filters
+
     symbol = request.query_params.get('symbol')
     direction = request.query_params.get('direction')
     trade_status = request.query_params.get('status')
@@ -50,6 +56,7 @@ def _apply_trade_filters(queryset, request):
         queryset = queryset.filter(direction=direction.upper())
     if trade_status:
         queryset = queryset.filter(status=trade_status.upper())
+    queryset = _apply_time_filters(queryset, request.query_params)
     return queryset
 
 
@@ -196,6 +203,7 @@ def daytrade_open_positions(request):
         .prefetch_related('exits')
         .order_by('-entry_time')
     )
+    queryset = _apply_trade_filters(queryset, request)
     positions = list(DayTradePaperTradeSerializer(queryset, many=True).data)
     positions, unrealized = _attach_live_pnl(positions)
     total_investment = sum(float(p['position_size'] or 0) for p in positions)
@@ -220,6 +228,7 @@ def daytrade_summary(request):
     from signals.views.public_paper_trading import _compute_performance_metrics
 
     base = DayTradePaperTrade.objects.filter(user__isnull=True)
+    base = _apply_trade_filters(base, request)
     metrics = _compute_performance_metrics(base)
 
     open_positions = list(
