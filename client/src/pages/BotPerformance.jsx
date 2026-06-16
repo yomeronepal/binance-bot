@@ -978,6 +978,12 @@ const PositionCard = ({ position, isSuperUser, onClose }) => {
             <span className="text-gray-500 dark:text-gray-500">Entry</span>
             <div className="text-gray-900 dark:text-white font-mono text-xs">{formatPrice(position.entry_price)}</div>
           </div>
+          {position.confidence != null && (
+            <div>
+              <span className="text-gray-500 dark:text-gray-500">Confidence</span>
+              <div className="text-indigo-600 dark:text-indigo-400 font-semibold text-xs">{(parseFloat(position.confidence) * 100).toFixed(0)}%</div>
+            </div>
+          )}
           {hasLivePrice && (
             <div>
               <span className="text-gray-500 dark:text-gray-500">Current</span>
@@ -1042,6 +1048,7 @@ const TradeHistoryTable = ({ trades, onReplay }) => {
           <tr>
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Symbol</th>
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">Dir</th>
+            <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase hidden sm:table-cell">Conf</th>
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase hidden sm:table-cell">Entry</th>
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase hidden md:table-cell">Exit</th>
             <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 uppercase">P/L</th>
@@ -1076,6 +1083,11 @@ const TradeHistoryTable = ({ trades, onReplay }) => {
                   <span className={`inline-block px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium ${trade.direction === 'LONG' ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400' : 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400'}`}>
                     {trade.direction}
                   </span>
+                </td>
+                <td className="px-2 sm:px-4 py-2 sm:py-3 hidden sm:table-cell">
+                  {trade.confidence != null
+                    ? <span className="text-indigo-600 dark:text-indigo-400 font-semibold text-xs">{(parseFloat(trade.confidence) * 100).toFixed(0)}%</span>
+                    : <span className="text-gray-400">-</span>}
                 </td>
                 <td className="px-2 sm:px-4 py-2 sm:py-3 text-gray-700 dark:text-gray-300 font-mono hidden sm:table-cell">${parseFloat(trade.entry_price).toFixed(2)}</td>
                 <td className="px-2 sm:px-4 py-2 sm:py-3 text-gray-700 dark:text-gray-300 font-mono hidden md:table-cell">

@@ -2541,6 +2541,57 @@ from .models.daytrade import (
 )
 
 
+def _export_field_names(queryset):
+    """Concrete field names of the queryset's model, in declared order."""
+    return [field.name for field in queryset.model._meta.fields]
+
+
+@admin.action(description='Export selected as JSON')
+def export_as_json(modeladmin, request, queryset):
+    """Download the selected rows as a JSON file."""
+    fields = _export_field_names(queryset)
+    payload = json.dumps(list(queryset.values(*fields)), default=str, indent=2)
+    response = HttpResponse(payload, content_type='application/json')
+    response['Content-Disposition'] = 'attachment; filename="daytrade_export.json"'
+    return response
+
+
+@admin.action(description='Export selected as CSV')
+def export_as_csv(modeladmin, request, queryset):
+    """Download the selected rows as a CSV file."""
+    fields = _export_field_names(queryset)
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="daytrade_export.csv"'
+    writer = csv.writer(response)
+    writer.writerow(fields)
+    for row in queryset.values_list(*fields):
+        writer.writerow(row)
+    return response
+
+
+@admin.action(description='Export selected as Excel (xlsx)')
+def export_as_xlsx(modeladmin, request, queryset):
+    """Download the selected rows as an Excel workbook."""
+    from openpyxl import Workbook
+
+    fields = _export_field_names(queryset)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = queryset.model._meta.verbose_name_plural[:31]
+    sheet.append(fields)
+    for row in queryset.values_list(*fields):
+        sheet.append(['' if value is None else str(value) for value in row])
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = 'attachment; filename="daytrade_export.xlsx"'
+    workbook.save(response)
+    return response
+
+
+DAYTRADE_EXPORT_ACTIONS = [export_as_json, export_as_csv, export_as_xlsx]
+
+
 @admin.register(DayTradeSignal)
 class DayTradeSignalAdmin(admin.ModelAdmin):
     """Day-trade signals emitted by the 15m Market Structure engine."""
@@ -2554,6 +2605,7 @@ class DayTradeSignalAdmin(admin.ModelAdmin):
     ordering = ('-created_at',)
     readonly_fields = ('created_at', 'updated_at')
     list_per_page = 50
+    actions = DAYTRADE_EXPORT_ACTIONS
 
 
 @admin.register(DayTradePaperTrade)
@@ -2561,7 +2613,7 @@ class DayTradePaperTradeAdmin(admin.ModelAdmin):
     """Day-trade paper positions with scale-out and trailing-stop state."""
 
     list_display = (
-        'symbol', 'direction', 'status', 'entry_price', 'remaining_quantity',
+        'symbol', 'direction', 'status', 'confidence', 'entry_price', 'remaining_quantity',
         'stop_loss', 'trailing_stop', 'tp1_filled', 'tp2_filled',
         'profit_loss', 'entry_time',
     )
@@ -2570,6 +2622,7 @@ class DayTradePaperTradeAdmin(admin.ModelAdmin):
     ordering = ('-created_at',)
     readonly_fields = ('created_at', 'updated_at')
     list_per_page = 50
+    actions = DAYTRADE_EXPORT_ACTIONS
 
 
 @admin.register(DayTradeTradeExit)
