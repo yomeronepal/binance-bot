@@ -728,8 +728,10 @@ def sync_futures_trades_with_binance(self):
     This task:
     1. Fetches all open positions from Binance
     2. Updates local OPEN trades with current unrealized PnL
-    3. Detects closed positions and updates their status/PnL
-    4. Creates records for positions opened outside our system (optional)
+    3. Detects closed positions and updates their status/PnL only when real
+       income/trade-history data is available (never fabricates a $0 manual close)
+    4. Ignores positions opened outside the bot (no auto-import), so manual or
+       external Binance positions never become phantom CLOSED_MANUAL records
 
     Should be scheduled to run every 30-60 seconds.
     """
@@ -916,7 +918,15 @@ def sync_futures_trades_with_binance(self):
                             exit_price = Decimal(str(t.get('price', 0)))
                             break
 
-                # Determine close reason based on PnL
+                have_close_data = bool(income_data) or bool(trade_history) or exit_price > 0
+                if not have_close_data:
+                    logger.warning(
+                        f"Trade {trade.id} ({trade.symbol}) is gone from Binance but no "
+                        f"income/trade history was returned; leaving OPEN to retry next sync "
+                        f"instead of recording a $0 manual close."
+                    )
+                    continue
+
                 if realized_pnl > 0:
                     close_status = 'CLOSED_TP'
                 elif realized_pnl < 0:
@@ -924,7 +934,6 @@ def sync_futures_trades_with_binance(self):
                 else:
                     close_status = 'CLOSED_MANUAL'
 
-                # Update the trade record
                 if exit_price > 0:
                     trade.exit_price = exit_price
                 trade.profit_loss = realized_pnl
@@ -949,8 +958,6 @@ def sync_futures_trades_with_binance(self):
                     f"PnL: {realized_pnl} ({close_status})"
                 )
 
-        # Check for positions on Binance that we don't have locally (external trades)
-        # Auto-import them into our system for tracking
         external_positions = []
         imported_trades = []
         for symbol, pos in binance_position_map.items():
@@ -961,57 +968,9 @@ def sync_futures_trades_with_binance(self):
                 'entry_price': str(pos['entry_price']),
                 'unrealized_pnl': str(pos['unrealized_pnl']),
             })
-            logger.info(f"External position found: {pos['direction']} {symbol}")
-
-            # Auto-import external position into local database
-            try:
-                # Calculate position size in USDT (margin used)
-                position_size_usdt = pos['entry_price'] * Decimal(str(pos['quantity'])) / pos['leverage']
-
-                # For external trades, set SL/TP to 0 (unknown)
-                # Use liquidation price as a reference for SL if available
-                liquidation = pos.get('liquidation_price', Decimal('0'))
-
-                # Calculate unrealized PnL percentage
-                unrealized_pnl = pos.get('unrealized_pnl', Decimal('0'))
-                unrealized_pnl_pct = (unrealized_pnl / position_size_usdt * 100) if position_size_usdt else Decimal('0')
-
-                new_trade = FuturesTrade.objects.create(
-                    signal=None,  # No signal - external trade
-                    symbol=symbol,
-                    direction=pos['direction'],
-                    leverage=pos['leverage'],
-                    quantity=Decimal(str(pos['quantity'])),
-                    entry_price=pos['entry_price'],
-                    entry_time=dj_timezone.now(),  # We don't know exact entry time
-                    stop_loss=liquidation if liquidation > 0 else pos['entry_price'] * Decimal('0.95'),  # Default 5% SL
-                    take_profit=pos['entry_price'] * Decimal('1.10'),  # Default 10% TP
-                    position_size_usdt=position_size_usdt,
-                    status='OPEN',
-                    # Live data fields
-                    mark_price=pos.get('mark_price'),
-                    unrealized_pnl=unrealized_pnl,
-                    unrealized_pnl_percentage=unrealized_pnl_pct,
-                    liquidation_price=liquidation if liquidation > 0 else None,
-                    margin_type=pos.get('margin_type', 'ISOLATED').upper(),
-                    last_sync_time=dj_timezone.now(),
-                    error_message=f"Auto-imported from Binance. Margin type: {pos['margin_type']}"
-                )
-
-                imported_trades.append({
-                    'trade_id': new_trade.id,
-                    'symbol': symbol,
-                    'direction': pos['direction'],
-                    'quantity': str(pos['quantity']),
-                    'entry_price': str(pos['entry_price']),
-                })
-
-                logger.info(
-                    f"✅ Imported external position: {pos['direction']} {symbol} "
-                    f"qty={pos['quantity']} @ {pos['entry_price']}"
-                )
-            except Exception as e:
-                logger.error(f"Failed to import external position {symbol}: {e}")
+            logger.debug(
+                f"External position ignored (not bot-managed): {pos['direction']} {symbol}"
+            )
 
         cut_loser_closed = [t for t in closed_trades if t.get('reason') == 'cut_loser']
 
