@@ -169,6 +169,21 @@ services:
     networks:
       - revx_network
 
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: revx_dozzle
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "3000:8080"
+    environment:
+      - DOZZLE_LEVEL=info
+      - DOZZLE_NO_ANALYTICS=true
+      - DOZZLE_ENABLE_SHELL=true
+    networks:
+      - revx_network
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   static_volume:
