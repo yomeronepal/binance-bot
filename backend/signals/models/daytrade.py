@@ -788,6 +788,61 @@ class DayTradeStrategyConfig(models.Model):
         help_text=_("Minimum confidence (0-1) to emit a signal and paper trade it"),
     )
 
+    structure_quality_enabled = models.BooleanField(
+        default=False,
+        help_text=_("V3: use significance-filtered swings + structure bonus (validated: off)"),
+    )
+    structure_min_swing_atr = models.FloatField(
+        default=0.0,
+        help_text=_("Ignore swing legs smaller than this x ATR (0 = off)"),
+    )
+    weight_structure_bonus = models.FloatField(
+        default=0.0,
+        help_text=_("Additive BOS/strong-leg confluence weight (validated: 0)"),
+    )
+    require_bos = models.BooleanField(
+        default=False, help_text=_("Require a Break of Structure (validated: off)"))
+    block_on_choch = models.BooleanField(
+        default=False, help_text=_("Reject on Change of Character (validated: off)"))
+
+    trend_filter_enabled = models.BooleanField(
+        default=True,
+        help_text=_("V3: 1H trend-strength gate beyond the EMA cross (validated: on)"),
+    )
+    trend_slope_lookback = models.PositiveIntegerField(
+        default=3, help_text=_("Bars used to measure the 1H EMA50 slope"))
+    trend_min_slope_pct = models.FloatField(
+        default=0.0, help_text=_("Min EMA50 slope %% over the lookback (validated: 0/off)"))
+    trend_min_ema_gap_pct = models.FloatField(
+        default=0.5, help_text=_("Min EMA50-EMA200 gap as %% of price (validated: 0.5)"))
+    trend_require_price_above_ema50 = models.BooleanField(
+        default=True, help_text=_("Require price on the trend side of EMA50 (validated: on)"))
+    trend_require_adx_rising = models.BooleanField(
+        default=False, help_text=_("Require 1H ADX rising (validated: off)"))
+
+    regime_filter_enabled = models.BooleanField(
+        default=True,
+        help_text=_("V3: market-regime gate before scanning (validated: on)"),
+    )
+    regime_min_adx = models.FloatField(
+        default=0.0, help_text=_("Require 15m ADX >= this (validated: 0/off)"))
+    regime_max_choppiness = models.FloatField(
+        default=0.0, help_text=_("Reject if Choppiness Index > this (validated: 0/off)"))
+    regime_choppiness_period = models.PositiveIntegerField(
+        default=14, help_text=_("Choppiness Index lookback"))
+    regime_min_bbw_pct = models.FloatField(
+        default=0.0, help_text=_("Min Bollinger band width %% (validated: 0/off)"))
+    regime_bb_period = models.PositiveIntegerField(
+        default=20, help_text=_("Bollinger period for band width"))
+    regime_bb_std = models.FloatField(
+        default=2.0, help_text=_("Bollinger std-dev multiplier"))
+    regime_atr_percentile_min = models.FloatField(
+        default=30.0,
+        help_text=_("Require ATR percentile (0-100) >= this (validated: 30)"),
+    )
+    regime_atr_percentile_period = models.PositiveIntegerField(
+        default=100, help_text=_("Lookback bars for the ATR percentile"))
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

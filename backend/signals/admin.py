@@ -2709,6 +2709,31 @@ class DayTradeStrategyConfigAdmin(admin.ModelAdmin):
                 'min_score', 'min_confidence',
             ),
         }),
+        ('V3 Trend-strength gate (validated: ON)', {
+            'fields': (
+                'trend_filter_enabled', 'trend_require_price_above_ema50',
+                'trend_min_ema_gap_pct', 'trend_min_slope_pct',
+                'trend_slope_lookback', 'trend_require_adx_rising',
+            ),
+            'description': 'Validated combo: enabled + price-above-EMA50 + EMA gap >= 0.5%. Slope/ADX-rising left off.',
+        }),
+        ('V3 Market-regime gate (validated: ON, ATR percentile only)', {
+            'fields': (
+                'regime_filter_enabled', 'regime_atr_percentile_min',
+                'regime_atr_percentile_period', 'regime_min_adx',
+                'regime_max_choppiness', 'regime_choppiness_period',
+                'regime_min_bbw_pct', 'regime_bb_period', 'regime_bb_std',
+            ),
+            'description': 'Validated: enabled + ATR percentile >= 30. ADX/choppiness/BBW left off (did not generalise).',
+        }),
+        ('V3 Structure quality (validated: OFF)', {
+            'classes': ('collapse',),
+            'fields': (
+                'structure_quality_enabled', 'structure_min_swing_atr',
+                'weight_structure_bonus', 'require_bos', 'block_on_choch',
+            ),
+            'description': 'Not robust in walk-forward testing; left off.',
+        }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
         }),
