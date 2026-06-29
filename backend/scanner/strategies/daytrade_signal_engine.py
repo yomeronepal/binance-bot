@@ -77,6 +77,10 @@ class DayTradeSignalConfig:
     weight_atr: float = 1.0
     min_score: float = 8.5
     min_confidence: float = 0.70
+    structure_quality_enabled: bool = False
+    structure_min_swing_atr: float = 0.0
+    require_bos: bool = False
+    block_on_choch: bool = False
     margin_per_trade: float = 100.0
     leverage: int = 10
     signal_expiry_hours: int = 6
@@ -194,6 +198,78 @@ def _market_structure(df: pd.DataFrame, lookback: int) -> str:
     return NEUTRAL
 
 
+def _significant_swings(df, lookback, min_swing_atr, atr):
+    """Return time-ordered swing points, filtering legs smaller than min_swing_atr*atr.
+
+    Each point is (index, price, kind) with kind 'H' or 'L'. Consecutive same-kind
+    pivots collapse to the more extreme one; an opposite pivot is kept only if its
+    leg from the last significant swing is large enough to matter (ignores tiny
+    pullbacks). With min_swing_atr <= 0 the raw pivots are returned unfiltered.
+    """
+    highs = [(i, float(df['high'].iloc[i]), 'H') for i in _swing_indices(df['high'], lookback, True)]
+    lows = [(i, float(df['low'].iloc[i]), 'L') for i in _swing_indices(df['low'], lookback, False)]
+    points = sorted(highs + lows, key=lambda p: p[0])
+    if min_swing_atr <= 0 or atr <= 0:
+        return points
+
+    threshold = min_swing_atr * atr
+    significant = []
+    for point in points:
+        if not significant:
+            significant.append(point)
+            continue
+        last = significant[-1]
+        if point[2] == last[2]:
+            higher = point[2] == 'H' and point[1] >= last[1]
+            lower = point[2] == 'L' and point[1] <= last[1]
+            if higher or lower:
+                significant[-1] = point
+            continue
+        if abs(point[1] - last[1]) >= threshold:
+            significant.append(point)
+    return significant
+
+
+def _analyze_structure(df, lookback, min_swing_atr, atr):
+    """Smart-money structure read: direction, BOS, CHoCH and a 0-1 quality score.
+
+    Direction comes from HH+HL / LH+LL over significant swings. BOS (continuation)
+    is a close beyond the latest swing in the trend direction; CHoCH (reversal) is
+    a close breaking the latest counter-trend swing. Quality rewards a confirmed
+    BOS and a strong final leg.
+    """
+    points = _significant_swings(df, lookback, min_swing_atr, atr)
+    highs = [p for p in points if p[2] == 'H']
+    lows = [p for p in points if p[2] == 'L']
+    empty = {'direction': NEUTRAL, 'quality': 0.0, 'bos': False, 'choch': False}
+    if len(highs) < 2 or len(lows) < 2:
+        return empty
+
+    last_h, prev_h = highs[-1][1], highs[-2][1]
+    last_l, prev_l = lows[-1][1], lows[-2][1]
+    close = float(df['close'].iloc[-1])
+
+    if last_h > prev_h and last_l > prev_l:
+        direction = BULLISH
+    elif last_h < prev_h and last_l < prev_l:
+        direction = BEARISH
+    else:
+        return empty
+
+    if direction == BULLISH:
+        bos = close > last_h
+        choch = close < last_l
+    else:
+        bos = close < last_l
+        choch = close > last_h
+
+    last_leg = abs(points[-1][1] - points[-2][1]) if len(points) >= 2 else 0.0
+    strong = atr > 0 and last_leg >= 2 * (min_swing_atr if min_swing_atr > 0 else 1.0) * atr
+
+    quality = 0.5 + (0.3 if bos else 0.0) + (0.2 if strong else 0.0)
+    return {'direction': direction, 'quality': min(quality, 1.0), 'bos': bos, 'choch': choch}
+
+
 class DayTradeSignalEngine:
     """Generate 15m Market Structure Pullback signals."""
 
@@ -253,12 +329,37 @@ class DayTradeSignalEngine:
             return bool(current['low'] < prior['low'].min() and current['close'] > prior['low'].min())
         return bool(current['high'] > prior['high'].max() and current['close'] < prior['high'].max())
 
-    def _score_components(self, df: pd.DataFrame, direction: str) -> Tuple[float, Dict]:
-        """Score the soft components for a gated direction."""
+    def _resolve_structure(self, prepared: pd.DataFrame, trend: str, atr: float):
+        """Return (structure_direction, structure_quality), applying V3 gates.
+
+        With ``structure_quality_enabled`` off this reproduces the V2 binary
+        structure gate (full weight). With it on it uses significance-filtered
+        swings plus optional BOS / CHoCH gates and a graded quality.
+        """
+        cfg = self.config
+        if not cfg.structure_quality_enabled:
+            return _market_structure(prepared, cfg.pivot_lookback), 1.0
+
+        result = _analyze_structure(prepared, cfg.pivot_lookback, cfg.structure_min_swing_atr, atr)
+        if cfg.block_on_choch and result['choch']:
+            return None, 0.0
+        if cfg.require_bos and not result['bos']:
+            return None, 0.0
+        return result['direction'], result['quality']
+
+    def _score_components(self, df: pd.DataFrame, direction: str,
+                          structure_quality: float = 1.0) -> Tuple[float, Dict]:
+        """Score the soft components for a gated direction.
+
+        Components contribute ``weight * quality``. Structure is graded by
+        ``structure_quality`` (1.0 = full weight); the remaining components are
+        still binary (1.0/0.0) until their own quality upgrades land.
+        """
         cfg = self.config
         current, previous = df.iloc[-1], df.iloc[-2]
-        score = cfg.weight_trend + cfg.weight_structure
-        conditions = {'trend': True, 'structure': True}
+        score = cfg.weight_trend + cfg.weight_structure * structure_quality
+        conditions = {'trend': True, 'structure': True,
+                      'structure_quality': round(structure_quality, 3)}
 
         if self._in_pullback_zone(current, direction):
             score += cfg.weight_pullback
@@ -320,21 +421,22 @@ class DayTradeSignalEngine:
             return None
 
         prepared = self._prepare_entry(df_15m)
-        structure = _market_structure(prepared, self.config.pivot_lookback)
-        if structure != trend:
-            return None
-
-        score, conditions = self._score_components(prepared, trend)
-        if score < self.config.min_score:
-            return None
-
-        confidence = score / self.config.max_score
-        if confidence < self.config.min_confidence:
-            return None
-
+        cfg = self.config
         current = prepared.iloc[-1]
         atr = float(current['atr'])
         if pd.isna(atr) or atr <= 0:
+            return None
+
+        structure_dir, structure_quality = self._resolve_structure(prepared, trend, atr)
+        if structure_dir is None or structure_dir != trend:
+            return None
+
+        score, conditions = self._score_components(prepared, trend, structure_quality)
+        if score < cfg.min_score:
+            return None
+
+        confidence = score / cfg.max_score
+        if confidence < cfg.min_confidence:
             return None
 
         entry = float(current['close'])

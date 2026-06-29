@@ -237,9 +237,16 @@ class Command(BaseCommand):
         parser.add_argument('--symbols', default=None, help='Comma list (default: active config symbols)')
         parser.add_argument('--days', type=int, default=90, help='Lookback window in days (default: 90)')
         parser.add_argument('--output', default=None, help='Write full results JSON to this path')
+        parser.add_argument('--structure-v3', action='store_true',
+                            help='Enable the V3 graded structure (BOS/CHoCH/significance)')
+        parser.add_argument('--min-swing-atr', type=float, default=0.5,
+                            help='Significant-swing threshold in ATR units (with --structure-v3)')
+        parser.add_argument('--require-bos', action='store_true', help='Require a Break of Structure')
+        parser.add_argument('--block-choch', action='store_true', help='Reject on Change of Character')
 
     def handle(self, *args, **options):
         cfg = _load_config()
+        self._apply_overrides(cfg, options)
         symbols = self._resolve_symbols(options['symbols'], cfg)
         end_ms = int(timezone.now().timestamp() * 1000)
         start_ms = end_ms - options['days'] * 86_400_000
@@ -264,6 +271,14 @@ class Command(BaseCommand):
         overall = _summarize(cfg, all_trades)
         self._print_report(overall, per_symbol)
         self._maybe_write(options['output'], cfg, overall, per_symbol, all_trades, options['days'])
+
+    def _apply_overrides(self, cfg, options):
+        """Apply experiment flags onto the engine config."""
+        if options['structure_v3']:
+            cfg.structure_quality_enabled = True
+            cfg.structure_min_swing_atr = options['min_swing_atr']
+            cfg.require_bos = options['require_bos']
+            cfg.block_on_choch = options['block_choch']
 
     def _resolve_symbols(self, arg, cfg):
         """Resolve the symbol list from the flag or the active config."""
