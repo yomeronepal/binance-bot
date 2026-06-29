@@ -346,6 +346,93 @@ def _collect_stale_tokens(response, tokens):
     return stale
 
 
+def send_to_superusers(title, body, data=None):
+    """
+    Send a push notification to every active device of all superusers.
+
+    Used for operator-only alerts (e.g. the bot's own futures positions),
+    which should not be broadcast to the whole subscriber base.
+
+    Args:
+        title: Notification title.
+        body: Notification body text.
+        data: Optional dict of extra data to include in the payload.
+
+    Returns:
+        dict with keys: sent, failed, total.
+    """
+    from django.contrib.auth import get_user_model
+    from signals.models.push import PushSubscription, NotificationLog
+
+    User = get_user_model()
+    superuser_ids = list(
+        User.objects.filter(is_superuser=True, is_active=True).values_list('id', flat=True)
+    )
+    if not superuser_ids:
+        logger.debug("No active superusers to notify")
+        return {'sent': 0, 'failed': 0, 'total': 0}
+
+    tokens = list(
+        PushSubscription.objects.filter(user_id__in=superuser_ids, is_active=True)
+        .values_list('fcm_token', flat=True)
+    )
+    if not tokens:
+        logger.debug("No active FCM tokens for superusers")
+        return {'sent': 0, 'failed': 0, 'total': 0}
+
+    result = _send_multicast(tokens, title, body, data)
+    status = 'SENT' if result['failed'] == 0 else ('PARTIAL' if result['sent'] > 0 else 'FAILED')
+    NotificationLog.objects.create(
+        title=title,
+        body=body,
+        data=data or {},
+        status=status,
+        error_message=result.get('error', ''),
+        tokens_targeted=result['total'],
+        tokens_succeeded=result['sent'],
+    )
+    return result
+
+
+def send_futures_close_notification(trade):
+    """
+    Notify operators when a futures trade closes at stop-loss or take-profit.
+
+    Args:
+        trade: FuturesTrade instance that has just been marked CLOSED_SL or
+            CLOSED_TP.
+
+    Returns:
+        dict with the send result.
+    """
+    is_tp = trade.status == 'CLOSED_TP'
+    hit_label = 'Take-Profit' if is_tp else 'Stop-Loss'
+    emoji = "\U00002705" if is_tp else "\U0001F6D1"
+
+    try:
+        pnl = float(trade.profit_loss or 0)
+    except (TypeError, ValueError):
+        pnl = 0.0
+    sign = '+' if pnl >= 0 else ''
+    exit_price = trade.exit_price if trade.exit_price is not None else '—'
+
+    title = f"{emoji} Futures {hit_label}: {trade.symbol}"
+    body = (
+        f"{trade.direction} {trade.symbol} closed at {hit_label} "
+        f"@ {exit_price} · PnL {sign}{pnl:.2f} USDT"
+    )
+    data = {
+        'type': 'FUTURES_CLOSE',
+        'trade_id': str(trade.id),
+        'symbol': str(trade.symbol),
+        'direction': str(trade.direction),
+        'status': str(trade.status),
+        'pnl': str(pnl),
+        'url': '/futures-performance',
+    }
+    return send_to_superusers(title, body, data=data)
+
+
 def send_signal_notification(signal):
     """
     Build and broadcast a push notification for a new trading signal.

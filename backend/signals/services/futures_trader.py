@@ -279,13 +279,22 @@ class BinanceFuturesTrader:
         """Get futures account balance."""
         return await self._request('GET', '/fapi/v2/balance', signed=True)
 
-    async def get_open_positions(self):
-        """Get all open positions with non-zero quantity from Binance."""
+    async def get_open_positions(self, raise_on_error=False):
+        """Get all open positions with non-zero quantity from Binance.
+
+        Args:
+            raise_on_error: When True, re-raise API errors instead of
+                returning an empty list. Callers that would otherwise treat
+                an empty result as "all positions closed" must set this so a
+                transient API failure is not mistaken for a flat account.
+        """
         try:
             positions = await self._request('GET', '/fapi/v2/positionRisk', signed=True)
             return [p for p in positions if float(p.get('positionAmt', 0)) != 0]
         except Exception as e:
             logger.error(f"Failed to get open positions: {e}")
+            if raise_on_error:
+                raise
             return []
 
     async def get_position_for_symbol(self, symbol):

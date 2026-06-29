@@ -500,6 +500,17 @@ class FuturesTrade(models.Model):
         help_text=_("Error message if trade failed")
     )
 
+    entry_attempts = models.IntegerField(
+        default=0,
+        help_text=_("Number of order-placement attempts made for this trade")
+    )
+
+    next_entry_retry_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_("Earliest time to retry a failed entry (exponential backoff)")
+    )
+
     cut_loser_triggered = models.BooleanField(
         default=False,
         help_text=_("Whether cut-loser mode has been triggered for this trade")
