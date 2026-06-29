@@ -262,6 +262,16 @@ class Command(BaseCommand):
         parser.add_argument('--block-choch', action='store_true', help='Reject on Change of Character')
         parser.add_argument('--structure-bonus', type=float, default=1.0,
                             help='Additive structure-confluence weight (with --structure-v3)')
+        parser.add_argument('--trend-filter', action='store_true',
+                            help='Enable the V3 trend-strength gate')
+        parser.add_argument('--trend-min-slope', type=float, default=0.0,
+                            help='Min EMA50 slope %% over the lookback (with --trend-filter)')
+        parser.add_argument('--trend-min-gap', type=float, default=0.0,
+                            help='Min EMA50-EMA200 gap as %% of price (with --trend-filter)')
+        parser.add_argument('--trend-price-above', action='store_true',
+                            help='Require price on the trend side of EMA50')
+        parser.add_argument('--trend-adx-rising', action='store_true',
+                            help='Require 1H ADX to be rising')
         parser.add_argument('--compare', action='store_true',
                             help='Run baseline (V3 off) vs the V3 config over the same data')
         parser.add_argument('--segments', type=int, default=1,
@@ -308,22 +318,29 @@ class Command(BaseCommand):
             cfg.weight_structure_bonus = options['structure_bonus']
             cfg.require_bos = options['require_bos']
             cfg.block_on_choch = options['block_choch']
+        if options['trend_filter']:
+            cfg.trend_filter_enabled = True
+            cfg.trend_min_slope_pct = options['trend_min_slope']
+            cfg.trend_min_ema_gap_pct = options['trend_min_gap']
+            cfg.trend_require_price_above_ema50 = options['trend_price_above']
+            cfg.trend_require_adx_rising = options['trend_adx_rising']
 
     def _run_compare(self, options, start_ms, end_ms, start_ts, end_ts):
-        """Run baseline vs V3 over the same fetched data and segment the results."""
+        """Run pure baseline vs the experiment config over the same fetched data."""
         base_cfg = _load_config()
         v3_cfg = _load_config()
-        forced = dict(options)
-        forced['structure_v3'] = True
-        self._apply_overrides(v3_cfg, forced)
+        self._apply_overrides(v3_cfg, options)
         symbols = self._resolve_symbols(options['symbols'], base_cfg)
         base_engine = DayTradeSignalEngine(base_cfg)
         v3_engine = DayTradeSignalEngine(v3_cfg)
 
         self.stdout.write(
             f"Compare over {options['days']}d, {len(symbols)} symbol(s), {options['segments']} segment(s) | "
-            f"V3 min_swing {v3_cfg.structure_min_swing_atr} bonus {v3_cfg.weight_structure_bonus} "
-            f"req_bos {v3_cfg.require_bos} block_choch {v3_cfg.block_on_choch}"
+            f"structure={v3_cfg.structure_quality_enabled}(swing {v3_cfg.structure_min_swing_atr}, "
+            f"bonus {v3_cfg.weight_structure_bonus}) | "
+            f"trend={v3_cfg.trend_filter_enabled}(slope {v3_cfg.trend_min_slope_pct}, "
+            f"gap {v3_cfg.trend_min_ema_gap_pct}, price>{v3_cfg.trend_require_price_above_ema50}, "
+            f"adx_rising {v3_cfg.trend_require_adx_rising})"
         )
 
         base_all, v3_all = [], []

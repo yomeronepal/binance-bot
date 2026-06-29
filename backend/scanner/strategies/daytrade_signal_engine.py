@@ -82,6 +82,12 @@ class DayTradeSignalConfig:
     weight_structure_bonus: float = 0.0
     require_bos: bool = False
     block_on_choch: bool = False
+    trend_filter_enabled: bool = False
+    trend_slope_lookback: int = 3
+    trend_min_slope_pct: float = 0.0
+    trend_min_ema_gap_pct: float = 0.0
+    trend_require_price_above_ema50: bool = False
+    trend_require_adx_rising: bool = False
     margin_per_trade: float = 100.0
     leverage: int = 10
     signal_expiry_hours: int = 6
@@ -290,6 +296,50 @@ class DayTradeSignalEngine:
             return BEARISH
         return NEUTRAL
 
+    def _trend_strength_ok(self, df_1h: pd.DataFrame, direction: str) -> bool:
+        """Optional 1H trend-strength gate beyond the EMA50/EMA200 cross.
+
+        Each sub-check is active only when its config threshold/toggle is set, so
+        with trend_filter_enabled on but everything at defaults this is a no-op
+        (reproduces V2). Checks are direction-aware: slope and EMA gap must point
+        the trend's way, price must sit on the trend side of EMA50, and ADX must
+        be rising.
+        """
+        cfg = self.config
+        if not cfg.trend_filter_enabled:
+            return True
+
+        lookback = max(1, cfg.trend_slope_lookback)
+        ema50 = calculate_ema(df_1h, cfg.trend_ema_fast)
+        ema200 = calculate_ema(df_1h, cfg.trend_ema_slow)
+        if len(ema50) <= lookback:
+            return True
+
+        e50, e50_prev, e200 = ema50.iloc[-1], ema50.iloc[-1 - lookback], ema200.iloc[-1]
+        close = float(df_1h['close'].iloc[-1])
+        if pd.isna(e50) or pd.isna(e200) or pd.isna(e50_prev) or e50_prev == 0 or close == 0:
+            return True
+
+        slope = (e50 - e50_prev) / e50_prev
+        gap = (e50 - e200) / close
+        is_bull = direction == BULLISH
+        checks = []
+
+        if cfg.trend_min_slope_pct > 0:
+            thr = cfg.trend_min_slope_pct / 100.0
+            checks.append(slope >= thr if is_bull else slope <= -thr)
+        if cfg.trend_min_ema_gap_pct > 0:
+            thr = cfg.trend_min_ema_gap_pct / 100.0
+            checks.append(gap >= thr if is_bull else gap <= -thr)
+        if cfg.trend_require_price_above_ema50:
+            checks.append(close > e50 if is_bull else close < e50)
+        if cfg.trend_require_adx_rising:
+            adx, _, _ = calculate_adx(df_1h, cfg.adx_period)
+            if len(adx) > lookback and not pd.isna(adx.iloc[-1]) and not pd.isna(adx.iloc[-1 - lookback]):
+                checks.append(adx.iloc[-1] > adx.iloc[-1 - lookback])
+
+        return all(checks)
+
     def _prepare_entry(self, df_15m: pd.DataFrame) -> pd.DataFrame:
         """Attach the indicators the entry logic needs to the 15m frame."""
         df = df_15m.copy()
@@ -424,6 +474,9 @@ class DayTradeSignalEngine:
 
         trend = self._higher_tf_trend(df_1h)
         if trend == NEUTRAL:
+            return None
+
+        if not self._trend_strength_ok(df_1h, trend):
             return None
 
         prepared = self._prepare_entry(df_15m)

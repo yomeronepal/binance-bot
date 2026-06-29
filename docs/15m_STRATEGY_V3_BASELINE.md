@@ -172,3 +172,52 @@ Recommended config when this is wired to the DB + admin (still off by default
 until then; paper-only): `structure_quality_enabled=true`,
 `structure_min_swing_atr=0.5`, `weight_structure_bonus=0.0`, `require_bos=false`,
 `block_on_choch=false`.
+
+---
+
+# Task 5 — Trend-strength gate (validated; the strongest change so far)
+
+The 1H EMA50>EMA200 cross stays the direction gate; added optional strength
+sub-filters, each independently toggleable so they could be isolated via
+`--compare`. Built as gates (filters), not score weights — per the Task 1 lesson.
+Default off (no-op) reproduces V2.
+
+## Sub-filter isolation (180d / 6 segments)
+
+| Sub-filter | PF | Net | Max DD | Segs won | Keep? |
+| --- | --- | --- | --- | --- | --- |
+| Baseline | 1.312 | $1585 | $775 | - | - |
+| price above EMA50 | 1.404 | $1900 | $660 | 4/6 | yes |
+| EMA50-EMA200 gap >= 0.5% | 1.360 | $1685 | $905 | 5/6 | yes (mild) |
+| EMA50 slope >= 0.2% | 1.308 | $1200 | $1465 | 3/6 | no |
+| ADX rising | 1.233 | $1065 | $1075 | 3/6 | no |
+
+price-above-EMA50 is the clear winner (better PF, net AND drawdown). Slope and
+ADX-rising hurt and are dropped.
+
+## Winning combo: price-above-EMA50 + EMA-gap >= 0.5%
+
+| Window | Base PF | V3 PF | Base net | V3 net | Base DD | V3 DD | Segs won |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 120d | 0.985 | 1.131 | -$50 | +$340 | $735 | $545 | 3/4 |
+| 180d | 1.312 | 1.515 | $1585 | $2060 | $775 | $610 | 5/6 |
+| 270d | 1.154 | 1.298 | $1315 | $2010 | $910 | $885 | 6/9 |
+
+Robust across all three windows: PF up everywhere, net up substantially (120d
+flips to profit, 270d +53%), majority of segments won, and drawdown better/flat.
+Caveat: max consecutive losses rose on 270d (19 -> 28) even though dollar DD
+improved.
+
+## Stacking check: Task 1 + Task 5 does NOT help
+
+Structure significance gate ON TOP of the trend combo was slightly worse than the
+trend combo alone (180d PF 1.515 -> 1.495, DD $610 -> $830; 270d PF 1.298 ->
+1.238). They overlap, so stacking over-filters. Ship the trend filter alone.
+
+## Verdict
+
+**Task 5 (price-above-EMA50 + EMA-gap >= 0.5%) is the strongest validated edge and
+supersedes the Task 1 structure gate.** Recommended live config (off by default,
+paper-only until DB-wired):
+`trend_filter_enabled=true`, `trend_require_price_above_ema50=true`,
+`trend_min_ema_gap_pct=0.5`, slope/ADX-rising off, and structure quality OFF.
