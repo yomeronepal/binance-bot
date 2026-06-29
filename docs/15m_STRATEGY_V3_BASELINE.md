@@ -102,10 +102,30 @@ broad-based, not a single-symbol artifact.
 
 Sweet spot 0.3-0.5 ATR. Hard CHoCH-block hurt (PF 1.186) and is left off by default.
 
-## Status
+## Multi-window validation (the honest picture)
 
-Engine + harness only (no DB migration yet, to avoid colliding with the unmerged
-futures migration 0055). Recommended live config once wired to the DB + admin:
-`structure_quality_enabled=true`, `structure_min_swing_atr=0.5`,
-`require_bos=false`, `block_on_choch=false`. Still **paper-only** pending more
-out-of-sample validation.
+The 90d gain did NOT generalize. Across three windows (BTC/ETH/SOL/BNB,
+min-swing 0.5, no hard gates):
+
+| Window | Baseline PF | V3 PF | Baseline net | V3 net | V3 vs base |
+| --- | --- | --- | --- | --- | --- |
+| 90d | 1.011 | 1.304 | +$25 | +$615 | clearly better |
+| 120d | 0.985 | 1.084 | -$50 | +$260 | better |
+| 180d | 1.312 | 1.287 | +$1585 | +$1485 | slightly worse |
+
+On 180d V3 also worsened tail risk (max DD $775 -> $1260, consec losses 13 -> 16),
+and per-symbol it was roughly a wash. So V3 filters help in weaker recent periods
+but add nothing (and hurt drawdown) over the longer window.
+
+## Verdict: INCONCLUSIVE — not shipped
+
+Task 1 is **not** a validated edge. It stays **off by default**
+(`structure_quality_enabled=False`), so the live engine is unchanged. The
+scoring refactor is retained (it is faithful: reproduces V2 exactly when the flag
+is off) as the foundation for further experiments. No DB migration / admin wiring
+until a variant demonstrates a robust, multi-window improvement.
+
+Open follow-ups: try structure quality as an *additive* bonus on top of full base
+weight (rather than scaling the base down), validate with non-overlapping
+walk-forward windows and a wider symbol set, and reassess BOS/CHoCH as booster
+signals rather than gates.
