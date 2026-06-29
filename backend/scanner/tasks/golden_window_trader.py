@@ -765,7 +765,7 @@ def sync_futures_trades_with_binance(self):
                     async def _fetch():
                         trader = BinanceFuturesTrader(use_testnet=False)
                         try:
-                            positions = await trader.get_open_positions()
+                            positions = await trader.get_open_positions(raise_on_error=True)
                             return positions
                         finally:
                             await trader.close()
