@@ -420,54 +420,48 @@ def get_prioritized_signals(settings: FuturesTradingSettings, limit: int) -> Lis
     return list(queryset)
 
 
-def execute_futures_trade(
-    signal: Signal,
-    position_size: Decimal,
-    leverage: int,
-    settings: FuturesTradingSettings = None
-) -> Optional[FuturesTrade]:
-    """
-    Execute a single futures trade from a signal.
+MAX_ENTRY_ATTEMPTS = 5
+ENTRY_RETRY_BACKOFF_SECONDS = [30, 60, 120, 300]
 
-    Args:
-        signal: Signal to trade
-        position_size: USDT amount for this trade (margin)
-        leverage: Leverage to use
-        settings: FuturesTradingSettings for trailing stop config
 
-    Returns:
-        FuturesTrade if successful, None otherwise
+def _select_or_reuse_pending_trade(signal, position_size, leverage):
+    """Return (trade, reason): a PENDING FuturesTrade to attempt, or (None, reason).
+
+    Reuses a prior FAILED row for the signal (honoring the attempt cap and the
+    backoff window) instead of creating a new record on every retry cycle.
     """
-    import asyncio
-    import threading
     from django.db import transaction
-
-    if settings is None:
-        settings = FuturesTradingSettings.get_settings()
 
     symbol_name = signal.symbol.symbol
     direction = signal.direction
+    now = dj_timezone.now()
 
     with transaction.atomic():
-        signal_already_traded = FuturesTrade.objects.select_for_update().filter(
+        already_live = FuturesTrade.objects.select_for_update().filter(
             signal=signal
         ).exclude(status='FAILED').exists()
-
-        if signal_already_traded:
-            logger.info(f"Signal {signal.id} already has a futures trade, skipping")
-            return None
+        if already_live:
+            return None, 'already_traded'
 
         existing = FuturesTrade.objects.select_for_update().filter(
-            symbol=symbol_name,
-            direction=direction,
-            status__in=['OPEN', 'PENDING']
+            symbol=symbol_name, direction=direction, status__in=['OPEN', 'PENDING']
         ).exists()
-
         if existing:
-            logger.info(f"Already have open/pending {direction} on {symbol_name}, skipping")
-            return None
+            return None, 'existing_position'
 
-        futures_trade = FuturesTrade.objects.create(
+        failed = FuturesTrade.objects.select_for_update().filter(
+            signal=signal, status='FAILED'
+        ).order_by('-updated_at').first()
+        if failed:
+            if failed.entry_attempts >= MAX_ENTRY_ATTEMPTS:
+                return None, 'max_attempts'
+            if failed.next_entry_retry_at and now < failed.next_entry_retry_at:
+                return None, 'backoff'
+            failed.status = 'PENDING'
+            failed.save(update_fields=['status'])
+            return failed, 'reused'
+
+        trade = FuturesTrade.objects.create(
             signal=signal,
             symbol=symbol_name,
             direction=direction,
@@ -476,10 +470,21 @@ def execute_futures_trade(
             stop_loss=signal.sl,
             take_profit=signal.tp,
             position_size_usdt=position_size,
-            status='PENDING'
+            status='PENDING',
         )
+        return trade, 'created'
 
-    # Execute API calls in a separate thread
+
+def _place_entry_orders(signal, position_size, leverage):
+    """Place entry + SL/TP orders on Binance in a worker thread.
+
+    Returns (result, exception); result is None on failure.
+    """
+    import asyncio
+    import threading
+
+    symbol_name = signal.symbol.symbol
+    direction = signal.direction
     api_result = [None]
     api_exception = [None]
 
@@ -491,7 +496,6 @@ def execute_futures_trade(
                 async def _execute():
                     trader = BinanceFuturesTrader(use_testnet=False)
                     try:
-                        # Get market data
                         symbol_info = await trader.get_symbol_info(symbol_name)
                         if not symbol_info:
                             raise Exception(f"Could not get symbol info for {symbol_name}")
@@ -500,17 +504,10 @@ def execute_futures_trade(
                         if not current_price:
                             raise Exception(f"Could not get current price for {symbol_name}")
 
-                        result = await trader.place_trade_orders(
-                            symbol_name,
-                            direction,
-                            leverage,
-                            position_size,
-                            signal.sl,
-                            signal.tp,
-                            symbol_info,
-                            current_price
+                        return await trader.place_trade_orders(
+                            symbol_name, direction, leverage, position_size,
+                            signal.sl, signal.tp, symbol_info, current_price
                         )
-                        return result
                     finally:
                         await trader.close()
 
@@ -523,35 +520,91 @@ def execute_futures_trade(
     thread = threading.Thread(target=run_api_calls)
     thread.start()
     thread.join(timeout=60)
+    return api_result[0], api_exception[0]
 
-    if api_exception[0]:
-        futures_trade.status = 'FAILED'
-        futures_trade.error_message = str(api_exception[0])
-        futures_trade.save()
-        logger.error(f"Trade failed for signal {signal.id}: {api_exception[0]}")
-        return None
 
-    if not api_result[0]:
-        futures_trade.status = 'FAILED'
-        futures_trade.error_message = "API call returned no result"
-        futures_trade.save()
-        return None
+def _mark_entry_failed(trade, message):
+    """Record a failed attempt and schedule the next backed-off retry."""
+    trade.entry_attempts = (trade.entry_attempts or 0) + 1
+    trade.status = 'FAILED'
+    trade.error_message = message
 
-    # Update trade record with results
-    result = api_result[0]
-    futures_trade.quantity = result['quantity']
-    futures_trade.entry_price = result['entry_price']
-    futures_trade.binance_order_id = result['order_id']
-    futures_trade.entry_time = dj_timezone.now()
-    futures_trade.status = 'OPEN'
-    futures_trade.save()
+    if trade.entry_attempts < MAX_ENTRY_ATTEMPTS:
+        index = min(trade.entry_attempts - 1, len(ENTRY_RETRY_BACKOFF_SECONDS) - 1)
+        delay = ENTRY_RETRY_BACKOFF_SECONDS[index]
+        trade.next_entry_retry_at = dj_timezone.now() + timedelta(seconds=delay)
+        logger.warning(
+            f"Entry attempt {trade.entry_attempts}/{MAX_ENTRY_ATTEMPTS} failed for "
+            f"signal {trade.signal_id} ({trade.symbol}): {message}. Retrying in {delay}s."
+        )
+    else:
+        trade.next_entry_retry_at = None
+        logger.error(
+            f"Entry permanently failed for signal {trade.signal_id} ({trade.symbol}) "
+            f"after {trade.entry_attempts} attempts: {message}"
+        )
 
+    trade.save(update_fields=[
+        'entry_attempts', 'status', 'error_message', 'next_entry_retry_at'
+    ])
+
+
+def _finalize_open_trade(trade, result):
+    """Persist a successful entry as an OPEN trade and clear retry state."""
+    trade.quantity = result['quantity']
+    trade.entry_price = result['entry_price']
+    trade.binance_order_id = result['order_id']
+    trade.entry_time = dj_timezone.now()
+    trade.status = 'OPEN'
+    trade.next_entry_retry_at = None
+    trade.save()
     logger.info(
-        f"GW Trade opened: {direction} {result['quantity']} {symbol_name} "
-        f"@ {result['entry_price']} (Trade ID: {futures_trade.id})"
+        f"GW Trade opened: {trade.direction} {result['quantity']} {trade.symbol} "
+        f"@ {result['entry_price']} (Trade ID: {trade.id})"
     )
 
-    return futures_trade
+
+def execute_futures_trade(
+    signal: Signal,
+    position_size: Decimal,
+    leverage: int,
+    settings: FuturesTradingSettings = None
+) -> Optional[FuturesTrade]:
+    """
+    Execute a single futures trade from a signal.
+
+    Failed entries are retried across cycles with bounded exponential backoff,
+    reusing the same FuturesTrade row instead of creating a new one each time.
+
+    Args:
+        signal: Signal to trade
+        position_size: USDT amount for this trade (margin)
+        leverage: Leverage to use
+        settings: FuturesTradingSettings for trailing stop config
+
+    Returns:
+        FuturesTrade if successful, None otherwise
+    """
+    if settings is None:
+        settings = FuturesTradingSettings.get_settings()
+
+    trade, reason = _select_or_reuse_pending_trade(signal, position_size, leverage)
+    if trade is None:
+        logger.info(f"Signal {signal.id}: skipping futures entry ({reason})")
+        return None
+
+    api_result, api_exception = _place_entry_orders(signal, position_size, leverage)
+
+    if api_exception:
+        _mark_entry_failed(trade, str(api_exception))
+        return None
+
+    if not api_result:
+        _mark_entry_failed(trade, "API call returned no result")
+        return None
+
+    _finalize_open_trade(trade, api_result)
+    return trade
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
