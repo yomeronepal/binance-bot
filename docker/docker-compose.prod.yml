@@ -206,6 +206,7 @@ services:
     environment:
       - DOZZLE_LEVEL=info
       - DOZZLE_NO_ANALYTICS=true
+      - DOZZLE_ENABLE_SHELL=true
     networks:
       - binancebot_network
     restart: unless-stopped
