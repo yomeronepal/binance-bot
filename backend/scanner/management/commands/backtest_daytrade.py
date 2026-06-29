@@ -12,7 +12,7 @@ Usage:
 """
 import asyncio
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
@@ -230,6 +230,23 @@ def _summarize(cfg, trades):
     }
 
 
+def _segment_trades(trades, start_ts, end_ts, n):
+    """Bucket trades into n equal-time walk-forward segments by entry_time."""
+    if n <= 1:
+        return [list(trades)]
+    span = (end_ts - start_ts).total_seconds()
+    buckets = [[] for _ in range(n)]
+    if span <= 0:
+        buckets[0] = list(trades)
+        return buckets
+    for trade in trades:
+        entered = datetime.fromisoformat(trade['entry_time'])
+        frac = (entered - start_ts).total_seconds() / span
+        index = min(n - 1, max(0, int(frac * n)))
+        buckets[index].append(trade)
+    return buckets
+
+
 class Command(BaseCommand):
     help = 'Backtest the day-trade 15m engine over historical Binance futures data'
 
@@ -243,15 +260,26 @@ class Command(BaseCommand):
                             help='Significant-swing threshold in ATR units (with --structure-v3)')
         parser.add_argument('--require-bos', action='store_true', help='Require a Break of Structure')
         parser.add_argument('--block-choch', action='store_true', help='Reject on Change of Character')
+        parser.add_argument('--structure-bonus', type=float, default=1.0,
+                            help='Additive structure-confluence weight (with --structure-v3)')
+        parser.add_argument('--compare', action='store_true',
+                            help='Run baseline (V3 off) vs the V3 config over the same data')
+        parser.add_argument('--segments', type=int, default=1,
+                            help='Split the window into N walk-forward segments for per-window metrics')
 
     def handle(self, *args, **options):
-        cfg = _load_config()
-        self._apply_overrides(cfg, options)
-        symbols = self._resolve_symbols(options['symbols'], cfg)
         end_ms = int(timezone.now().timestamp() * 1000)
         start_ms = end_ms - options['days'] * 86_400_000
         start_ts = timezone.datetime.utcfromtimestamp(start_ms / 1000)
+        end_ts = timezone.datetime.utcfromtimestamp(end_ms / 1000)
 
+        if options['compare']:
+            self._run_compare(options, start_ms, end_ms, start_ts, end_ts)
+            return
+
+        cfg = _load_config()
+        self._apply_overrides(cfg, options)
+        symbols = self._resolve_symbols(options['symbols'], cfg)
         engine = DayTradeSignalEngine(cfg)
         self.stdout.write(
             f"Backtesting {len(symbols)} symbol(s) over {options['days']}d | "
@@ -277,8 +305,66 @@ class Command(BaseCommand):
         if options['structure_v3']:
             cfg.structure_quality_enabled = True
             cfg.structure_min_swing_atr = options['min_swing_atr']
+            cfg.weight_structure_bonus = options['structure_bonus']
             cfg.require_bos = options['require_bos']
             cfg.block_on_choch = options['block_choch']
+
+    def _run_compare(self, options, start_ms, end_ms, start_ts, end_ts):
+        """Run baseline vs V3 over the same fetched data and segment the results."""
+        base_cfg = _load_config()
+        v3_cfg = _load_config()
+        forced = dict(options)
+        forced['structure_v3'] = True
+        self._apply_overrides(v3_cfg, forced)
+        symbols = self._resolve_symbols(options['symbols'], base_cfg)
+        base_engine = DayTradeSignalEngine(base_cfg)
+        v3_engine = DayTradeSignalEngine(v3_cfg)
+
+        self.stdout.write(
+            f"Compare over {options['days']}d, {len(symbols)} symbol(s), {options['segments']} segment(s) | "
+            f"V3 min_swing {v3_cfg.structure_min_swing_atr} bonus {v3_cfg.weight_structure_bonus} "
+            f"req_bos {v3_cfg.require_bos} block_choch {v3_cfg.block_on_choch}"
+        )
+
+        base_all, v3_all = [], []
+        for symbol in symbols:
+            self.stdout.write(f"  {symbol}: fetching + backtesting both...")
+            df15, df1h = asyncio.run(
+                _fetch_symbol_frames(symbol, start_ms, end_ms, base_cfg.entry_timeframe, base_cfg.trend_timeframe)
+            )
+            if df15 is None:
+                self.stdout.write(self.style.WARNING(f"  {symbol}: no data, skipping"))
+                continue
+            base_all.extend(_backtest_symbol(base_engine, base_cfg, symbol, df15, df1h, start_ts))
+            v3_all.extend(_backtest_symbol(v3_engine, v3_cfg, symbol, df15, df1h, start_ts))
+
+        self._print_compare(base_cfg, v3_cfg, base_all, v3_all, start_ts, end_ts, options['segments'])
+
+    def _print_compare(self, base_cfg, v3_cfg, base_all, v3_all, start_ts, end_ts, segments):
+        """Print per-segment baseline-vs-V3 metrics plus a win tally."""
+        base_buckets = _segment_trades(base_all, start_ts, end_ts, segments)
+        v3_buckets = _segment_trades(v3_all, start_ts, end_ts, segments)
+        self.stdout.write("")
+        self.stdout.write(self.style.SUCCESS("==== Walk-forward compare (baseline vs V3) ===="))
+        self.stdout.write(f"  {'segment':<10}{'base PF':>9}{'v3 PF':>9}{'base net':>11}{'v3 net':>10}{'  winner':>10}")
+        v3_wins = 0
+        for i in range(segments):
+            b = _summarize(base_cfg, base_buckets[i])
+            v = _summarize(v3_cfg, v3_buckets[i])
+            winner = 'v3' if (v['profit_factor'] or 0) > (b['profit_factor'] or 0) else 'base'
+            v3_wins += 1 if winner == 'v3' else 0
+            self.stdout.write(
+                f"  seg {i + 1:<6}{str(b['profit_factor']):>9}{str(v['profit_factor']):>9}"
+                f"{b['net_pnl_usdt']:>11}{v['net_pnl_usdt']:>10}{winner:>10}"
+            )
+        bo = _summarize(base_cfg, base_all)
+        vo = _summarize(v3_cfg, v3_all)
+        self.stdout.write("")
+        self.stdout.write(f"  OVERALL base: PF {bo['profit_factor']} net ${bo['net_pnl_usdt']} "
+                          f"win {bo['win_rate']}% DD ${bo['max_drawdown_usdt']} maxConsecL {bo['max_consecutive_losses']}")
+        self.stdout.write(f"  OVERALL v3:   PF {vo['profit_factor']} net ${vo['net_pnl_usdt']} "
+                          f"win {vo['win_rate']}% DD ${vo['max_drawdown_usdt']} maxConsecL {vo['max_consecutive_losses']}")
+        self.stdout.write(self.style.SUCCESS(f"  V3 wins {v3_wins}/{segments} segments on profit factor"))
 
     def _resolve_symbols(self, arg, cfg):
         """Resolve the symbol list from the flag or the active config."""

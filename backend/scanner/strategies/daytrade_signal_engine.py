@@ -79,6 +79,7 @@ class DayTradeSignalConfig:
     min_confidence: float = 0.70
     structure_quality_enabled: bool = False
     structure_min_swing_atr: float = 0.0
+    weight_structure_bonus: float = 0.0
     require_bos: bool = False
     block_on_choch: bool = False
     margin_per_trade: float = 100.0
@@ -87,11 +88,11 @@ class DayTradeSignalConfig:
 
     @property
     def max_score(self) -> float:
-        """Sum of all component weights."""
+        """Sum of all component weights, including the additive structure bonus."""
         return (
             self.weight_trend + self.weight_structure + self.weight_volume
             + self.weight_pullback + self.weight_macd + self.weight_rsi
-            + self.weight_atr
+            + self.weight_atr + self.weight_structure_bonus
         )
 
     @classmethod
@@ -241,7 +242,7 @@ def _analyze_structure(df, lookback, min_swing_atr, atr):
     points = _significant_swings(df, lookback, min_swing_atr, atr)
     highs = [p for p in points if p[2] == 'H']
     lows = [p for p in points if p[2] == 'L']
-    empty = {'direction': NEUTRAL, 'quality': 0.0, 'bos': False, 'choch': False}
+    empty = {'direction': NEUTRAL, 'quality': 0.0, 'bos': False, 'choch': False, 'strong': False}
     if len(highs) < 2 or len(lows) < 2:
         return empty
 
@@ -267,7 +268,8 @@ def _analyze_structure(df, lookback, min_swing_atr, atr):
     strong = atr > 0 and last_leg >= 2 * (min_swing_atr if min_swing_atr > 0 else 1.0) * atr
 
     quality = 0.5 + (0.3 if bos else 0.0) + (0.2 if strong else 0.0)
-    return {'direction': direction, 'quality': min(quality, 1.0), 'bos': bos, 'choch': choch}
+    return {'direction': direction, 'quality': min(quality, 1.0),
+            'bos': bos, 'choch': choch, 'strong': strong}
 
 
 class DayTradeSignalEngine:
@@ -330,36 +332,40 @@ class DayTradeSignalEngine:
         return bool(current['high'] > prior['high'].max() and current['close'] < prior['high'].max())
 
     def _resolve_structure(self, prepared: pd.DataFrame, trend: str, atr: float):
-        """Return (structure_direction, structure_quality), applying V3 gates.
+        """Return (structure_direction, bonus_quality), applying V3 gates.
 
-        With ``structure_quality_enabled`` off this reproduces the V2 binary
-        structure gate (full weight). With it on it uses significance-filtered
-        swings plus optional BOS / CHoCH gates and a graded quality.
+        ``bonus_quality`` is a 0-1 additive confluence reward (BOS + strong leg);
+        it never reduces the full base structure weight. With
+        ``structure_quality_enabled`` off this reproduces the V2 binary gate and
+        zero bonus. With it on the direction gate uses significance-filtered
+        swings plus optional BOS / CHoCH hard gates.
         """
         cfg = self.config
         if not cfg.structure_quality_enabled:
-            return _market_structure(prepared, cfg.pivot_lookback), 1.0
+            return _market_structure(prepared, cfg.pivot_lookback), 0.0
 
         result = _analyze_structure(prepared, cfg.pivot_lookback, cfg.structure_min_swing_atr, atr)
         if cfg.block_on_choch and result['choch']:
             return None, 0.0
         if cfg.require_bos and not result['bos']:
             return None, 0.0
-        return result['direction'], result['quality']
+        bonus_quality = 0.6 * (1.0 if result['bos'] else 0.0) + 0.4 * (1.0 if result['strong'] else 0.0)
+        return result['direction'], bonus_quality
 
     def _score_components(self, df: pd.DataFrame, direction: str,
-                          structure_quality: float = 1.0) -> Tuple[float, Dict]:
+                          structure_bonus: float = 0.0) -> Tuple[float, Dict]:
         """Score the soft components for a gated direction.
 
-        Components contribute ``weight * quality``. Structure is graded by
-        ``structure_quality`` (1.0 = full weight); the remaining components are
-        still binary (1.0/0.0) until their own quality upgrades land.
+        Structure keeps its full base weight (it is a passed gate) and earns an
+        additive ``weight_structure_bonus * structure_bonus`` for BOS / strong-leg
+        confluence. The remaining components are still binary (1.0/0.0) until
+        their own quality upgrades land.
         """
         cfg = self.config
         current, previous = df.iloc[-1], df.iloc[-2]
-        score = cfg.weight_trend + cfg.weight_structure * structure_quality
+        score = cfg.weight_trend + cfg.weight_structure + cfg.weight_structure_bonus * structure_bonus
         conditions = {'trend': True, 'structure': True,
-                      'structure_quality': round(structure_quality, 3)}
+                      'structure_bonus': round(structure_bonus, 3)}
 
         if self._in_pullback_zone(current, direction):
             score += cfg.weight_pullback
@@ -427,11 +433,11 @@ class DayTradeSignalEngine:
         if pd.isna(atr) or atr <= 0:
             return None
 
-        structure_dir, structure_quality = self._resolve_structure(prepared, trend, atr)
+        structure_dir, structure_bonus = self._resolve_structure(prepared, trend, atr)
         if structure_dir is None or structure_dir != trend:
             return None
 
-        score, conditions = self._score_components(prepared, trend, structure_quality)
+        score, conditions = self._score_components(prepared, trend, structure_bonus)
         if score < cfg.min_score:
             return None
 

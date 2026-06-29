@@ -129,3 +129,46 @@ Open follow-ups: try structure quality as an *additive* bonus on top of full bas
 weight (rather than scaling the base down), validate with non-overlapping
 walk-forward windows and a wider symbol set, and reassess BOS/CHoCH as booster
 signals rather than gates.
+
+---
+
+# Part 3 + revised Task 1 — walk-forward validation
+
+Added walk-forward comparison to the harness:
+`backtest_daytrade --compare --segments N` runs baseline vs V3 over the same
+fetched data and reports per-segment profit factor / net plus a segment win tally.
+This judges a change across many non-overlapping windows instead of one.
+
+Two structure designs were retested this way (additive: full base weight + a
+separate `weight_structure_bonus` for BOS/strong-leg confluence; the base weight
+is never scaled down):
+
+## 180d / 6 segments
+
+| Config | PF | Net | Win% | Max DD | Consec L | Segments won |
+| --- | --- | --- | --- | --- | --- | --- |
+| Baseline | 1.312 | $1585 | 35.4 | $775 | 13 | - |
+| V3 additive (bonus 1.0) | 1.327 | $1700 | 35.6 | $990 | 17 | 3/6 |
+| V3 significance-gate only (bonus 0) | **1.386** | **$1990** | **36.6** | $820 | 13 | **5/6** |
+
+## 270d / 9 segments (significance-gate only)
+
+| Config | PF | Net | Win% | Max DD | Consec L | Segments won |
+| --- | --- | --- | --- | --- | --- | --- |
+| Baseline | 1.154 | $1315 | 32.5 | $910 | 19 | - |
+| V3 significance-gate only | 1.183 | $1605 | 33.0 | $1045 | 19 | 6/9 |
+
+## Revised verdict
+
+- The **swing-significance filter** (ignore legs smaller than `min_swing_atr*ATR`
+  when reading structure direction) is a **modest but robust edge**: it wins the
+  majority of walk-forward segments in both 180d and 270d and improves PF + net in
+  every window tested, with drawdown roughly flat-to-slightly-worse.
+- The **BOS / strong-leg confluence bonus** is **not** helpful (it diluted strong
+  trends and worsened drawdown). Left in the code but defaulted to
+  `weight_structure_bonus = 0.0`.
+
+Recommended config when this is wired to the DB + admin (still off by default
+until then; paper-only): `structure_quality_enabled=true`,
+`structure_min_swing_atr=0.5`, `weight_structure_bonus=0.0`, `require_bos=false`,
+`block_on_choch=false`.
