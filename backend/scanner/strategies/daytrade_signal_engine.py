@@ -11,6 +11,7 @@ DataFrames and returns a result dict (no DB). generate() persists a
 DayTradeSignal with duplicate-prevention keyed on the 15m candle bucket.
 """
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import timedelta, timezone as dt_timezone
 from decimal import Decimal
@@ -88,6 +89,15 @@ class DayTradeSignalConfig:
     trend_min_ema_gap_pct: float = 0.0
     trend_require_price_above_ema50: bool = False
     trend_require_adx_rising: bool = False
+    regime_filter_enabled: bool = False
+    regime_min_adx: float = 0.0
+    regime_max_choppiness: float = 0.0
+    regime_choppiness_period: int = 14
+    regime_min_bbw_pct: float = 0.0
+    regime_bb_period: int = 20
+    regime_bb_std: float = 2.0
+    regime_atr_percentile_min: float = 0.0
+    regime_atr_percentile_period: int = 100
     margin_per_trade: float = 100.0
     leverage: int = 10
     signal_expiry_hours: int = 6
@@ -278,6 +288,44 @@ def _analyze_structure(df, lookback, min_swing_atr, atr):
             'bos': bos, 'choch': choch, 'strong': strong}
 
 
+def _choppiness_index(df: pd.DataFrame, period: int):
+    """Choppiness Index over ``period`` bars (high = choppy, low = trending)."""
+    if len(df) < period + 1:
+        return None
+    high, low, close = df['high'], df['low'], df['close']
+    prev_close = close.shift(1)
+    true_range = pd.concat(
+        [(high - low), (high - prev_close).abs(), (low - prev_close).abs()], axis=1
+    ).max(axis=1)
+    tr_sum = true_range.rolling(period).sum().iloc[-1]
+    span = high.rolling(period).max().iloc[-1] - low.rolling(period).min().iloc[-1]
+    if pd.isna(tr_sum) or pd.isna(span) or span <= 0 or tr_sum <= 0:
+        return None
+    return 100 * math.log10(tr_sum / span) / math.log10(period)
+
+
+def _bollinger_width_pct(df: pd.DataFrame, period: int, std_mult: float):
+    """Bollinger Band width as a percentage of the basis (volatility proxy)."""
+    if len(df) < period:
+        return None
+    close = df['close']
+    mid = close.rolling(period).mean().iloc[-1]
+    std = close.rolling(period).std().iloc[-1]
+    if pd.isna(mid) or pd.isna(std) or mid == 0:
+        return None
+    return (2 * std_mult * std) / mid * 100
+
+
+def _atr_percentile(df: pd.DataFrame, period: int):
+    """Percentile rank (0-100) of the current ATR within the last ``period`` bars."""
+    atr = df['atr'].dropna()
+    if len(atr) < 2:
+        return None
+    window = atr.iloc[-period:] if len(atr) >= period else atr
+    current = atr.iloc[-1]
+    return float((window <= current).mean() * 100)
+
+
 class DayTradeSignalEngine:
     """Generate 15m Market Structure Pullback signals."""
 
@@ -337,6 +385,39 @@ class DayTradeSignalEngine:
             adx, _, _ = calculate_adx(df_1h, cfg.adx_period)
             if len(adx) > lookback and not pd.isna(adx.iloc[-1]) and not pd.isna(adx.iloc[-1 - lookback]):
                 checks.append(adx.iloc[-1] > adx.iloc[-1 - lookback])
+
+        return all(checks)
+
+    def _regime_ok(self, prepared: pd.DataFrame) -> bool:
+        """Market-regime gate: only trade when the regime suits a pullback system.
+
+        Each sub-check is active only when its threshold is set (> 0), so with
+        regime_filter_enabled on but everything at defaults this is a no-op
+        (reproduces V2). Rejects choppy ranges (high Choppiness Index), dead/low
+        volatility (low Bollinger width or low ATR percentile) and weak trend
+        strength (low ADX).
+        """
+        cfg = self.config
+        if not cfg.regime_filter_enabled:
+            return True
+
+        current = prepared.iloc[-1]
+        checks = []
+
+        if cfg.regime_min_adx > 0 and not pd.isna(current['adx']):
+            checks.append(current['adx'] >= cfg.regime_min_adx)
+        if cfg.regime_max_choppiness > 0:
+            ci = _choppiness_index(prepared, cfg.regime_choppiness_period)
+            if ci is not None:
+                checks.append(ci <= cfg.regime_max_choppiness)
+        if cfg.regime_min_bbw_pct > 0:
+            bbw = _bollinger_width_pct(prepared, cfg.regime_bb_period, cfg.regime_bb_std)
+            if bbw is not None:
+                checks.append(bbw >= cfg.regime_min_bbw_pct)
+        if cfg.regime_atr_percentile_min > 0:
+            pct = _atr_percentile(prepared, cfg.regime_atr_percentile_period)
+            if pct is not None:
+                checks.append(pct >= cfg.regime_atr_percentile_min)
 
         return all(checks)
 
@@ -484,6 +565,9 @@ class DayTradeSignalEngine:
         current = prepared.iloc[-1]
         atr = float(current['atr'])
         if pd.isna(atr) or atr <= 0:
+            return None
+
+        if not self._regime_ok(prepared):
             return None
 
         structure_dir, structure_bonus = self._resolve_structure(prepared, trend, atr)

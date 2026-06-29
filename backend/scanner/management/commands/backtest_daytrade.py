@@ -272,6 +272,16 @@ class Command(BaseCommand):
                             help='Require price on the trend side of EMA50')
         parser.add_argument('--trend-adx-rising', action='store_true',
                             help='Require 1H ADX to be rising')
+        parser.add_argument('--regime-filter', action='store_true',
+                            help='Enable the market-regime gate')
+        parser.add_argument('--regime-min-adx', type=float, default=0.0,
+                            help='Require 15m ADX >= this (with --regime-filter)')
+        parser.add_argument('--regime-max-chop', type=float, default=0.0,
+                            help='Reject if Choppiness Index > this (e.g. 61.8)')
+        parser.add_argument('--regime-min-bbw', type=float, default=0.0,
+                            help='Require Bollinger band width %% >= this')
+        parser.add_argument('--regime-atr-pct-min', type=float, default=0.0,
+                            help='Require ATR percentile (0-100) >= this')
         parser.add_argument('--compare', action='store_true',
                             help='Run baseline (V3 off) vs the V3 config over the same data')
         parser.add_argument('--segments', type=int, default=1,
@@ -324,6 +334,12 @@ class Command(BaseCommand):
             cfg.trend_min_ema_gap_pct = options['trend_min_gap']
             cfg.trend_require_price_above_ema50 = options['trend_price_above']
             cfg.trend_require_adx_rising = options['trend_adx_rising']
+        if options['regime_filter']:
+            cfg.regime_filter_enabled = True
+            cfg.regime_min_adx = options['regime_min_adx']
+            cfg.regime_max_choppiness = options['regime_max_chop']
+            cfg.regime_min_bbw_pct = options['regime_min_bbw']
+            cfg.regime_atr_percentile_min = options['regime_atr_pct_min']
 
     def _run_compare(self, options, start_ms, end_ms, start_ts, end_ts):
         """Run pure baseline vs the experiment config over the same fetched data."""
@@ -340,7 +356,10 @@ class Command(BaseCommand):
             f"bonus {v3_cfg.weight_structure_bonus}) | "
             f"trend={v3_cfg.trend_filter_enabled}(slope {v3_cfg.trend_min_slope_pct}, "
             f"gap {v3_cfg.trend_min_ema_gap_pct}, price>{v3_cfg.trend_require_price_above_ema50}, "
-            f"adx_rising {v3_cfg.trend_require_adx_rising})"
+            f"adx_rising {v3_cfg.trend_require_adx_rising}) | "
+            f"regime={v3_cfg.regime_filter_enabled}(adx {v3_cfg.regime_min_adx}, "
+            f"chop {v3_cfg.regime_max_choppiness}, bbw {v3_cfg.regime_min_bbw_pct}, "
+            f"atr_pct {v3_cfg.regime_atr_percentile_min})"
         )
 
         base_all, v3_all = [], []

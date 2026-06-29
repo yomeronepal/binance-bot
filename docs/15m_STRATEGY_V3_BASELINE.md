@@ -221,3 +221,48 @@ supersedes the Task 1 structure gate.** Recommended live config (off by default,
 paper-only until DB-wired):
 `trend_filter_enabled=true`, `trend_require_price_above_ema50=true`,
 `trend_min_ema_gap_pct=0.5`, slope/ADX-rising off, and structure quality OFF.
+
+---
+
+# Priority 1 — Market regime filter (volatility floor; validated and stacks)
+
+Added an optional pre-scan regime gate on the 15m frame, each input
+independently toggleable: ADX floor, Choppiness Index ceiling, Bollinger band
+width floor, ATR-percentile floor. Default off (no-op) reproduces V2.
+
+## Sub-filter isolation, tested on BOTH windows
+
+| Regime input | 180d PF / DD / segs | 270d PF / DD / segs | Robust? |
+| --- | --- | --- | --- |
+| Baseline | 1.312 / $775 | 1.154 / $910 | - |
+| ADX >= 20 | 1.277 / $955 / 2-6 | (skipped) | no (hurt) |
+| Choppiness <= 61.8 | 1.345 / $755 / 3-6 | - | weak |
+| Choppiness <= 50 | 1.355 / $735 / 5-6 | 1.125 / $1055 / 6-9 | no (270d worse) |
+| Bollinger width >= 2% | 1.461 / $595 / 5-6 | 1.142 / $1205 / 5-9 | no (270d worse) |
+| **ATR percentile >= 30** | **1.382 / $630 / 4-6** | **1.211 / $820 / 6-9** | **yes** |
+
+Only the **ATR-percentile floor** generalized: it improved PF, net and drawdown on
+both windows. The absolute-threshold variants (BBW, choppiness) and ADX looked
+fine on 180d but broke on 270d -- classic single-window overfit. Adaptive
+(percentile) volatility beats absolute thresholds.
+
+## Stacks with the Task 5 trend filter
+
+`trend (price-above + gap 0.5%) + regime (ATR-pct >= 30)`:
+
+| Window | Base PF / net / DD | V3 PF / net / DD | Segs won |
+| --- | --- | --- | --- |
+| 180d | 1.312 / $1585 / $775 | 1.589 / $2180 / $515 | 5/6 |
+| 270d | 1.154 / $1315 / $910 | 1.349 / $2175 / $760 | 6/9 |
+
+Beats trend-alone on both windows (180d PF 1.515 -> 1.589, DD $610 -> $515;
+270d PF 1.298 -> 1.349, net $2010 -> $2175). Combined vs baseline: PF +21%/+17%,
+net +38%/+65%, drawdown -34%/-16%, win 35->40% / 32->36%. Caveat: 270d max
+consecutive losses rose (19 -> 25) though dollar drawdown improved.
+
+## Verdict: validated combined V3 (off by default, paper-only)
+
+`trend_filter_enabled=true`, `trend_require_price_above_ema50=true`,
+`trend_min_ema_gap_pct=0.5`; `regime_filter_enabled=true`,
+`regime_atr_percentile_min=30` (period 100). Everything else (structure quality,
+BBW/choppiness/ADX regime, slope, ADX-rising) left OFF -- not robust.
