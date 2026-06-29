@@ -720,6 +720,15 @@ def check_gw_trades_status(self):
         return {"status": "error", "error": str(e)}
 
 
+def _notify_futures_close(trade):
+    """Send a push alert for a futures SL/TP close, isolating any failure."""
+    try:
+        from signals.services.push_notification import send_futures_close_notification
+        send_futures_close_notification(trade)
+    except Exception as exc:
+        logger.warning(f"Failed to send futures close notification for {trade.id}: {exc}")
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def sync_futures_trades_with_binance(self):
     """
@@ -942,6 +951,9 @@ def sync_futures_trades_with_binance(self):
                 trade.status = close_status
                 trade.exit_time = dj_timezone.now()
                 trade.save()
+
+                if close_status in ('CLOSED_TP', 'CLOSED_SL'):
+                    _notify_futures_close(trade)
 
                 closed_trades.append({
                     'trade_id': trade.id,
