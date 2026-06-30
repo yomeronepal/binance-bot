@@ -11,6 +11,7 @@ DataFrames and returns a result dict (no DB). generate() persists a
 DayTradeSignal with duplicate-prevention keyed on the 15m candle bucket.
 """
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import timedelta, timezone as dt_timezone
 from decimal import Decimal
@@ -77,17 +78,37 @@ class DayTradeSignalConfig:
     weight_atr: float = 1.0
     min_score: float = 8.5
     min_confidence: float = 0.70
+    structure_quality_enabled: bool = False
+    structure_min_swing_atr: float = 0.0
+    weight_structure_bonus: float = 0.0
+    require_bos: bool = False
+    block_on_choch: bool = False
+    trend_filter_enabled: bool = False
+    trend_slope_lookback: int = 3
+    trend_min_slope_pct: float = 0.0
+    trend_min_ema_gap_pct: float = 0.0
+    trend_require_price_above_ema50: bool = False
+    trend_require_adx_rising: bool = False
+    regime_filter_enabled: bool = False
+    regime_min_adx: float = 0.0
+    regime_max_choppiness: float = 0.0
+    regime_choppiness_period: int = 14
+    regime_min_bbw_pct: float = 0.0
+    regime_bb_period: int = 20
+    regime_bb_std: float = 2.0
+    regime_atr_percentile_min: float = 0.0
+    regime_atr_percentile_period: int = 100
     margin_per_trade: float = 100.0
     leverage: int = 10
     signal_expiry_hours: int = 6
 
     @property
     def max_score(self) -> float:
-        """Sum of all component weights."""
+        """Sum of all component weights, including the additive structure bonus."""
         return (
             self.weight_trend + self.weight_structure + self.weight_volume
             + self.weight_pullback + self.weight_macd + self.weight_rsi
-            + self.weight_atr
+            + self.weight_atr + self.weight_structure_bonus
         )
 
     @classmethod
@@ -134,6 +155,26 @@ class DayTradeSignalConfig:
             weight_atr=db_config.weight_atr,
             min_score=db_config.min_score,
             min_confidence=db_config.min_confidence,
+            structure_quality_enabled=db_config.structure_quality_enabled,
+            structure_min_swing_atr=db_config.structure_min_swing_atr,
+            weight_structure_bonus=db_config.weight_structure_bonus,
+            require_bos=db_config.require_bos,
+            block_on_choch=db_config.block_on_choch,
+            trend_filter_enabled=db_config.trend_filter_enabled,
+            trend_slope_lookback=db_config.trend_slope_lookback,
+            trend_min_slope_pct=db_config.trend_min_slope_pct,
+            trend_min_ema_gap_pct=db_config.trend_min_ema_gap_pct,
+            trend_require_price_above_ema50=db_config.trend_require_price_above_ema50,
+            trend_require_adx_rising=db_config.trend_require_adx_rising,
+            regime_filter_enabled=db_config.regime_filter_enabled,
+            regime_min_adx=db_config.regime_min_adx,
+            regime_max_choppiness=db_config.regime_max_choppiness,
+            regime_choppiness_period=db_config.regime_choppiness_period,
+            regime_min_bbw_pct=db_config.regime_min_bbw_pct,
+            regime_bb_period=db_config.regime_bb_period,
+            regime_bb_std=db_config.regime_bb_std,
+            regime_atr_percentile_min=db_config.regime_atr_percentile_min,
+            regime_atr_percentile_period=db_config.regime_atr_percentile_period,
             margin_per_trade=float(db_config.margin_per_trade),
             leverage=db_config.leverage,
         )
@@ -194,6 +235,117 @@ def _market_structure(df: pd.DataFrame, lookback: int) -> str:
     return NEUTRAL
 
 
+def _significant_swings(df, lookback, min_swing_atr, atr):
+    """Return time-ordered swing points, filtering legs smaller than min_swing_atr*atr.
+
+    Each point is (index, price, kind) with kind 'H' or 'L'. Consecutive same-kind
+    pivots collapse to the more extreme one; an opposite pivot is kept only if its
+    leg from the last significant swing is large enough to matter (ignores tiny
+    pullbacks). With min_swing_atr <= 0 the raw pivots are returned unfiltered.
+    """
+    highs = [(i, float(df['high'].iloc[i]), 'H') for i in _swing_indices(df['high'], lookback, True)]
+    lows = [(i, float(df['low'].iloc[i]), 'L') for i in _swing_indices(df['low'], lookback, False)]
+    points = sorted(highs + lows, key=lambda p: p[0])
+    if min_swing_atr <= 0 or atr <= 0:
+        return points
+
+    threshold = min_swing_atr * atr
+    significant = []
+    for point in points:
+        if not significant:
+            significant.append(point)
+            continue
+        last = significant[-1]
+        if point[2] == last[2]:
+            higher = point[2] == 'H' and point[1] >= last[1]
+            lower = point[2] == 'L' and point[1] <= last[1]
+            if higher or lower:
+                significant[-1] = point
+            continue
+        if abs(point[1] - last[1]) >= threshold:
+            significant.append(point)
+    return significant
+
+
+def _analyze_structure(df, lookback, min_swing_atr, atr):
+    """Smart-money structure read: direction, BOS, CHoCH and a 0-1 quality score.
+
+    Direction comes from HH+HL / LH+LL over significant swings. BOS (continuation)
+    is a close beyond the latest swing in the trend direction; CHoCH (reversal) is
+    a close breaking the latest counter-trend swing. Quality rewards a confirmed
+    BOS and a strong final leg.
+    """
+    points = _significant_swings(df, lookback, min_swing_atr, atr)
+    highs = [p for p in points if p[2] == 'H']
+    lows = [p for p in points if p[2] == 'L']
+    empty = {'direction': NEUTRAL, 'quality': 0.0, 'bos': False, 'choch': False, 'strong': False}
+    if len(highs) < 2 or len(lows) < 2:
+        return empty
+
+    last_h, prev_h = highs[-1][1], highs[-2][1]
+    last_l, prev_l = lows[-1][1], lows[-2][1]
+    close = float(df['close'].iloc[-1])
+
+    if last_h > prev_h and last_l > prev_l:
+        direction = BULLISH
+    elif last_h < prev_h and last_l < prev_l:
+        direction = BEARISH
+    else:
+        return empty
+
+    if direction == BULLISH:
+        bos = close > last_h
+        choch = close < last_l
+    else:
+        bos = close < last_l
+        choch = close > last_h
+
+    last_leg = abs(points[-1][1] - points[-2][1]) if len(points) >= 2 else 0.0
+    strong = atr > 0 and last_leg >= 2 * (min_swing_atr if min_swing_atr > 0 else 1.0) * atr
+
+    quality = 0.5 + (0.3 if bos else 0.0) + (0.2 if strong else 0.0)
+    return {'direction': direction, 'quality': min(quality, 1.0),
+            'bos': bos, 'choch': choch, 'strong': strong}
+
+
+def _choppiness_index(df: pd.DataFrame, period: int):
+    """Choppiness Index over ``period`` bars (high = choppy, low = trending)."""
+    if len(df) < period + 1:
+        return None
+    high, low, close = df['high'], df['low'], df['close']
+    prev_close = close.shift(1)
+    true_range = pd.concat(
+        [(high - low), (high - prev_close).abs(), (low - prev_close).abs()], axis=1
+    ).max(axis=1)
+    tr_sum = true_range.rolling(period).sum().iloc[-1]
+    span = high.rolling(period).max().iloc[-1] - low.rolling(period).min().iloc[-1]
+    if pd.isna(tr_sum) or pd.isna(span) or span <= 0 or tr_sum <= 0:
+        return None
+    return 100 * math.log10(tr_sum / span) / math.log10(period)
+
+
+def _bollinger_width_pct(df: pd.DataFrame, period: int, std_mult: float):
+    """Bollinger Band width as a percentage of the basis (volatility proxy)."""
+    if len(df) < period:
+        return None
+    close = df['close']
+    mid = close.rolling(period).mean().iloc[-1]
+    std = close.rolling(period).std().iloc[-1]
+    if pd.isna(mid) or pd.isna(std) or mid == 0:
+        return None
+    return (2 * std_mult * std) / mid * 100
+
+
+def _atr_percentile(df: pd.DataFrame, period: int):
+    """Percentile rank (0-100) of the current ATR within the last ``period`` bars."""
+    atr = df['atr'].dropna()
+    if len(atr) < 2:
+        return None
+    window = atr.iloc[-period:] if len(atr) >= period else atr
+    current = atr.iloc[-1]
+    return float((window <= current).mean() * 100)
+
+
 class DayTradeSignalEngine:
     """Generate 15m Market Structure Pullback signals."""
 
@@ -211,6 +363,83 @@ class DayTradeSignalEngine:
         if fast < slow:
             return BEARISH
         return NEUTRAL
+
+    def _trend_strength_ok(self, df_1h: pd.DataFrame, direction: str) -> bool:
+        """Optional 1H trend-strength gate beyond the EMA50/EMA200 cross.
+
+        Each sub-check is active only when its config threshold/toggle is set, so
+        with trend_filter_enabled on but everything at defaults this is a no-op
+        (reproduces V2). Checks are direction-aware: slope and EMA gap must point
+        the trend's way, price must sit on the trend side of EMA50, and ADX must
+        be rising.
+        """
+        cfg = self.config
+        if not cfg.trend_filter_enabled:
+            return True
+
+        lookback = max(1, cfg.trend_slope_lookback)
+        ema50 = calculate_ema(df_1h, cfg.trend_ema_fast)
+        ema200 = calculate_ema(df_1h, cfg.trend_ema_slow)
+        if len(ema50) <= lookback:
+            return True
+
+        e50, e50_prev, e200 = ema50.iloc[-1], ema50.iloc[-1 - lookback], ema200.iloc[-1]
+        close = float(df_1h['close'].iloc[-1])
+        if pd.isna(e50) or pd.isna(e200) or pd.isna(e50_prev) or e50_prev == 0 or close == 0:
+            return True
+
+        slope = (e50 - e50_prev) / e50_prev
+        gap = (e50 - e200) / close
+        is_bull = direction == BULLISH
+        checks = []
+
+        if cfg.trend_min_slope_pct > 0:
+            thr = cfg.trend_min_slope_pct / 100.0
+            checks.append(slope >= thr if is_bull else slope <= -thr)
+        if cfg.trend_min_ema_gap_pct > 0:
+            thr = cfg.trend_min_ema_gap_pct / 100.0
+            checks.append(gap >= thr if is_bull else gap <= -thr)
+        if cfg.trend_require_price_above_ema50:
+            checks.append(close > e50 if is_bull else close < e50)
+        if cfg.trend_require_adx_rising:
+            adx, _, _ = calculate_adx(df_1h, cfg.adx_period)
+            if len(adx) > lookback and not pd.isna(adx.iloc[-1]) and not pd.isna(adx.iloc[-1 - lookback]):
+                checks.append(adx.iloc[-1] > adx.iloc[-1 - lookback])
+
+        return all(checks)
+
+    def _regime_ok(self, prepared: pd.DataFrame) -> bool:
+        """Market-regime gate: only trade when the regime suits a pullback system.
+
+        Each sub-check is active only when its threshold is set (> 0), so with
+        regime_filter_enabled on but everything at defaults this is a no-op
+        (reproduces V2). Rejects choppy ranges (high Choppiness Index), dead/low
+        volatility (low Bollinger width or low ATR percentile) and weak trend
+        strength (low ADX).
+        """
+        cfg = self.config
+        if not cfg.regime_filter_enabled:
+            return True
+
+        current = prepared.iloc[-1]
+        checks = []
+
+        if cfg.regime_min_adx > 0 and not pd.isna(current['adx']):
+            checks.append(current['adx'] >= cfg.regime_min_adx)
+        if cfg.regime_max_choppiness > 0:
+            ci = _choppiness_index(prepared, cfg.regime_choppiness_period)
+            if ci is not None:
+                checks.append(ci <= cfg.regime_max_choppiness)
+        if cfg.regime_min_bbw_pct > 0:
+            bbw = _bollinger_width_pct(prepared, cfg.regime_bb_period, cfg.regime_bb_std)
+            if bbw is not None:
+                checks.append(bbw >= cfg.regime_min_bbw_pct)
+        if cfg.regime_atr_percentile_min > 0:
+            pct = _atr_percentile(prepared, cfg.regime_atr_percentile_period)
+            if pct is not None:
+                checks.append(pct >= cfg.regime_atr_percentile_min)
+
+        return all(checks)
 
     def _prepare_entry(self, df_15m: pd.DataFrame) -> pd.DataFrame:
         """Attach the indicators the entry logic needs to the 15m frame."""
@@ -253,12 +482,41 @@ class DayTradeSignalEngine:
             return bool(current['low'] < prior['low'].min() and current['close'] > prior['low'].min())
         return bool(current['high'] > prior['high'].max() and current['close'] < prior['high'].max())
 
-    def _score_components(self, df: pd.DataFrame, direction: str) -> Tuple[float, Dict]:
-        """Score the soft components for a gated direction."""
+    def _resolve_structure(self, prepared: pd.DataFrame, trend: str, atr: float):
+        """Return (structure_direction, bonus_quality), applying V3 gates.
+
+        ``bonus_quality`` is a 0-1 additive confluence reward (BOS + strong leg);
+        it never reduces the full base structure weight. With
+        ``structure_quality_enabled`` off this reproduces the V2 binary gate and
+        zero bonus. With it on the direction gate uses significance-filtered
+        swings plus optional BOS / CHoCH hard gates.
+        """
+        cfg = self.config
+        if not cfg.structure_quality_enabled:
+            return _market_structure(prepared, cfg.pivot_lookback), 0.0
+
+        result = _analyze_structure(prepared, cfg.pivot_lookback, cfg.structure_min_swing_atr, atr)
+        if cfg.block_on_choch and result['choch']:
+            return None, 0.0
+        if cfg.require_bos and not result['bos']:
+            return None, 0.0
+        bonus_quality = 0.6 * (1.0 if result['bos'] else 0.0) + 0.4 * (1.0 if result['strong'] else 0.0)
+        return result['direction'], bonus_quality
+
+    def _score_components(self, df: pd.DataFrame, direction: str,
+                          structure_bonus: float = 0.0) -> Tuple[float, Dict]:
+        """Score the soft components for a gated direction.
+
+        Structure keeps its full base weight (it is a passed gate) and earns an
+        additive ``weight_structure_bonus * structure_bonus`` for BOS / strong-leg
+        confluence. The remaining components are still binary (1.0/0.0) until
+        their own quality upgrades land.
+        """
         cfg = self.config
         current, previous = df.iloc[-1], df.iloc[-2]
-        score = cfg.weight_trend + cfg.weight_structure
-        conditions = {'trend': True, 'structure': True}
+        score = cfg.weight_trend + cfg.weight_structure + cfg.weight_structure_bonus * structure_bonus
+        conditions = {'trend': True, 'structure': True,
+                      'structure_bonus': round(structure_bonus, 3)}
 
         if self._in_pullback_zone(current, direction):
             score += cfg.weight_pullback
@@ -319,22 +577,29 @@ class DayTradeSignalEngine:
         if trend == NEUTRAL:
             return None
 
+        if not self._trend_strength_ok(df_1h, trend):
+            return None
+
         prepared = self._prepare_entry(df_15m)
-        structure = _market_structure(prepared, self.config.pivot_lookback)
-        if structure != trend:
-            return None
-
-        score, conditions = self._score_components(prepared, trend)
-        if score < self.config.min_score:
-            return None
-
-        confidence = score / self.config.max_score
-        if confidence < self.config.min_confidence:
-            return None
-
+        cfg = self.config
         current = prepared.iloc[-1]
         atr = float(current['atr'])
         if pd.isna(atr) or atr <= 0:
+            return None
+
+        if not self._regime_ok(prepared):
+            return None
+
+        structure_dir, structure_bonus = self._resolve_structure(prepared, trend, atr)
+        if structure_dir is None or structure_dir != trend:
+            return None
+
+        score, conditions = self._score_components(prepared, trend, structure_bonus)
+        if score < cfg.min_score:
+            return None
+
+        confidence = score / cfg.max_score
+        if confidence < cfg.min_confidence:
             return None
 
         entry = float(current['close'])
