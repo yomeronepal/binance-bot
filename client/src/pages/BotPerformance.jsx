@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw, FileBarChart, LineChart, CirclePlay, Download, ChevronDown, FileText, FileSpreadsheet, FileJson, Shield, ShieldOff } from 'lucide-react';
+import { Bot, TrendingUp, TrendingDown, Target, BarChart3, Clock, DollarSign, Percent, Activity, X, Calendar, Zap, RefreshCw, FileBarChart, LineChart, CirclePlay, Download, ChevronDown, FileText, FileSpreadsheet, FileJson, Shield, ShieldOff, Search } from 'lucide-react';
 import TradeReport from '../components/common/TradeReport';
 import TradeCharts from '../components/common/TradeCharts';
 import MarketRegimePanel from '../components/common/MarketRegimePanel';
@@ -68,6 +68,8 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
     return localStorage.getItem(`${sk}session_window`) || 'all';
   });
   const [dtSessions, setDtSessions] = useState([]);
+  const [symbolSearch, setSymbolSearch] = useState('');
+  const [debouncedSymbol, setDebouncedSymbol] = useState('');
   const [totalTradesCount, setTotalTradesCount] = useState(0);
   const [exportOpen, setExportOpen] = useState(false);
 
@@ -160,6 +162,15 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
   useEffect(() => {
     setCurrentPage(1);
   }, [activeTab]);
+
+  // Debounce the symbol search and reset to the first page on change
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedSymbol(symbolSearch.trim());
+      setCurrentPage(1);
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [symbolSearch]);
 
   const handleCloseTrade = async (tradeId) => {
     if (!window.confirm('ADMIN ACTION: Are you sure you want to CLOSE this trade immediately at market price?')) return;
@@ -264,6 +275,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
       if (month !== 'ALL') params.append('month', month);
       if (year !== 'ALL') params.append('year', year);
       if (feat.sessionWindows && sessionWindow !== 'all') params.append('window', sessionWindow);
+      if (debouncedSymbol) params.append('symbol', debouncedSymbol);
 
       const res = await axios.get(`${baseURL}${source.listUrl}?${params.toString()}`);
 
@@ -289,7 +301,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
 
   useEffect(() => {
     fetchTradeHistory();
-  }, [activeWindow, direction, weekday, hour, month, year, sessionWindow, currentPage]);
+  }, [activeWindow, direction, weekday, hour, month, year, sessionWindow, debouncedSymbol, currentPage]);
 
   // Show loading only on initial load (when summary is null)
   if (loading && !summary) {
@@ -891,6 +903,26 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
         {
           activeTab === 'history' && (
             <div>
+              <div className="mb-4 relative w-full sm:max-w-xs">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={symbolSearch}
+                  onChange={(e) => setSymbolSearch(e.target.value)}
+                  placeholder="Search symbol (e.g. BTC)"
+                  className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {symbolSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setSymbolSearch('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                    aria-label="Clear search"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
               {recentTrades.length > 0 ? (
                 <>
                   <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4 shadow-sm">
@@ -931,7 +963,9 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
               ) : (
                 <div className="bg-white dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 rounded-lg p-12 text-center shadow-sm">
                   <BarChart3 className="w-16 h-16 text-gray-400 dark:text-gray-600 mx-auto mb-4" />
-                  <p className="text-gray-600 dark:text-gray-400 text-lg">No trade history yet</p>
+                  <p className="text-gray-600 dark:text-gray-400 text-lg">
+                    {debouncedSymbol ? `No trades found for "${debouncedSymbol}"` : 'No trade history yet'}
+                  </p>
                 </div>
               )}
             </div>
