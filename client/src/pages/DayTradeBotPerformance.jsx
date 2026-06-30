@@ -11,7 +11,7 @@ const DAYTRADE_SOURCE = {
   closeUrl: (id) => `/daytrade/trades/${id}/close/`,
   sessionsUrl: '/daytrade/sessions/',
   storagePrefix: 'daytrade_perf_',
-  features: { filters: true, windowFilters: false, sessionWindows: true, export: false, report: false, graphs: false, replay: false },
+  features: { filters: true, windowFilters: false, sessionWindows: true, export: false, report: true, graphs: true, replay: false },
 };
 
 const DayTradeBotPerformance = () => <BotPerformance source={DAYTRADE_SOURCE} />;

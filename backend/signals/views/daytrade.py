@@ -337,6 +337,51 @@ def daytrade_summary(request):
     return Response(summary)
 
 
+def _dt_top_trades(closed_qs, winners=True, limit=5):
+    """Top winning/losing day-trade trades (day-trade has no is_priority field)."""
+    if winners:
+        qs = closed_qs.filter(profit_loss__gt=0).order_by('-profit_loss')[:limit]
+    else:
+        qs = closed_qs.filter(profit_loss__lt=0).order_by('profit_loss')[:limit]
+    rows = list(qs.values('id', 'symbol', 'direction', 'entry_price', 'exit_price',
+                          'profit_loss', 'profit_loss_percentage'))
+    for row in rows:
+        for k in ['entry_price', 'exit_price', 'profit_loss', 'profit_loss_percentage']:
+            row[k] = float(row[k] or 0)
+    return rows
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def daytrade_report(request):
+    """Day-trade performance report (breakdowns + daily PnL + streaks).
+
+    Mirrors the v1 public report shape so the shared Report/Graphs tabs render.
+    GET /api/daytrade/report/
+    """
+    from signals.views.public_paper_trading import (
+        _aggregate_by_field, _build_daily_pnl, _compute_streaks,
+        _compute_performance_metrics,
+    )
+
+    base = DayTradePaperTrade.objects.filter(user__isnull=True)
+    filtered = _apply_trade_filters(base, request)
+    closed = filtered.filter(status__startswith='CLOSED')
+
+    report = {
+        'overall': _compute_performance_metrics(filtered),
+        'by_symbol': _aggregate_by_field(closed, 'symbol'),
+        'by_direction': _aggregate_by_field(closed, 'direction'),
+        'by_timeframe': _aggregate_by_field(closed, 'timeframe'),
+        'by_priority': [],
+        'daily_pnl': _build_daily_pnl(closed),
+        'top_winners': _dt_top_trades(closed, winners=True),
+        'top_losers': _dt_top_trades(closed, winners=False),
+        'streaks': _compute_streaks(closed),
+    }
+    return Response(report)
+
+
 def _compute_close_pnl(trade, exit_price):
     """Return realized P/L for closing the remaining quantity of ``trade``."""
     entry = float(trade.entry_price)
