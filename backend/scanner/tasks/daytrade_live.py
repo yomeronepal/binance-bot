@@ -99,8 +99,30 @@ def _live_gates_open(signal):
 
 
 def _record_live_trade(signal, settings, result):
-    """Persist the filled order as an OPEN FuturesTrade and tag the signal."""
+    """Persist the filled order as an OPEN FuturesTrade and tag the signal.
+
+    Records the SL/TP order ids that place_trade_orders actually opened and
+    folds any SL/TP warnings into error_message, so a missing SL/TP is visible
+    instead of looking like a protected position.
+    """
     from signals.models.futures import FuturesTrade
+
+    sl_order_id = result.get('sl_order_id')
+    tp_order_id = result.get('tp_order_id')
+    warnings = result.get('warnings') or []
+
+    note = 'Day-trade live entry (in-session)'
+    if not sl_order_id:
+        note += ' | WARNING: no SL order on Binance'
+    if not tp_order_id:
+        note += ' | WARNING: no TP order on Binance'
+    if warnings:
+        note += ' | ' + '; '.join(str(w) for w in warnings)
+    if not sl_order_id or not tp_order_id or warnings:
+        logger.warning(
+            "DayTrade live %s %s: SL=%s TP=%s warnings=%s",
+            signal.direction, signal.symbol, sl_order_id, tp_order_id, warnings,
+        )
 
     trade = FuturesTrade.objects.create(
         signal=None,
@@ -115,7 +137,9 @@ def _record_live_trade(signal, settings, result):
         position_size_usdt=settings.per_trade_amount,
         status='OPEN',
         binance_order_id=result['order_id'],
-        error_message='Day-trade live entry (in-session)',
+        sl_order_id=str(sl_order_id) if sl_order_id else None,
+        tp_order_id=str(tp_order_id) if tp_order_id else None,
+        error_message=note,
     )
     signal.meta = {**(signal.meta or {}), 'live_order_id': str(result['order_id']),
                    'live_futures_trade_id': trade.id}

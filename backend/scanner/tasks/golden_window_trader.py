@@ -904,20 +904,21 @@ def sync_futures_trades_with_binance(self):
                         'margin_type': margin_type,
                     })
 
-                    cut_loser_result = check_and_execute_cut_loser(trade, pnl_pct, settings)
-                    if cut_loser_result:
-                        closed_trades.append(cut_loser_result)
-                        logger.info(
-                            f"✂️ Cut-loser closed: {trade.symbol} @ {cut_loser_result['exit_price']} "
-                            f"(PnL: {cut_loser_result['pnl_pct']}%)"
-                        )
-                    else:
-                        trailing_result = check_and_update_dynamic_trailing(trade, pnl_pct, settings)
-                        if trailing_result:
+                    if trade.signal_id is not None:
+                        cut_loser_result = check_and_execute_cut_loser(trade, pnl_pct, settings)
+                        if cut_loser_result:
+                            closed_trades.append(cut_loser_result)
                             logger.info(
-                                f"📈 Dynamic trailing updated: {trade.symbol} "
-                                f"Tier {trailing_result['new_tier']} ({trailing_result['new_trailing_pct']}%)"
+                                f"✂️ Cut-loser closed: {trade.symbol} @ {cut_loser_result['exit_price']} "
+                                f"(PnL: {cut_loser_result['pnl_pct']}%)"
                             )
+                        else:
+                            trailing_result = check_and_update_dynamic_trailing(trade, pnl_pct, settings)
+                            if trailing_result:
+                                logger.info(
+                                    f"📈 Dynamic trailing updated: {trade.symbol} "
+                                    f"Tier {trailing_result['new_tier']} ({trailing_result['new_trailing_pct']}%)"
+                                )
 
                     del binance_position_map[trade.symbol]
                 else:
