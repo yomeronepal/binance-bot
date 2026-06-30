@@ -4,6 +4,7 @@ Mirrors the public paper-trading endpoints but for the isolated DayTrade*
 models, so the day-trade bot is monitored separately.
 """
 import asyncio
+from datetime import timedelta
 from decimal import Decimal
 
 from django.core.cache import cache
@@ -39,11 +40,46 @@ def _paginator():
     return paginator
 
 
+NEPAL_OFFSET = timedelta(hours=5, minutes=45)
+
+
+def _active_sessions():
+    """Active auto-generated day-trade session windows."""
+    from signals.models.daytrade import DayTradeSession
+    return list(DayTradeSession.objects.filter(is_active=True))
+
+
+def _in_session_ids(queryset, sessions):
+    """IDs of trades whose NPT entry time falls inside any of the given sessions."""
+    matched = []
+    for tid, entry_time in queryset.values_list('id', 'entry_time'):
+        if entry_time is None:
+            continue
+        npt = entry_time + NEPAL_OFFSET
+        if any(s.covers(npt.hour, npt.weekday()) for s in sessions):
+            matched.append(tid)
+    return matched
+
+
+def _apply_session_filter(queryset, request):
+    """Filter by optimized session window: ?window=ai (inside) or outside."""
+    window = request.query_params.get('window')
+    if window not in ('ai', 'outside'):
+        return queryset
+    sessions = _active_sessions()
+    if not sessions:
+        return queryset.none() if window == 'ai' else queryset
+    matched = _in_session_ids(queryset, sessions)
+    return queryset.filter(id__in=matched) if window == 'ai' else queryset.exclude(id__in=matched)
+
+
 def _apply_trade_filters(queryset, request):
-    """Apply optional symbol/direction/status + NPT time filters to a trade queryset.
+    """Apply optional symbol/direction/status + NPT time + session-window filters.
 
     Time filters (weekday/hour/month/year) reuse the v1 helpers so day-trade
-    slices trades exactly the way the v1 Bot Performance page does.
+    slices trades exactly the way the v1 Bot Performance page does. The
+    session-window filter (?window=ai|outside) restricts to the optimizer's
+    discovered windows.
     """
     from signals.views.public_paper_trading import _apply_time_filters
 
@@ -57,6 +93,7 @@ def _apply_trade_filters(queryset, request):
     if trade_status:
         queryset = queryset.filter(status=trade_status.upper())
     queryset = _apply_time_filters(queryset, request.query_params)
+    queryset = _apply_session_filter(queryset, request)
     return queryset
 
 
@@ -188,6 +225,29 @@ def daytrade_trades_list(request):
     page = paginator.paginate_queryset(queryset, request)
     serializer = DayTradePaperTradeSerializer(page, many=True)
     return paginator.get_paginated_response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def daytrade_sessions_list(request):
+    """Active optimized day-trade session windows (for the perf-page filter tabs).
+
+    GET /api/daytrade/sessions/
+    """
+    sessions = [
+        {
+            'name': s.name,
+            'session_type': s.session_type,
+            'start_hour': s.start_hour,
+            'end_hour': s.end_hour,
+            'active_days': s.active_days,
+            'win_rate': s.win_rate,
+            'total_trades_analyzed': s.total_trades_analyzed,
+            'last_optimized_at': s.last_optimized_at.isoformat() if s.last_optimized_at else None,
+        }
+        for s in _active_sessions()
+    ]
+    return Response({'count': len(sessions), 'sessions': sessions})
 
 
 @api_view(['GET'])

@@ -64,6 +64,10 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
   const [year, setYear] = useState(() => {
     return localStorage.getItem(`${sk}year`) || 'ALL';
   });
+  const [sessionWindow, setSessionWindow] = useState(() => {
+    return localStorage.getItem(`${sk}session_window`) || 'all';
+  });
+  const [dtSessions, setDtSessions] = useState([]);
   const [totalTradesCount, setTotalTradesCount] = useState(0);
   const [exportOpen, setExportOpen] = useState(false);
 
@@ -135,6 +139,18 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
     localStorage.setItem(`${sk}year`, year);
   }, [year]);
 
+  useEffect(() => {
+    localStorage.setItem(`${sk}session_window`, sessionWindow);
+  }, [sessionWindow]);
+
+  useEffect(() => {
+    if (!feat.sessionWindows || !source.sessionsUrl) return;
+    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+    axios.get(`${baseURL}${source.sessionsUrl}`)
+      .then((res) => setDtSessions(res.data.sessions || []))
+      .catch(() => setDtSessions([]));
+  }, []);
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [tradesPerPage] = useState(20); // Show 20 trades per page
@@ -186,6 +202,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
       if (hour !== 'ALL') params.append('hour', hour);
       if (month !== 'ALL') params.append('month', month);
       if (year !== 'ALL') params.append('year', year);
+      if (feat.sessionWindows && sessionWindow !== 'all') params.append('window', sessionWindow);
 
       const queryParams = params.toString() ? `?${params.toString()}` : '';
 
@@ -246,6 +263,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
       if (hour !== 'ALL') params.append('hour', hour);
       if (month !== 'ALL') params.append('month', month);
       if (year !== 'ALL') params.append('year', year);
+      if (feat.sessionWindows && sessionWindow !== 'all') params.append('window', sessionWindow);
 
       const res = await axios.get(`${baseURL}${source.listUrl}?${params.toString()}`);
 
@@ -267,11 +285,11 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
 
   useEffect(() => {
     fetchPerformanceData();
-  }, [activeWindow, direction, weekday, hour, month, year]);
+  }, [activeWindow, direction, weekday, hour, month, year, sessionWindow]);
 
   useEffect(() => {
     fetchTradeHistory();
-  }, [activeWindow, direction, weekday, hour, month, year, currentPage]);
+  }, [activeWindow, direction, weekday, hour, month, year, sessionWindow, currentPage]);
 
   // Show loading only on initial load (when summary is null)
   if (loading && !summary) {
@@ -440,6 +458,33 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
           {/* New Trading Sessions & Filter Bar */}
           {feat.filters && (
           <div className="mt-6 mb-6 space-y-4">
+            {feat.sessionWindows && (
+            <div className="flex flex-col gap-2 bg-white dark:bg-gray-800 rounded-xl p-2 shadow-sm border border-gray-100 dark:border-gray-700">
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar w-full p-1">
+                {[
+                  { val: 'all', label: 'All Trades', color: 'blue' },
+                  { val: 'ai', label: 'In AI Window', color: 'cyan' },
+                  { val: 'outside', label: 'Outside Window', color: 'gray' },
+                ].map((w) => (
+                  <button
+                    key={w.val}
+                    onClick={() => setSessionWindow(w.val)}
+                    className={`flex-shrink-0 px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-lg transition-all ${sessionWindow === w.val
+                      ? `bg-${w.color}-600 text-white shadow-md`
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                      }`}
+                  >
+                    {w.label}
+                  </button>
+                ))}
+              </div>
+              <div className="px-2 pb-1 text-[10px] text-gray-500 dark:text-gray-400">
+                {dtSessions.length === 0
+                  ? 'No optimized windows yet — the session optimizer needs more closed paper trades.'
+                  : `AI windows (NPT): ${dtSessions.map((s) => `${String(s.start_hour).padStart(2, '0')}:00–${String(s.end_hour).padStart(2, '0')}:00${s.active_days && s.active_days.length ? ` [days ${s.active_days.join(',')}]` : ''}`).join('  ·  ')}`}
+              </div>
+            </div>
+            )}
             {/* BTC / equity / commodity macro filter readout — what the strict
                 trade-time gate will say right now. Drives confidence in the
                 Macro Allowed / Macro Blocked tabs and surfaces regime shifts. */}

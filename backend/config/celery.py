@@ -168,6 +168,12 @@ app.conf.beat_schedule = {
         'options': {'expires': 3600.0},
     },
 
+    'optimize-daytrade-sessions-daily': {
+        'task': 'signals.optimize_daytrade_sessions',
+        'schedule': crontab(minute=45, hour=0),
+        'options': {'expires': 3600.0},
+    },
+
     # Snapshot the top-10 performing symbols for the calendar month
     # that just ended. Reads from PaperTrade (Bot Performance source).
     # Runs at 03:30 UTC on day 1 to give the optimizer's 03:00 task
