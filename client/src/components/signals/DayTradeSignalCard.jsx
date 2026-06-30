@@ -71,7 +71,10 @@ const DayTradeSignalCard = ({ signal }) => {
         <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700/50 text-xs">
           <span className="text-gray-500 dark:text-gray-400">Score <span className="font-semibold text-gray-900 dark:text-white">{Number(signal.score).toFixed(1)}</span></span>
           <span className="text-gray-500 dark:text-gray-400">R:R <span className="font-semibold text-gray-900 dark:text-white">1:{rr}</span></span>
-          <span className="flex items-center gap-1 text-gray-500 dark:text-gray-400"><Clock className="w-3 h-3" />{signal.created_at}</span>
+          <span className="flex items-center gap-1 text-gray-500 dark:text-gray-400" title={signal.created_at}>
+            <Clock className="w-3 h-3" />
+            {signal.created_at ? new Date(signal.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+          </span>
         </div>
       </div>
     </div>
