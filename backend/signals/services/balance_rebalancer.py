@@ -3,16 +3,21 @@ Monthly balance-based auto-rebalance of futures trading settings.
 
 Formula (per spec):
 
-    per_trade        = balance / 3
-    max_concurrent   = 2
+    per_trade        = balance / 5
+    max_concurrent   = 4
     backup_reserve   = balance - (max_concurrent * per_trade)
-                     = balance / 3
+                     = balance / 5
 
-So if the futures USDT balance is $60:
-    per_trade        = $20
-    max_concurrent   = 2
-    deployable       = $40   (2 x $20)
-    backup_reserve   = $20
+So if the futures USDT balance is $50:
+    per_trade        = $10
+    max_concurrent   = 4
+    deployable       = $40   (4 x $10)
+    backup_reserve   = $10
+
+The divisor (5) is written to ``max_active_gw_trades`` so the engines' sizing
+(``per_trade_amount = total_trading_capital / max_active_gw_trades``) yields
+balance / 5, while ``max_concurrent_trades`` (4) caps how many trade slots run
+at once -- so the 5th unit is never deployed and stays as the reserve.
 
 Only the futures wallet (``/fapi/v2/balance``) is consulted — spot
 balance is intentionally ignored. The USDT line item is the source
@@ -35,8 +40,8 @@ from signals.models.futures import FuturesTradingSettings, BalanceRebalanceLog
 logger = logging.getLogger(__name__)
 
 
-MAX_CONCURRENT_TRADES = 2
-PER_TRADE_DIVISOR = Decimal('3')
+MAX_CONCURRENT_TRADES = 4
+PER_TRADE_DIVISOR = Decimal('5')
 MIN_TRADE_AMOUNT = Decimal('1.00')
 
 
@@ -250,10 +255,11 @@ def rebalance_from_futures_balance(dry_run: bool = False) -> dict:
     from django.utils import timezone
     settings_obj.trade_amount = per_trade
     settings_obj.max_concurrent_trades = MAX_CONCURRENT_TRADES
+    settings_obj.max_active_gw_trades = int(PER_TRADE_DIVISOR)
     settings_obj.total_trading_capital = balance
     settings_obj.last_balance_updated_at = timezone.now()
     settings_obj.save(update_fields=[
-        'trade_amount', 'max_concurrent_trades',
+        'trade_amount', 'max_concurrent_trades', 'max_active_gw_trades',
         'total_trading_capital', 'last_balance_updated_at',
     ])
 
