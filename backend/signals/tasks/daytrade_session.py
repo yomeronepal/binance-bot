@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task(name='signals.optimize_daytrade_sessions', bind=True, max_retries=1)
-def optimize_daytrade_sessions(self, min_trades=5, min_win_rate=55.0, min_trades_weekday=3):
+def optimize_daytrade_sessions(self, min_trades=5, min_win_rate=60.0, min_trades_weekday=3):
     """Analyze day-trade paper trades and refresh the optimized session windows."""
     try:
         from signals.services.daytrade_session_analyzer import run_optimization

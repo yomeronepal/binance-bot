@@ -21,7 +21,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--apply', action='store_true', help='Persist sessions (default: dry-run)')
         parser.add_argument('--min-trades', type=int, default=5, help='Min trades per hour bucket')
-        parser.add_argument('--min-win-rate', type=float, default=55.0, help='Min win rate %% to qualify')
+        parser.add_argument('--min-win-rate', type=float, default=60.0, help='Min win rate %% to qualify (sessions kept only above this)')
         parser.add_argument('--min-trades-weekday', type=int, default=3, help='Min trades per hour-weekday bucket')
 
     def handle(self, *args, **options):

@@ -192,7 +192,7 @@ def update_sessions(all_day_blocks, weekday_blocks, dry_run=False):
     return changes
 
 
-def run_optimization(min_trades=5, min_win_rate=55.0, min_trades_weekday=3, dry_run=False):
+def run_optimization(min_trades=5, min_win_rate=60.0, min_trades_weekday=3, dry_run=False):
     """Run the full day-trade session optimization pipeline."""
     trades = list(get_closed_trades())
     total = len(trades)
