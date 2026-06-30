@@ -1438,8 +1438,9 @@ class FuturesTradingSettingsAdmin(admin.ModelAdmin):
                 'use_trading_window',
                 'trade_on_golden_window_2',
                 'gw_auto_trader_enabled',
+                'daytrade_live_enabled',
             ),
-            'description': 'Configure when trading is allowed'
+            'description': 'Configure when trading is allowed. daytrade_live_enabled places REAL orders for day-trade signals inside an active Day-Trade Session (still requires the global is_enabled switch).'
         }),
         ('Fear & Greed Filter', {
             'fields': (

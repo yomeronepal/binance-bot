@@ -107,6 +107,16 @@ class FuturesTradingSettings(models.Model):
         help_text=_("Enable automatic trading during golden windows (GW1/GW2)")
     )
 
+    daytrade_live_enabled = models.BooleanField(
+        default=True,
+        help_text=_(
+            "Execute REAL Binance futures orders for day-trade signals that fire "
+            "inside an active optimized Day-Trade Session. Still requires the "
+            "global 'is_enabled' master switch to be ON; sized from the shared "
+            "futures pool (total_trading_capital / max_active_gw_trades)."
+        )
+    )
+
     cut_loser_enabled = models.BooleanField(
         default=False,
         help_text=_("Enable 'cut loser first' - close losing trades when they recover near breakeven")
