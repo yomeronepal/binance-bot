@@ -2538,7 +2538,24 @@ from .models.daytrade import (
     DayTradeTradeExit,
     DayTradePaperAccount,
     DayTradeStrategyConfig,
+    DayTradeSession,
 )
+
+
+@admin.register(DayTradeSession)
+class DayTradeSessionAdmin(admin.ModelAdmin):
+    """Auto-discovered favourable day-trade windows (from the session optimizer)."""
+
+    list_display = (
+        'name', 'session_type', 'start_hour', 'end_hour', 'active_days',
+        'win_rate', 'total_trades_analyzed', 'is_active', 'auto_generated',
+        'last_optimized_at',
+    )
+    list_filter = ('is_active', 'session_type', 'auto_generated')
+    search_fields = ('name',)
+    ordering = ('start_hour', 'name')
+    readonly_fields = ('created_at', 'updated_at', 'last_optimized_at')
+    list_editable = ('is_active',)
 
 
 def _export_field_names(queryset):
