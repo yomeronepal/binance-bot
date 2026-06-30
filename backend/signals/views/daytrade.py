@@ -87,7 +87,7 @@ def _apply_trade_filters(queryset, request):
     direction = request.query_params.get('direction')
     trade_status = request.query_params.get('status')
     if symbol:
-        queryset = queryset.filter(symbol=symbol.upper())
+        queryset = queryset.filter(symbol__icontains=symbol)
     if direction and direction != 'ALL':
         queryset = queryset.filter(direction=direction.upper())
     if trade_status:
