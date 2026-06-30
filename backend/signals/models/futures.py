@@ -51,9 +51,11 @@ class FuturesTradingSettings(models.Model):
 
     # New: Max trades during golden window session
     max_active_gw_trades = models.IntegerField(
-        default=4,
+        default=5,
         validators=[MinValueValidator(1), MaxValueValidator(10)],
-        help_text=_("Maximum trades to execute during a golden window session (capital divided equally)")
+        help_text=_("Per-trade sizing divisor: per_trade = total_trading_capital / this. "
+                    "Set by the rebalancer to (max_concurrent_trades + 1) so one slot's "
+                    "worth is held back as the reserve. NOT the concurrency cap.")
     )
 
     leverage = models.IntegerField(
@@ -63,9 +65,10 @@ class FuturesTradingSettings(models.Model):
     )
 
     max_concurrent_trades = models.IntegerField(
-        default=1,
+        default=4,
         validators=[MinValueValidator(1), MaxValueValidator(10)],
-        help_text=_("Maximum number of concurrent open trades")
+        help_text=_("Maximum simultaneous open trades (the actual slot cap used by the "
+                    "auto-traders). Deployable capital = this x per_trade.")
     )
 
     min_signal_confidence = models.DecimalField(
@@ -259,11 +262,15 @@ class FuturesTradingSettings(models.Model):
 
     def get_available_gw_trade_slots(self):
         """
-        Get number of available trade slots during golden window.
-        Returns how many more trades can be opened.
+        Get number of available trade slots.
+
+        Concurrency is capped by ``max_concurrent_trades`` (the slot count),
+        which is distinct from ``max_active_gw_trades`` (the per-trade sizing
+        divisor). With divisor=5 and slots=4, one unit (balance / 5) is never
+        deployed and stays as the reserve.
         """
         current_open = FuturesTrade.objects.filter(status='OPEN').count()
-        return max(0, self.max_active_gw_trades - current_open)
+        return max(0, self.max_concurrent_trades - current_open)
 
     @classmethod
     def get_settings(cls):
