@@ -6,6 +6,7 @@ related name.
 """
 from . import (
     balance_rebalance,
+    daytrade_session,
     golden_window,
     optimization,
     strategy_performance,

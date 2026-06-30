@@ -875,3 +875,58 @@ class DayTradeStrategyConfig(models.Model):
                 defaults={'symbols': ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT']},
             )
         return config
+
+
+class DayTradeSession(models.Model):
+    """Auto-discovered favourable trading window for the day-trade bot.
+
+    Mirrors the v1 TradingSession golden-window concept but is isolated to the
+    day-trade system. Windows are produced by the session optimizer from closed
+    DayTradePaperTrade history (high win-rate NPT hour / hour-weekday blocks).
+    Analytics only: these gate the Bot Performance filters, not signal generation.
+    """
+    SESSION_TYPE_CHOICES = [
+        ('ALL_DAYS', _('All days window')),
+        ('WEEKDAY', _('Weekday-specific window')),
+    ]
+
+    name = models.CharField(max_length=120, unique=True)
+    session_type = models.CharField(
+        max_length=20, choices=SESSION_TYPE_CHOICES, default='ALL_DAYS')
+    description = models.CharField(max_length=255, blank=True, default='')
+
+    start_hour = models.PositiveIntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(23)],
+        help_text=_("Window start hour (Nepal time, inclusive)"))
+    end_hour = models.PositiveIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(24)],
+        help_text=_("Window end hour (Nepal time, exclusive)"))
+    active_days = models.JSONField(
+        default=list, blank=True,
+        help_text=_("Python weekdays (0=Mon..6=Sun) this window applies to; empty = all days"))
+
+    win_rate = models.FloatField(null=True, blank=True)
+    total_trades_analyzed = models.PositiveIntegerField(default=0)
+
+    is_active = models.BooleanField(default=True)
+    auto_generated = models.BooleanField(default=True)
+    last_optimized_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'daytrade_sessions'
+        ordering = ['start_hour', 'name']
+        verbose_name = _('Day-Trade Session')
+        verbose_name_plural = _('Day-Trade Sessions')
+
+    def __str__(self):
+        days = 'all days' if not self.active_days else f"days {self.active_days}"
+        return f"{self.name} ({self.start_hour:02d}:00-{self.end_hour:02d}:00 NPT, {days})"
+
+    def covers(self, npt_hour, npt_weekday):
+        """True if a trade at this NPT hour/weekday falls inside the window."""
+        if not (self.start_hour <= npt_hour < self.end_hour):
+            return False
+        return not self.active_days or npt_weekday in self.active_days
