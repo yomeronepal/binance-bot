@@ -23,6 +23,7 @@ const AutoTrading = lazy(() => import('../pages/AutoTrading'));
 const BotPerformance = lazy(() => import('../pages/BotPerformance'));
 const DayTradeBotPerformance = lazy(() => import('../pages/DayTradeBotPerformance'));
 const DayTradeSignals = lazy(() => import('../pages/DayTradeSignals'));
+const DayTradeSessions = lazy(() => import('../pages/DayTradeSessions'));
 const FuturesPerformance = lazy(() => import('../pages/FuturesPerformance'));
 const Backtesting = lazy(() => import('../pages/Backtesting'));
 const StrategyDashboard = lazy(() => import('../pages/StrategyDashboard'));
@@ -111,7 +112,7 @@ const AppRouter = () => {
           } />
           <Route path="daytrade-sessions" element={
             <ErrorBoundary>
-              <TradingSessions />
+              <DayTradeSessions />
             </ErrorBoundary>
           } />
           <Route path="daytrade-signals" element={
