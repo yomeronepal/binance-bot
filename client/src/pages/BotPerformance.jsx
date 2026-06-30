@@ -940,13 +940,14 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
 
         {activeTab === 'report' && (
           <TradeReport
-            apiUrl="/public/paper-trading/report/"
+            apiUrl={source.reportUrl}
             filters={{
               golden_window: activeWindow === 'gw1' ? 'true' : undefined,
               golden_window_2: activeWindow === 'gw2' ? 'true' : undefined,
               outside_golden_window: activeWindow === 'outside_gw' ? 'true' : undefined,
               gw1_ai: activeWindow === 'gw1_ai' ? 'true' : undefined,
               gw2_ai: activeWindow === 'gw2_ai' ? 'true' : undefined,
+              window: feat.sessionWindows && sessionWindow !== 'all' ? sessionWindow : undefined,
               direction: direction,
               weekday: weekday,
               hour: hour,
@@ -958,13 +959,14 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
 
         {activeTab === 'graphs' && (
           <TradeCharts
-            apiUrl="/public/paper-trading/report/"
+            apiUrl={source.reportUrl}
             filters={{
               golden_window: activeWindow === 'gw1' ? 'true' : undefined,
               golden_window_2: activeWindow === 'gw2' ? 'true' : undefined,
               outside_golden_window: activeWindow === 'outside_gw' ? 'true' : undefined,
               gw1_ai: activeWindow === 'gw1_ai' ? 'true' : undefined,
               gw2_ai: activeWindow === 'gw2_ai' ? 'true' : undefined,
+              window: feat.sessionWindows && sessionWindow !== 'all' ? sessionWindow : undefined,
               direction: direction,
               weekday: weekday,
               hour: hour,

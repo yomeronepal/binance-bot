@@ -82,6 +82,7 @@ from signals.views.daytrade import (
     daytrade_summary,
     daytrade_close_trade,
     daytrade_sessions_list,
+    daytrade_report,
 )
 
 app_name = 'api'
@@ -179,6 +180,7 @@ urlpatterns = [
     path('daytrade/positions/', daytrade_open_positions, name='daytrade-positions'),
     path('daytrade/summary/', daytrade_summary, name='daytrade-summary'),
     path('daytrade/sessions/', daytrade_sessions_list, name='daytrade-sessions'),
+    path('daytrade/report/', daytrade_report, name='daytrade-report'),
     path('daytrade/trades/<int:trade_id>/close/', daytrade_close_trade, name='daytrade-close-trade'),
 
     # Market Data endpoints
