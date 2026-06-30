@@ -147,7 +147,7 @@ const DayTradeSessions = () => {
                   <div key={s.name} className="flex items-center gap-2 bg-green-100 dark:bg-green-500/20 border border-green-300 dark:border-green-500/40 rounded-lg px-3 py-1.5">
                     <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                     <span className="font-mono text-sm font-bold text-green-800 dark:text-green-300">
-                      {String(s.start_hour).padStart(2, '0')}:00 - {String(s.end_hour).padStart(2, '0')}:00
+                      {hourToLocal(s.start_hour)} - {hourToLocal(s.end_hour)}
                     </span>
                     {s.win_rate != null && (
                       <span className="text-[10px] font-bold bg-green-200 dark:bg-green-500/30 text-green-800 dark:text-green-300 px-1.5 py-0.5 rounded">
@@ -175,7 +175,7 @@ const DayTradeSessions = () => {
                   <div key={s.name} className="flex items-center gap-2 bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5">
                     <Clock className="w-3 h-3 text-gray-400" />
                     <span className="font-mono text-sm font-medium text-gray-700 dark:text-gray-300">
-                      {String(s.start_hour).padStart(2, '0')}:00 - {String(s.end_hour).padStart(2, '0')}:00
+                      {hourToLocal(s.start_hour)} - {hourToLocal(s.end_hour)}
                     </span>
                     {s.win_rate != null && (
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
@@ -267,10 +267,19 @@ const DayTradeSessions = () => {
   );
 };
 
+const hourToLocal = (h) => {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCMinutes(h * 60 - NEPAL_OFFSET_MINUTES);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
 const SessionCard = ({ session, active, convertToUTC, compact }) => {
   const s = session;
   const startNPT = `${String(s.start_hour).padStart(2, '0')}:00`;
   const endNPT = `${String(s.end_hour).padStart(2, '0')}:00`;
+  const startLocal = hourToLocal(s.start_hour);
+  const endLocal = hourToLocal(s.end_hour);
   const startUTC = convertToUTC(s.start_hour);
   const endUTC = convertToUTC(s.end_hour);
   const winRate = s.win_rate != null ? parseFloat(s.win_rate) : null;
@@ -287,7 +296,7 @@ const SessionCard = ({ session, active, convertToUTC, compact }) => {
           <span className={`font-mono font-bold ${compact ? 'text-sm' : 'text-lg'} ${
             active ? 'text-green-700 dark:text-green-400' : 'text-gray-800 dark:text-gray-200'
           }`}>
-            {startNPT} - {endNPT}
+            {startLocal} - {endLocal}
           </span>
           {active && (
             <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-green-500/20 text-green-700 dark:text-green-400 rounded font-bold">
@@ -313,7 +322,7 @@ const SessionCard = ({ session, active, convertToUTC, compact }) => {
       <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
         <div className="flex items-center gap-1">
           <Clock className="w-3 h-3" />
-          <span>UTC: {startUTC} - {endUTC}</span>
+          <span>NPT {startNPT}-{endNPT} · UTC {startUTC}-{endUTC}</span>
         </div>
         {trades > 0 && <span>{trades} trades analyzed</span>}
       </div>
