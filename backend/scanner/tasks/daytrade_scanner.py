@@ -11,6 +11,7 @@ import logging
 
 from asgiref.sync import sync_to_async
 from celery import shared_task
+from django.conf import settings
 from django.core.cache import cache
 
 from scanner.indicators.indicator_utils import klines_to_dataframe
@@ -34,40 +35,108 @@ ENTRY_KLINES_LIMIT = 150
 BATCH_SIZE = 10
 
 
-async def _top_by_volume(client, pairs, top_n):
-    """Return the ``top_n`` pairs ranked by 24h quote volume."""
-    valid = set(pairs)
-    tickers = await client._request('GET', '/fapi/v1/ticker/24hr')
-    ranked = sorted(
-        (t for t in tickers if t['symbol'] in valid),
-        key=lambda t: float(t.get('quoteVolume') or 0),
-        reverse=True,
+def _screen_thresholds():
+    """Universe-screening thresholds, overridable via Django settings.
+
+    Returns:
+        Tuple of (min 24h quote volume, min 24h range %, max 24h range %).
+    """
+    return (
+        getattr(settings, 'DAYTRADE_MIN_QUOTE_VOLUME_USDT', 10_000_000),
+        getattr(settings, 'DAYTRADE_MIN_24H_RANGE_PCT', 2.0),
+        getattr(settings, 'DAYTRADE_MAX_24H_RANGE_PCT', 40.0),
     )
-    return [t['symbol'] for t in ranked[:top_n]]
+
+
+async def _active_blacklist():
+    """Return the set of currently-blacklisted symbols."""
+    from signals.models.blacklist import BlacklistedSymbol
+    symbols = await sync_to_async(BlacklistedSymbol.get_blacklisted_symbols)()
+    return {s.upper() for s in symbols}
+
+
+def _range_pct(ticker):
+    """24h high-low range as a percent of last price (volatility proxy)."""
+    try:
+        last = float(ticker.get('lastPrice') or 0)
+        high = float(ticker.get('highPrice') or 0)
+        low = float(ticker.get('lowPrice') or 0)
+    except (TypeError, ValueError):
+        return None
+    if last <= 0 or high <= 0 or low <= 0:
+        return None
+    return (high - low) / last * 100.0
+
+
+async def _screen_universe(client, pairs, top_n):
+    """Filter pairs by liquidity + a volatility band, rank by volume, trim.
+
+    Drops illiquid pairs (below the 24h quote-volume floor), dead pairs
+    (24h range below the floor) and manipulation-prone/parabolic pairs
+    (24h range above the ceiling), then ranks the survivors by volume.
+    """
+    valid = set(pairs)
+    min_vol, min_range, max_range = _screen_thresholds()
+    tickers = await client._request('GET', '/fapi/v1/ticker/24hr')
+
+    survivors = []
+    dropped_volume = 0
+    dropped_range = 0
+    for t in tickers:
+        if t['symbol'] not in valid:
+            continue
+        if float(t.get('quoteVolume') or 0) < min_vol:
+            dropped_volume += 1
+            continue
+        rng = _range_pct(t)
+        if rng is None or rng < min_range or rng > max_range:
+            dropped_range += 1
+            continue
+        survivors.append(t)
+
+    survivors.sort(key=lambda t: float(t.get('quoteVolume') or 0), reverse=True)
+    ranked = [t['symbol'] for t in survivors]
+    if top_n and top_n > 0:
+        ranked = ranked[:top_n]
+
+    logger.info(
+        "DayTrade screen: %d candidates -> %d pass "
+        "(dropped %d low-volume, %d out-of-band); floor=$%s range=%s-%s%%",
+        len(valid), len(ranked), dropped_volume, dropped_range,
+        f"{min_vol:,}", min_range, max_range,
+    )
+    return ranked
 
 
 async def _resolve_symbols(client, configured, top_n):
     """Resolve the scan universe.
 
-    For ``*`` (or empty): all USDT perpetuals, optionally trimmed to the
-    top_n most-liquid by 24h volume. Otherwise the configured list.
+    For ``*`` (or empty): all USDT perpetuals, screened by liquidity and a
+    volatility band, ranked by volume and trimmed to top_n, with the major
+    pairs always retained. Otherwise the configured list. The active
+    blacklist is applied to every path.
     """
+    blacklist = await _active_blacklist()
+
     if not configured or '*' in configured:
         pairs = await client.get_usdt_futures_pairs()
+        pairs = [p for p in pairs if p.upper() not in blacklist]
         valid = set(pairs)
-        if top_n and top_n > 0:
-            top = await _top_by_volume(client, pairs, top_n)
-            majors = [m for m in MAJOR_PAIRS if m in valid]
-            universe = list(dict.fromkeys(top + majors))
-            logger.info(
-                "DayTrade universe: top %d by volume + %d majors -> %d pairs",
-                top_n, len(majors), len(universe)
-            )
-            return universe
-        logger.info("DayTrade universe: ALL (%d USDT futures pairs)", len(pairs))
-        return pairs
-    symbols = [s.upper() for s in configured]
-    logger.info("DayTrade universe: %d configured symbols", len(symbols))
+        screened = await _screen_universe(client, pairs, top_n)
+        majors = [m for m in MAJOR_PAIRS if m in valid]
+        universe = list(dict.fromkeys(screened + majors))
+        logger.info(
+            "DayTrade universe: %d screened + %d majors -> %d pairs "
+            "(%d blacklisted)",
+            len(screened), len(majors), len(universe), len(blacklist),
+        )
+        return universe
+
+    symbols = [s.upper() for s in configured if s.upper() not in blacklist]
+    logger.info(
+        "DayTrade universe: %d configured symbols (%d blacklisted)",
+        len(symbols), len(blacklist),
+    )
     return symbols
 
 
