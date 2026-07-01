@@ -72,6 +72,10 @@ class BacktestEngine:
         self.strategy_params = strategy_params
         self.max_open_positions = max_open_positions
 
+        self.taker_fee_rate = Decimal(str(strategy_params.get('taker_fee_rate', '0.0004')))
+        self.slippage_rate = Decimal(str(strategy_params.get('slippage_rate', '0.0002')))
+        self.funding_rate_8h = Decimal(str(strategy_params.get('funding_rate_8h', '0.0001')))
+
         self.state = BacktestState(
             equity=initial_capital,
             cash=initial_capital,
@@ -248,17 +252,28 @@ class BacktestEngine:
         """
         self.trade_count += 1
 
-        # Calculate P/L
+        # Calculate gross P/L
         if position.direction == 'LONG':
-            pnl = (exit_price - position.entry_price) * position.quantity
+            gross_pnl = (exit_price - position.entry_price) * position.quantity
         else:  # SHORT
-            pnl = (position.entry_price - exit_price) * position.quantity
-
-        pnl_percentage = (pnl / position.position_size) * 100
+            gross_pnl = (position.entry_price - exit_price) * position.quantity
 
         # Duration
         duration = exit_time - position.entry_time
         duration_hours = duration.total_seconds() / 3600
+
+        # Trading costs: taker fees + slippage (both sides) + funding held
+        entry_notional = position.quantity * position.entry_price
+        exit_notional = position.quantity * exit_price
+        turnover = entry_notional + exit_notional
+        fee_cost = turnover * self.taker_fee_rate
+        slippage_cost = turnover * self.slippage_rate
+        funding_intervals = int(duration_hours // 8)
+        funding_cost = entry_notional * self.funding_rate_8h * Decimal(funding_intervals)
+        total_cost = fee_cost + slippage_cost + funding_cost
+
+        pnl = gross_pnl - total_cost
+        pnl_percentage = (pnl / position.position_size) * 100
 
         # Calculate risk/reward ratio
         if position.direction == 'LONG':
@@ -284,6 +299,10 @@ class BacktestEngine:
             'take_profit': position.take_profit,
             'position_size': position.position_size,
             'quantity': position.quantity,
+            'gross_profit_loss': gross_pnl,
+            'fee_cost': fee_cost,
+            'funding_cost': funding_cost,
+            'total_cost': total_cost,
             'profit_loss': pnl,
             'profit_loss_percentage': pnl_percentage,
             'opened_at': opened_at,
@@ -380,6 +399,8 @@ class BacktestEngine:
         # P/L
         total_pnl = sum(t['profit_loss'] for t in trades)
         roi = (total_pnl / self.initial_capital * 100) if self.initial_capital > 0 else 0
+        total_costs = sum(t.get('total_cost', Decimal('0')) for t in trades)
+        gross_pnl = sum(t.get('gross_profit_loss', t['profit_loss']) for t in trades)
 
         # Avg trade metrics
         avg_profit = sum(t['profit_loss'] for t in winning_trades) / len(winning_trades) if winning_trades else 0
@@ -410,6 +431,8 @@ class BacktestEngine:
             'losing_trades': len(losing_trades),
             'win_rate': Decimal(str(win_rate)),
             'total_profit_loss': total_pnl,
+            'gross_profit_loss': gross_pnl,
+            'total_costs': total_costs,
             'roi': Decimal(str(roi)),
             'final_equity': self.state.equity,
             'initial_capital': self.initial_capital,
