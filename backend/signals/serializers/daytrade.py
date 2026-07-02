@@ -13,7 +13,6 @@ class DayTradeSignalSerializer(serializers.ModelSerializer):
     """Day-trade signal with the ATR-derived exit map."""
 
     risk_reward_ratio = serializers.FloatField(read_only=True)
-    created_at = serializers.DateTimeField(read_only=True, format="%Y-%m-%d %H:%M:%S")
 
     class Meta:
         model = DayTradeSignal
