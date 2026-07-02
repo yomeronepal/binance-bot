@@ -1,9 +1,13 @@
 import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching'
 import { registerRoute, NavigationRoute } from 'workbox-routing'
 import { createHandlerBoundToURL } from 'workbox-precaching'
+import { clientsClaim } from 'workbox-core'
 
 cleanupOutdatedCaches()
 precacheAndRoute(self.__WB_MANIFEST)
+
+self.skipWaiting()
+clientsClaim()
 
 registerRoute(
   new NavigationRoute(createHandlerBoundToURL('index.html'))
