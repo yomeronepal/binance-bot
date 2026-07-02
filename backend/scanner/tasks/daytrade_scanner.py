@@ -1,7 +1,8 @@
 """Celery scanner for the day-trade (15m Market Structure Pullback) engine.
 
-Runs every minute: resolves the symbol universe (``*`` means all Binance
-USDT pairs, otherwise the configured list), fetches 15m + 1h candles, and
+Runs every minute: resolves the symbol universe (explicit symbols are
+always scanned; ``*`` adds the top-N by volume excluding them), fetches
+15m + 1h candles, and
 runs DayTradeSignalEngine.generate() per symbol. 1h candles are cached
 (they only change hourly) to keep the per-minute request load down, and a
 Redis lock prevents overlapping runs.
@@ -108,36 +109,91 @@ async def _screen_universe(client, pairs, top_n):
     return ranked
 
 
-async def _resolve_symbols(client, configured, top_n):
-    """Resolve the scan universe.
+def _split_configured(configured):
+    """Split a configured symbol list into wildcard flag and explicit list.
 
-    For ``*`` (or empty): all USDT perpetuals, screened by liquidity and a
-    volatility band, ranked by volume and trimmed to top_n, with the major
-    pairs always retained. Otherwise the configured list. The active
-    blacklist is applied to every path.
+    The ``*`` token is a wildcard meaning "fill with the top-N by volume".
+    Every other entry is an explicit, always-scan symbol. Explicit symbols
+    are upper-cased, de-duplicated and returned in their configured order.
+    An empty config is treated as a bare wildcard for backward compatibility.
+
+    Args:
+        configured: The raw symbol list from the strategy config.
+
+    Returns:
+        Tuple of (has_wildcard, explicit_symbols).
+    """
+    has_wildcard = not configured or '*' in configured
+    explicit = []
+    for entry in (configured or []):
+        symbol = entry.upper()
+        if symbol == '*' or symbol in explicit:
+            continue
+        explicit.append(symbol)
+    return has_wildcard, explicit
+
+
+def _pinned_symbols(explicit, blacklist):
+    """Resolve the always-scan set: explicit config, else the major pairs.
+
+    These symbols bypass the liquidity/volatility screen. The blacklist is
+    always honoured. When no explicit symbols are configured alongside the
+    wildcard, the major pairs are pinned so a bare ``*`` keeps its majors.
+
+    Args:
+        explicit: Explicit symbols from the config (may be empty).
+        blacklist: Set of blacklisted symbols to exclude.
+
+    Returns:
+        Ordered, de-duplicated list of pinned symbols.
+    """
+    base = explicit or MAJOR_PAIRS
+    return [s for s in dict.fromkeys(base) if s not in blacklist]
+
+
+async def _resolve_symbols(client, configured, top_n):
+    """Resolve the scan universe from a mixed wildcard + explicit config.
+
+    The config may mix the ``*`` wildcard with explicit symbols, e.g.
+    ``["*", "BTCUSDT", "ETHUSDT", "SOLUSDT"]``. Explicit symbols are always
+    scanned and bypass the liquidity/volatility screen. ``*`` then adds the
+    top-N pairs by 24h volume (screened), excluding the explicit symbols so
+    it fills the remaining slots with other coins. Without a wildcard, only
+    the explicit symbols are scanned. The blacklist is applied everywhere.
+
+    Args:
+        client: Binance futures client.
+        configured: Raw symbol list from the strategy config.
+        top_n: Number of screened coins the wildcard contributes.
+
+    Returns:
+        Ordered scan universe: pinned symbols first, then top-N others.
     """
     blacklist = await _active_blacklist()
+    has_wildcard, explicit = _split_configured(configured)
+    pinned = _pinned_symbols(explicit, blacklist)
 
-    if not configured or '*' in configured:
-        pairs = await client.get_usdt_futures_pairs()
-        pairs = [p for p in pairs if p.upper() not in blacklist]
-        valid = set(pairs)
-        screened = await _screen_universe(client, pairs, top_n)
-        majors = [m for m in MAJOR_PAIRS if m in valid]
-        universe = list(dict.fromkeys(screened + majors))
+    if not has_wildcard:
         logger.info(
-            "DayTrade universe: %d screened + %d majors -> %d pairs "
-            "(%d blacklisted)",
-            len(screened), len(majors), len(universe), len(blacklist),
+            "DayTrade universe: %d explicit symbols, no wildcard (%d blacklisted)",
+            len(pinned), len(blacklist),
         )
-        return universe
+        return pinned
 
-    symbols = [s.upper() for s in configured if s.upper() not in blacklist]
+    pairs = await client.get_usdt_futures_pairs()
+    pinned_set = set(pinned)
+    pool = [
+        p for p in pairs
+        if p.upper() not in blacklist and p.upper() not in pinned_set
+    ]
+    screened = await _screen_universe(client, pool, top_n)
+    universe = list(dict.fromkeys(pinned + screened))
     logger.info(
-        "DayTrade universe: %d configured symbols (%d blacklisted)",
-        len(symbols), len(blacklist),
+        "DayTrade universe: %d pinned + %d screened (top %s) -> %d pairs "
+        "(%d blacklisted)",
+        len(pinned), len(screened), top_n, len(universe), len(blacklist),
     )
-    return symbols
+    return universe
 
 
 async def _fetch_1h_cached(client, symbols, limit):
