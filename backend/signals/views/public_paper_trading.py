@@ -87,6 +87,13 @@ def _apply_common_filters(queryset, params):
     if direction and direction != 'ALL':
         queryset = queryset.filter(direction=direction.upper())
 
+    min_confidence = params.get('min_confidence')
+    if min_confidence:
+        try:
+            queryset = queryset.filter(confidence__gte=float(min_confidence))
+        except (TypeError, ValueError):
+            pass
+
     if str(params.get('top_performer', '')).lower() == 'true':
         queryset = _apply_top_performer_filter(queryset)
 
@@ -361,6 +368,7 @@ def _get_filter_params(request):
     """
     keys = [
         'status', 'market_type', 'asset_class', 'symbol', 'direction',
+        'min_confidence',
         'golden_window', 'golden_window_2', 'outside_golden_window',
         'gw1_ai', 'gw2_ai',
         'weekday', 'hour', 'month', 'year', 'days',
@@ -695,6 +703,13 @@ def public_open_positions(request):
     direction = params.get('direction')
     if direction and direction != 'ALL':
         queryset = queryset.filter(direction=direction.upper())
+
+    min_confidence = params.get('min_confidence')
+    if min_confidence:
+        try:
+            queryset = queryset.filter(confidence__gte=float(min_confidence))
+        except (TypeError, ValueError):
+            pass
 
     open_trades = list(queryset.select_related('signal').only(
         'id', 'symbol', 'direction', 'market_type', 'asset_class',

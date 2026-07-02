@@ -52,6 +52,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
   const [direction, setDirection] = useState(() => {
     return localStorage.getItem(`${sk}direction`) || 'ALL';
   });
+  const [minConfidence, setMinConfidence] = useState(() => localStorage.getItem(`${sk}min_confidence`) || 'ALL');
   const [weekday, setWeekday] = useState(() => {
     return localStorage.getItem(`${sk}weekday`) || 'ALL';
   });
@@ -93,6 +94,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
       if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
     }
     if (direction !== 'ALL') params.append('direction', direction);
+    if (minConfidence !== 'ALL') params.append('min_confidence', minConfidence);
     if (weekday !== 'ALL') params.append('weekday', weekday);
     if (hour !== 'ALL') params.append('hour', hour);
     if (month !== 'ALL') params.append('month', month);
@@ -124,6 +126,10 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
   useEffect(() => {
     localStorage.setItem(`${sk}direction`, direction);
   }, [direction]);
+
+  useEffect(() => {
+    localStorage.setItem(`${sk}min_confidence`, minConfidence);
+  }, [minConfidence]);
 
   useEffect(() => {
     localStorage.setItem(`${sk}weekday`, weekday);
@@ -209,6 +215,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
         if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
       }
       if (direction !== 'ALL') params.append('direction', direction);
+      if (minConfidence !== 'ALL') params.append('min_confidence', minConfidence);
       if (weekday !== 'ALL') params.append('weekday', weekday);
       if (hour !== 'ALL') params.append('hour', hour);
       if (month !== 'ALL') params.append('month', month);
@@ -270,6 +277,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
         if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
       }
       if (direction !== 'ALL') params.append('direction', direction);
+      if (minConfidence !== 'ALL') params.append('min_confidence', minConfidence);
       if (weekday !== 'ALL') params.append('weekday', weekday);
       if (hour !== 'ALL') params.append('hour', hour);
       if (month !== 'ALL') params.append('month', month);
@@ -297,11 +305,11 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
 
   useEffect(() => {
     fetchPerformanceData();
-  }, [activeWindow, direction, weekday, hour, month, year, sessionWindow]);
+  }, [activeWindow, direction, minConfidence, weekday, hour, month, year, sessionWindow]);
 
   useEffect(() => {
     fetchTradeHistory();
-  }, [activeWindow, direction, weekday, hour, month, year, sessionWindow, debouncedSymbol, currentPage]);
+  }, [activeWindow, direction, minConfidence, weekday, hour, month, year, sessionWindow, debouncedSymbol, currentPage]);
 
   // Show loading only on initial load (when summary is null)
   if (loading && !summary) {
@@ -700,7 +708,19 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
             </div>
 
             {/* Dropdowns Row */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              <select
+                value={minConfidence}
+                onChange={(e) => setMinConfidence(e.target.value)}
+                className="px-3 py-2 text-xs sm:text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+              >
+                <option value="ALL">Min conf: All</option>
+                <option value="0.70">≥ 70%</option>
+                <option value="0.75">≥ 75%</option>
+                <option value="0.80">≥ 80%</option>
+                <option value="0.85">≥ 85%</option>
+              </select>
+
               <select
                 value={weekday}
                 onChange={(e) => setWeekday(e.target.value)}

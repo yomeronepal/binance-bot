@@ -92,6 +92,12 @@ def _apply_trade_filters(queryset, request):
         queryset = queryset.filter(direction=direction.upper())
     if trade_status:
         queryset = queryset.filter(status=trade_status.upper())
+    min_confidence = request.query_params.get('min_confidence')
+    if min_confidence:
+        try:
+            queryset = queryset.filter(confidence__gte=float(min_confidence))
+        except (TypeError, ValueError):
+            pass
     queryset = _apply_time_filters(queryset, request.query_params)
     queryset = _apply_session_filter(queryset, request)
     return queryset
