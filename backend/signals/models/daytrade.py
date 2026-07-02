@@ -616,6 +616,11 @@ class DayTradeStrategyConfig(models.Model):
         validators=[MinValueValidator(0), MaxValueValidator(1000)],
         help_text=_("When symbols is [\"*\"], scan only the top N pairs by 24h volume (0 = all)"),
     )
+    signal_cooldown_minutes = models.PositiveIntegerField(
+        default=60,
+        validators=[MinValueValidator(0), MaxValueValidator(1440)],
+        help_text=_("After a symbol's trade closes, suppress new signals for it for this many minutes (0 = disabled)"),
+    )
 
     entry_timeframe = models.CharField(max_length=5, default='15m', help_text=_("Entry/execution timeframe"))
     trend_timeframe = models.CharField(max_length=5, default='1h', help_text=_("Higher-timeframe trend filter"))
