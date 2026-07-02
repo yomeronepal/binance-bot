@@ -18,13 +18,20 @@ const useDayTradeStore = create((set) => ({
         axios.get(`${baseURL}/daytrade/summary/`),
         axios.get(`${baseURL}/daytrade/positions/`),
         axios.get(`${baseURL}/daytrade/trades/?page_size=25`),
-        axios.get(`${baseURL}/daytrade/signals/?page_size=25`),
+        axios.get(`${baseURL}/daytrade/signals/?status=ACTIVE&page_size=100`),
       ]);
+      const rawSignals = signalsRes.data?.results || [];
+      const seenSymbols = new Set();
+      const dedupedSignals = rawSignals.filter((s) => {
+        if (seenSymbols.has(s.symbol)) return false;
+        seenSymbols.add(s.symbol);
+        return true;
+      });
       set({
         summary: summaryRes.data,
         positions: positionsRes.data?.positions || [],
         trades: tradesRes.data?.results || [],
-        signals: signalsRes.data?.results || [],
+        signals: dedupedSignals,
         loading: false,
       });
     } catch (err) {
