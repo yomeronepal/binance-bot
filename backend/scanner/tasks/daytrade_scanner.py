@@ -184,6 +184,25 @@ def _expire_stale_signals():
     ).update(status='EXPIRED')
 
 
+def _symbols_in_cooldown(cooldown_minutes):
+    """Return symbols whose most recent trade closed within the cooldown.
+
+    A symbol enters cooldown once any of its day-trade paper trades closes
+    (SL or TP), suppressing new signals for it until the window elapses.
+    """
+    if not cooldown_minutes or cooldown_minutes <= 0:
+        return set()
+    from datetime import timedelta
+    from django.utils import timezone as tz
+    from signals.models.daytrade import DayTradePaperTrade
+    cutoff = tz.now() - timedelta(minutes=cooldown_minutes)
+    return set(
+        DayTradePaperTrade.objects.filter(
+            status__startswith='CLOSED', exit_time__gte=cutoff
+        ).values_list('symbol', flat=True)
+    )
+
+
 async def _scan_daytrade_async():
     """Resolve the universe, fetch candles, and run the engine per symbol."""
     from signals.models.daytrade import DayTradeStrategyConfig
@@ -194,8 +213,9 @@ async def _scan_daytrade_async():
     trend_limit = cfg.trend_ema_slow + 15
 
     await sync_to_async(_expire_stale_signals)()
+    cooldown = await sync_to_async(_symbols_in_cooldown)(cfg.signal_cooldown_minutes)
 
-    counts = {'symbols': 0, 'created': 0, 'errors': 0}
+    counts = {'symbols': 0, 'created': 0, 'errors': 0, 'cooldown_skipped': 0}
 
     async with BinanceFuturesClient() as client:
         symbols = await _resolve_symbols(client, cfg.symbols, cfg.universe_top_n)
@@ -208,6 +228,9 @@ async def _scan_daytrade_async():
         )
 
         for symbol in symbols:
+            if symbol in cooldown:
+                counts['cooldown_skipped'] += 1
+                continue
             try:
                 signal = await sync_to_async(_generate_for_symbol)(
                     engine, symbol, klines_15m.get(symbol), klines_1h.get(symbol)
@@ -219,8 +242,8 @@ async def _scan_daytrade_async():
                 logger.error("DayTrade scan error for %s: %s", symbol, exc)
 
     logger.info(
-        "DayTrade scan complete: %d symbols, %d signals, %d errors",
-        counts['symbols'], counts['created'], counts['errors']
+        "DayTrade scan complete: %d symbols, %d signals, %d errors, %d cooldown-skipped",
+        counts['symbols'], counts['created'], counts['errors'], counts['cooldown_skipped']
     )
     return counts
 

@@ -40,6 +40,7 @@ class DayTradeSignalConfig:
 
     symbols: List[str] = field(default_factory=lambda: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'])
     universe_top_n: int = 30
+    signal_cooldown_minutes: int = 60
     entry_timeframe: str = '15m'
     trend_timeframe: str = '1h'
     trend_ema_fast: int = 50
@@ -117,6 +118,7 @@ class DayTradeSignalConfig:
         return cls(
             symbols=db_config.symbols or [],
             universe_top_n=db_config.universe_top_n,
+            signal_cooldown_minutes=getattr(db_config, 'signal_cooldown_minutes', 60),
             entry_timeframe=db_config.entry_timeframe,
             trend_timeframe=db_config.trend_timeframe,
             trend_ema_fast=db_config.trend_ema_fast,
