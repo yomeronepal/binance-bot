@@ -191,12 +191,12 @@ app.conf.beat_schedule = {
     },
 
     # ============================================================================
-    # DAY-TRADE SCANNING (15m Market Structure Pullback) - every 1 minute
+    # DAY-TRADE SCANNING (15m Market Structure Pullback) - at each 15m close
     # ============================================================================
 
     'scan-daytrade': {
         'task': 'scanner.tasks.daytrade_scanner.scan_daytrade',
-        'schedule': crontab(minute='*/1'),
+        'schedule': crontab(minute='0,15,30,45'),
         'options': {'expires': 55.0},
     },
 
