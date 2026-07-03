@@ -53,6 +53,11 @@ const DayTradeSignalCard = ({ signal }) => {
               <DirIcon className="w-3 h-3" />
               {signal.direction}
             </span>
+            {signal.is_priority && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-white animate-pulse">
+                ⭐ PRIORITY
+              </span>
+            )}
           </div>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">FUT</span>
         </div>

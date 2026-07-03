@@ -20,7 +20,7 @@ class DayTradeSignalSerializer(serializers.ModelSerializer):
             'id', 'symbol', 'direction', 'entry_timeframe', 'trend_timeframe',
             'candle_open_time', 'entry', 'stop_loss', 'tp1', 'tp2', 'atr',
             'confidence', 'score', 'risk_reward_ratio', 'market_type',
-            'leverage', 'status', 'source', 'meta',
+            'leverage', 'status', 'source', 'meta', 'is_priority',
             'created_at', 'expires_at',
         ]
 
@@ -46,7 +46,7 @@ class DayTradePaperTradeSerializer(serializers.ModelSerializer):
         model = DayTradePaperTrade
         fields = [
             'id', 'signal', 'symbol', 'direction', 'market_type', 'timeframe',
-            'confidence', 'entry_price', 'entry_time', 'position_size',
+            'confidence', 'is_priority', 'entry_price', 'entry_time', 'position_size',
             'quantity', 'remaining_quantity',
             'initial_stop_loss', 'stop_loss', 'trailing_stop',
             'tp1_price', 'tp2_price', 'atr_at_entry', 'tp1_filled', 'tp2_filled',
