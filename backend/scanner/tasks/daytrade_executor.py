@@ -81,6 +81,7 @@ def _open_trade_from_signal(signal, db_config):
         market_type=signal.market_type,
         timeframe=signal.entry_timeframe,
         confidence=signal.confidence,
+        is_priority=signal.is_priority,
         entry_price=signal.entry,
         entry_time=now,
         position_size=sizing['margin'],

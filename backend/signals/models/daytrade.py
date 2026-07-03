@@ -6,12 +6,14 @@ monitored independently. The strategy is defined in
 docs/15m_STRATEGY_V2.md and uses ATR-based scale-out exits
 (TP1/TP2/runner) with a trailing stop.
 """
+from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 
@@ -133,6 +135,11 @@ class DayTradeSignal(models.Model):
         blank=True,
         help_text=_("Structure, pullback zone, liquidity sweep and score breakdown"),
     )
+    is_priority = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=_("Generated inside an active DayTradeSession window"),
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -161,6 +168,12 @@ class DayTradeSignal(models.Model):
 
     def __str__(self):
         return f"DayTrade {self.direction} {self.symbol} @ {self.entry}"
+
+    def save(self, *args, **kwargs):
+        """Flag priority from the active session windows on first save."""
+        if not self.pk:
+            self.is_priority = DayTradeSession.is_priority_now()
+        super().save(*args, **kwargs)
 
     @property
     def risk_reward_ratio(self):
@@ -236,6 +249,11 @@ class DayTradePaperTrade(models.Model):
         blank=True,
         validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         help_text=_("Signal confidence at entry"),
+    )
+    is_priority = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=_("Copied from the signal: opened inside a session window"),
     )
 
     entry_price = models.DecimalField(
@@ -935,3 +953,23 @@ class DayTradeSession(models.Model):
         if not (self.start_hour <= npt_hour < self.end_hour):
             return False
         return not self.active_days or npt_weekday in self.active_days
+
+    @classmethod
+    def is_priority_now(cls):
+        """Whether the current NPT time falls inside any active session window.
+
+        Nepal Time is UTC + 5h45m, matching ``covers`` semantics. Returns
+        False on any error so signal creation is never blocked by this check.
+
+        Returns:
+            True if an active session covers the current NPT hour/weekday.
+        """
+        try:
+            npt_now = timezone.now() + timedelta(hours=5, minutes=45)
+            hour, weekday = npt_now.hour, npt_now.weekday()
+            return any(
+                session.covers(hour, weekday)
+                for session in cls.objects.filter(is_active=True)
+            )
+        except Exception:
+            return False
