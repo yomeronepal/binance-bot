@@ -1,11 +1,11 @@
 """Celery scanner for the day-trade (15m Market Structure Pullback) engine.
 
-Runs every minute: resolves the symbol universe (explicit symbols are
-always scanned; ``*`` adds the top-N by volume excluding them), fetches
-15m + 1h candles, and
-runs DayTradeSignalEngine.generate() per symbol. 1h candles are cached
-(they only change hourly) to keep the per-minute request load down, and a
-Redis lock prevents overlapping runs.
+Runs 1 minute after each 15m candle close: resolves the symbol universe
+(explicit symbols are always scanned; ``*`` adds the top-N by volume
+excluding them), fetches 15m + 1h candles, drops the still-forming candle,
+and runs DayTradeSignalEngine.generate() per symbol on the closed candle.
+1h candles are cached (they only change hourly) to keep request load down,
+and a Redis lock prevents overlapping runs.
 """
 import asyncio
 import logging
@@ -218,12 +218,30 @@ async def _fetch_1h_cached(client, symbols, limit):
     return result
 
 
+def _drop_forming_candle(df):
+    """Drop the still-forming last candle so the engine reads closed data.
+
+    Binance returns the in-progress candle as the last row; evaluating it
+    makes signals repaint intra-candle. Removing it means the engine always
+    acts on the most recent *closed* candle, matching the backtests.
+
+    Args:
+        df: OHLCV frame whose last row is the currently-forming candle.
+
+    Returns:
+        The frame without its final row (unchanged if it has one row or less).
+    """
+    return df.iloc[:-1] if len(df) > 1 else df
+
+
 def _generate_for_symbol(engine, symbol, klines_15m, klines_1h):
     """Build frames and run the engine for one symbol (sync, ORM-safe)."""
     if not klines_15m or not klines_1h:
         return None
-    df_15m = klines_to_dataframe(klines_15m)
-    df_1h = klines_to_dataframe(klines_1h)
+    df_15m = _drop_forming_candle(klines_to_dataframe(klines_15m))
+    df_1h = _drop_forming_candle(klines_to_dataframe(klines_1h))
+    if df_15m.empty or df_1h.empty:
+        return None
     return engine.generate(symbol, df_15m, df_1h)
 
 
