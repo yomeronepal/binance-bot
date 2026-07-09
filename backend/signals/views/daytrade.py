@@ -124,14 +124,34 @@ async def _fetch_prices_async(symbols):
     return prices
 
 
+def _cache_get(key):
+    """cache.get that treats any cache backend failure as a miss."""
+    try:
+        return cache.get(key)
+    except Exception:
+        return None
+
+
+def _cache_set(key, value, ttl):
+    """cache.set that never raises if the cache backend is unavailable."""
+    try:
+        cache.set(key, value, ttl)
+    except Exception:
+        pass
+
+
 def _live_prices(symbols):
-    """Return current prices for symbols, briefly cached to limit API calls."""
+    """Return current prices for symbols, briefly cached to limit API calls.
+
+    Cache access is best-effort: if Redis is down or read-only the prices are
+    fetched live rather than failing the request.
+    """
     if not symbols:
         return {}
     result = {}
     missing = []
     for symbol in symbols:
-        cached = cache.get(f'daytrade:price:{symbol}')
+        cached = _cache_get(f'daytrade:price:{symbol}')
         if cached is not None:
             result[symbol] = Decimal(str(cached))
         else:
@@ -139,7 +159,7 @@ def _live_prices(symbols):
     if missing:
         fetched = asyncio.run(_fetch_prices_async(missing))
         for symbol, price in fetched.items():
-            cache.set(f'daytrade:price:{symbol}', str(price), 5)
+            _cache_set(f'daytrade:price:{symbol}', str(price), 5)
             result[symbol] = price
     return result
 
