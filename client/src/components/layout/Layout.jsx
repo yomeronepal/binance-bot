@@ -61,7 +61,7 @@ const Layout = () => {
       ],
     },
     {
-      type: 'group', label: 'Order Block (4h)', defaultOpen: false, items: [
+      type: 'group', label: 'Order Block (4h)', items: [
         { to: '/order-block-signals', label: 'Signals', icon: Boxes },
         { to: '/order-block-performance', label: 'Bot Performance', icon: Activity },
       ],
@@ -125,7 +125,7 @@ const Layout = () => {
             const expandedSidebar = !collapsed || isMobile;
             const isOpen = section.label in openGroups
               ? openGroups[section.label]
-              : section.defaultOpen !== false;
+              : section.defaultOpen === true;
             return (
               <div key={`group-${idx}`} className="pt-3 first:pt-0">
                 {expandedSidebar ? (
