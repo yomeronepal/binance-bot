@@ -130,6 +130,24 @@ def _simulate_exit(highs, lows, entry_idx, direction, sl, tp):
     return None, None
 
 
+def _simulate_exit_trailing(highs, lows, entry_idx, direction, initial_sl, trail_dist):
+    """ATR trailing stop from entry (no fixed target). Returns (exit_idx, price) or (None, None)."""
+    stop = initial_sl
+    best = None
+    for j in range(entry_idx + 1, len(highs)):
+        if direction == 'LONG':
+            if lows[j] <= stop:
+                return j, stop
+            best = highs[j] if best is None else max(best, highs[j])
+            stop = max(stop, best - trail_dist)
+        else:
+            if highs[j] >= stop:
+                return j, stop
+            best = lows[j] if best is None else min(best, lows[j])
+            stop = min(stop, best + trail_dist)
+    return None, None
+
+
 def _net_pnl(entry, exit_price, direction, notional, fee, slip):
     move = (exit_price - entry) / entry if direction == 'LONG' else (entry - exit_price) / entry
     turnover = notional * (1 + exit_price / entry)
@@ -270,7 +288,10 @@ def _entries(setup, symbol, df_entry, trend_ctx, opts):
         if score < opts.get('min_score', 0):
             i += 1
             continue
-        exit_idx, exit_price = _simulate_exit(highs, lows, i, direction, sl, tp)
+        if opts.get('trail_atr', 0) > 0:
+            exit_idx, exit_price = _simulate_exit_trailing(highs, lows, i, direction, sl, opts['trail_atr'] * a)
+        else:
+            exit_idx, exit_price = _simulate_exit(highs, lows, i, direction, sl, tp)
         if exit_idx is None:
             break
         pnl = _net_pnl(entry, exit_price, direction, opts['notional'], opts['fee'], opts['slip'])
@@ -336,6 +357,7 @@ class Command(BaseCommand):
         parser.add_argument('--lookback', type=int, default=10, help='Bars for sweep/OB context')
         parser.add_argument('--rr', type=float, default=2.0)
         parser.add_argument('--min-score', type=int, default=0, help='Only take trades with confidence score >= this')
+        parser.add_argument('--trail-atr', type=float, default=0.0, help='ATR trailing-stop distance; >0 replaces the fixed TP')
         parser.add_argument('--sl-buffer-atr', type=float, default=0.25)
         parser.add_argument('--fee-rate', type=float, default=0.0004)
         parser.add_argument('--slippage-rate', type=float, default=0.0002)
@@ -375,6 +397,7 @@ class Command(BaseCommand):
             'require_trend': options['require_trend'],
             'require_pd': options['require_pd'],
             'min_score': options['min_score'],
+            'trail_atr': options['trail_atr'],
             'pd_lb': options['pd_lookback'],
         }
         delta = timedelta(milliseconds=_interval_ms(trend_tf))
