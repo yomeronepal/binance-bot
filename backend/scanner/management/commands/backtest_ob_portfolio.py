@@ -93,7 +93,7 @@ class Command(BaseCommand):
         parser.add_argument('--lookback', type=int, default=10)
         parser.add_argument('--sl-buffer-atr', type=float, default=0.25)
         parser.add_argument('--atr-period', type=int, default=14)
-        parser.add_argument('--max-concurrent', type=int, default=3)
+        parser.add_argument('--max-concurrent', type=int, default=5)
         parser.add_argument('--risk-pct', type=float, default=1.0)
         parser.add_argument('--equity', type=float, default=10000.0)
         parser.add_argument('--leverage', type=float, default=10.0)

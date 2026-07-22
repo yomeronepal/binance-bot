@@ -75,6 +75,17 @@ def _order_block_stop(direction, i, opens, closes, highs, lows, last_sh, last_sl
     return None
 
 
+def _first_break(direction, i, closes, last_sh, last_sl):
+    """True only on the bar that FIRST breaks structure (not continuation bars)."""
+    if i < 1:
+        return True
+    if direction == 'LONG':
+        prev_broken = not np.isnan(last_sh[i - 1]) and closes[i - 1] > last_sh[i - 1]
+    else:
+        prev_broken = not np.isnan(last_sl[i - 1]) and closes[i - 1] < last_sl[i - 1]
+    return not prev_broken
+
+
 def _confidence(direction, i, closes, opens, highs, lows, vols, vol_sma, atr,
                 last_sh, last_sl, lbt, sbt, look, pd_lb):
     """Confidence score (max 100) for the setup at candle i, per the hybrid weights."""
@@ -119,6 +130,7 @@ def _build_signal(direction, i, df, closes, opens, highs, lows, vols, vol_sma, a
         'atr': float(atr[i]),
         'confidence': int(score),
         'structure': structure,
+        'first_break': _first_break(direction, i, closes, last_sh, last_sl),
     }
 
 

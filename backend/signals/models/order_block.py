@@ -45,7 +45,7 @@ class OrderBlockStrategyConfig(models.Model):
         default=1.0, help_text=_("Percent of current equity risked per trade"),
     )
     max_concurrent_positions = models.PositiveIntegerField(
-        default=3, help_text=_("Cap on simultaneous open positions (correlated-exposure limit)"),
+        default=5, help_text=_("Cap on simultaneous open positions (correlated-exposure limit)"),
     )
     leverage = models.IntegerField(default=10)
     fee_rate = models.DecimalField(max_digits=8, decimal_places=6, default=Decimal('0.0004'))

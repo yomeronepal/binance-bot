@@ -129,21 +129,16 @@ def _mark_signal(signal, status):
         signal.save(update_fields=['status'])
 
 
-def _try_open(symbol, sig, config, signal):
-    """Open a trade if the symbol is flat and the concurrency cap allows it."""
+def _open_count():
+    """Number of currently open order-block positions."""
     from signals.models.order_block import OrderBlockPaperTrade
-    if OrderBlockPaperTrade.objects.filter(symbol=symbol, status='OPEN').exists():
-        _mark_signal(signal, 'SKIPPED')
-        return None
-    open_count = OrderBlockPaperTrade.objects.filter(status='OPEN').count()
-    if open_count >= config.max_concurrent_positions:
-        _mark_signal(signal, 'SKIPPED')
-        return None
-    trade = _open_trade(symbol, sig, config, _current_equity(config))
-    if trade:
-        _mark_signal(signal, 'EXECUTED')
-        logger.info("OB opened %s %s @ %s (risk $%s)", trade.direction, symbol, trade.entry_price, trade.risk_amount)
-    return trade
+    return OrderBlockPaperTrade.objects.filter(status='OPEN').count()
+
+
+def _has_open(symbol):
+    """True if the symbol already has an open position."""
+    from signals.models.order_block import OrderBlockPaperTrade
+    return OrderBlockPaperTrade.objects.filter(symbol=symbol, status='OPEN').exists()
 
 
 def _run_scan():
@@ -161,17 +156,39 @@ def _run_scan():
         df_entry = frames.get(symbol)
         if df_entry is None:
             continue
+        if _has_open(symbol):
+            continue
         df_closed = _drop_forming(df_entry)
         sig = evaluate_order_block(df_closed, config)
         if not sig:
             continue
-        candle_open = df_closed.index[-1].to_pydatetime().replace(tzinfo=dt_timezone.utc)
-        signal = _record_signal(symbol, sig, candle_open, config.entry_timeframe)
-        signals += 1
-        if _try_open(symbol, sig, config, signal):
+        opened = _handle_signal(symbol, sig, df_closed, config)
+        if opened:
             created += 1
+        if opened or sig.get('first_break'):
+            signals += 1
     logger.info("OB scan: %d symbols, %d signals, %d opened", len(symbols), signals, created)
     return {'symbols': len(symbols), 'signals': signals, 'created': created}
+
+
+def _handle_signal(symbol, sig, df_closed, config):
+    """Open a trade if the cap allows; record a feed signal on a break or an entry.
+
+    Feed stays clean: continuation bars that neither break structure nor open a
+    trade are not logged. Returns the opened trade (or None).
+    """
+    can_open = _open_count() < config.max_concurrent_positions
+    trade = _open_trade(symbol, sig, config, _current_equity(config)) if can_open else None
+    if not (trade or sig.get('first_break')):
+        return None
+    candle_open = df_closed.index[-1].to_pydatetime().replace(tzinfo=dt_timezone.utc)
+    signal = _record_signal(symbol, sig, candle_open, config.entry_timeframe)
+    if trade:
+        _mark_signal(signal, 'EXECUTED')
+        logger.info("OB opened %s %s @ %s (risk $%s)", trade.direction, symbol, trade.entry_price, trade.risk_amount)
+    else:
+        _mark_signal(signal, 'SKIPPED')
+    return trade
 
 
 @shared_task(name='scanner.tasks.order_block_scanner.scan_order_block', bind=True, max_retries=0)
