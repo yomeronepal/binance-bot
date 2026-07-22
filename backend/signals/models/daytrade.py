@@ -355,7 +355,13 @@ class DayTradePaperTrade(models.Model):
         max_digits=20,
         decimal_places=8,
         default=0,
-        help_text=_("Total realized P/L for the trade (USDT)"),
+        help_text=_("Total realized P/L for the trade, net of fees (USDT)"),
+    )
+    fees_paid = models.DecimalField(
+        max_digits=20,
+        decimal_places=8,
+        default=0,
+        help_text=_("Estimated round-trip trading costs deducted (fees + slippage + funding, USDT)"),
     )
     profit_loss_percentage = models.DecimalField(
         max_digits=10,
