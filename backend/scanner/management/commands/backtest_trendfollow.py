@@ -165,9 +165,28 @@ def _backtest_symbol(df_entry, df_trend, start_ts, opts, trend_delta):
         if outcome == 'OPEN':
             break
         pnl = _net_pnl(entry, exit_price, direction, notional, opts['fee_rate'], opts['slippage_rate'])
-        trades.append({'direction': direction, 'outcome': outcome, 'pnl': pnl})
+        trades.append({'direction': direction, 'outcome': outcome, 'pnl': pnl, 'entry_time': times[i]})
         i = exit_idx + 1
     return trades
+
+
+def _segment_report(trades, start_ts, end_ts, n):
+    """Split trades into N equal time windows and summarize each (walk-forward)."""
+    if n <= 1 or not trades:
+        return []
+    span = (end_ts - start_ts) / n
+    buckets = [[] for _ in range(n)]
+    for t in trades:
+        et = t['entry_time'].to_pydatetime().replace(tzinfo=None)
+        idx = int((et - start_ts) / span)
+        idx = min(max(idx, 0), n - 1)
+        buckets[idx].append(t)
+    rows = []
+    for k in range(n):
+        s = _summarize(buckets[k])
+        label = (start_ts + span * k).strftime('%Y-%m-%d')
+        rows.append((label, s))
+    return rows
 
 
 def _summarize(trades):
@@ -209,6 +228,8 @@ class Command(BaseCommand):
         parser.add_argument('--slippage-rate', type=float, default=0.0002)
         parser.add_argument('--margin', type=float, default=100.0)
         parser.add_argument('--leverage', type=float, default=10.0)
+        parser.add_argument('--segments', type=int, default=1,
+                            help='Split the window into N walk-forward buckets and report each')
 
     def handle(self, *args, **options):
         end_ms = int(timezone.now().timestamp() * 1000)
@@ -242,6 +263,15 @@ class Command(BaseCommand):
                 f"PF {s.get('profit_factor')} | net ${s.get('net_pnl', 0)}"
             )
             all_trades.extend(trades)
+
+        if options['segments'] > 1:
+            end_ts = timezone.datetime.utcfromtimestamp(end_ms / 1000)
+            self.stdout.write("  --- WALK-FORWARD SEGMENTS ---")
+            for label, s in _segment_report(all_trades, start_ts, end_ts, options['segments']):
+                self.stdout.write(
+                    f"  {label}: {s.get('trades', 0)} trades | win {s.get('win_rate', 0)}% | "
+                    f"PF {s.get('profit_factor')} | net ${s.get('net_pnl', 0)}"
+                )
 
         overall = _summarize(all_trades)
         self.stdout.write("  --- OVERALL ---")
