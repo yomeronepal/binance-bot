@@ -212,6 +212,22 @@ app.conf.beat_schedule = {
         'options': {'expires': 55.0},
     },
 
+    # ============================================================================
+    # 4H SWING ENGINE (paper-first validation) - scan at each 4h close
+    # ============================================================================
+
+    'scan-swing': {
+        'task': 'scanner.tasks.swing_scanner.scan_swing',
+        'schedule': crontab(minute=2, hour='0,4,8,12,16,20'),
+        'options': {'expires': 300.0},
+    },
+
+    'monitor-swing-positions': {
+        'task': 'scanner.tasks.swing_scanner.monitor_swing_positions',
+        'schedule': crontab(minute='*/5'),
+        'options': {'expires': 280.0},
+    },
+
 }
 
 # Celery Configuration
@@ -278,6 +294,8 @@ app.conf.update(
         'scanner.tasks.daytrade_scanner.scan_daytrade': {'queue': 'daytrade'},
         'scanner.tasks.daytrade_executor.open_daytrade_positions': {'queue': 'daytrade'},
         'scanner.tasks.daytrade_executor.monitor_daytrade_positions': {'queue': 'daytrade'},
+        'scanner.tasks.swing_scanner.scan_swing': {'queue': 'daytrade'},
+        'scanner.tasks.swing_scanner.monitor_swing_positions': {'queue': 'daytrade'},
     },
 )
 
