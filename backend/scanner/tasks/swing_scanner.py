@@ -7,6 +7,7 @@ fee + slippage. Gated by SwingStrategyConfig.enabled; paper only.
 """
 import asyncio
 import logging
+from datetime import timezone as dt_timezone
 from decimal import Decimal
 
 from celery import shared_task
@@ -75,8 +76,27 @@ def _open_trade(symbol, sig, config):
     )
 
 
+def _record_signal(symbol, sig, candle_open, entry_tf, trend_tf):
+    """Persist the detected breakout as a SwingSignal (deduped per candle)."""
+    from signals.models.swing import SwingSignal
+    signal, _created = SwingSignal.objects.get_or_create(
+        symbol=symbol,
+        entry_timeframe=entry_tf,
+        candle_open_time=candle_open,
+        direction=sig['direction'],
+        defaults={
+            'trend_timeframe': trend_tf,
+            'entry': Decimal(str(sig['entry'])),
+            'stop_loss': Decimal(str(sig['stop_loss'])),
+            'take_profit': Decimal(str(sig['take_profit'])),
+            'atr': Decimal(str(sig['atr'])),
+        },
+    )
+    return signal
+
+
 def _run_scan():
-    """Resolve config + symbols, evaluate each, open new paper trades."""
+    """Resolve config + symbols, evaluate each, record signals + open trades."""
     from signals.models.swing import SwingStrategyConfig, SwingPaperTrade
     config = SwingStrategyConfig.get_active()
     if not config.enabled:
@@ -85,22 +105,30 @@ def _run_scan():
     symbols = config.scan_symbols()
     frames = asyncio.run(_fetch_frames(symbols, config.entry_timeframe, config.trend_timeframe))
     created = 0
+    signals = 0
     for symbol in symbols:
         pair = frames.get(symbol)
         if not pair:
             continue
         df_entry, df_trend = pair
-        sig = evaluate_swing(_drop_forming(df_entry), _drop_forming(df_trend), config)
+        df_entry_closed = _drop_forming(df_entry)
+        sig = evaluate_swing(df_entry_closed, _drop_forming(df_trend), config)
         if not sig:
             continue
+        candle_open = df_entry_closed.index[-1].to_pydatetime().replace(tzinfo=dt_timezone.utc)
+        signal = _record_signal(symbol, sig, candle_open, config.entry_timeframe, config.trend_timeframe)
+        signals += 1
         if SwingPaperTrade.objects.filter(symbol=symbol, status='OPEN').exists():
             continue
         trade = _open_trade(symbol, sig, config)
         if trade:
             created += 1
+            if signal.status != 'EXECUTED':
+                signal.status = 'EXECUTED'
+                signal.save(update_fields=['status'])
             logger.info("Swing opened %s %s @ %s", trade.direction, symbol, trade.entry_price)
-    logger.info("Swing scan: %d symbols, %d opened", len(symbols), created)
-    return {'symbols': len(symbols), 'created': created}
+    logger.info("Swing scan: %d symbols, %d signals, %d opened", len(symbols), signals, created)
+    return {'symbols': len(symbols), 'signals': signals, 'created': created}
 
 
 @shared_task(name='scanner.tasks.swing_scanner.scan_swing', bind=True, max_retries=0)

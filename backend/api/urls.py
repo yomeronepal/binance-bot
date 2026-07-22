@@ -80,6 +80,7 @@ from signals.views.swing import (
     swing_open_positions,
     swing_summary,
     swing_close_trade,
+    swing_signals_list,
 )
 from signals.views.daytrade import (
     daytrade_signals_list,
@@ -189,6 +190,7 @@ urlpatterns = [
     path('daytrade/report/', daytrade_report, name='daytrade-report'),
     path('daytrade/trades/<int:trade_id>/close/', daytrade_close_trade, name='daytrade-close-trade'),
 
+    path('swing/signals/', swing_signals_list, name='swing-signals'),
     path('swing/trades/', swing_trades_list, name='swing-trades'),
     path('swing/positions/', swing_open_positions, name='swing-positions'),
     path('swing/summary/', swing_summary, name='swing-summary'),

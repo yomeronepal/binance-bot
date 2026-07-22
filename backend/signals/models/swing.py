@@ -102,3 +102,61 @@ class SwingPaperTrade(models.Model):
 
     def __str__(self):
         return f"Swing {self.direction} {self.symbol} [{self.status}]"
+
+
+class SwingSignal(models.Model):
+    """A 4h breakout signal detected by the swing scanner (feed/analytics).
+
+    Recorded whenever the entry rule fires, whether or not a paper trade was
+    opened (a trade is skipped if one is already open for the symbol), so the
+    feed shows everything the engine detected each 4h.
+    """
+
+    STATUS_CHOICES = [
+        ('ACTIVE', _('Active')),
+        ('EXECUTED', _('Executed')),
+        ('EXPIRED', _('Expired')),
+    ]
+
+    symbol = models.CharField(max_length=20, db_index=True)
+    direction = models.CharField(max_length=10, choices=SwingPaperTrade.DIRECTION_CHOICES)
+    entry_timeframe = models.CharField(max_length=5, default='4h')
+    trend_timeframe = models.CharField(max_length=5, default='1d')
+    candle_open_time = models.DateTimeField(help_text=_("Open time of the 4h candle this signal belongs to"))
+    entry = models.DecimalField(max_digits=20, decimal_places=8)
+    stop_loss = models.DecimalField(max_digits=20, decimal_places=8)
+    take_profit = models.DecimalField(max_digits=20, decimal_places=8)
+    atr = models.DecimalField(max_digits=20, decimal_places=8)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='ACTIVE', db_index=True)
+    meta = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'swing_signals'
+        ordering = ['-created_at']
+        verbose_name = _('Swing Signal')
+        verbose_name_plural = _('Swing Signals')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['symbol', 'entry_timeframe', 'candle_open_time', 'direction'],
+                name='swing_signal_dedup',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['symbol', 'direction', '-created_at']),
+            models.Index(fields=['status', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"Swing {self.direction} {self.symbol} @ {self.entry}"
+
+    @property
+    def risk_reward_ratio(self):
+        """Reward/risk to the take-profit, or None if risk is non-positive."""
+        if self.direction == 'LONG':
+            risk = float(self.entry - self.stop_loss)
+            reward = float(self.take_profit - self.entry)
+        else:
+            risk = float(self.stop_loss - self.entry)
+            reward = float(self.entry - self.take_profit)
+        return round(reward / risk, 2) if risk > 0 else None
