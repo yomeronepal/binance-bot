@@ -2772,3 +2772,28 @@ class DayTradeStrategyConfigAdmin(admin.ModelAdmin):
         }),
     )
 
+
+
+from signals.models.swing import SwingStrategyConfig, SwingPaperTrade
+
+
+@admin.register(SwingStrategyConfig)
+class SwingStrategyConfigAdmin(admin.ModelAdmin):
+    """Admin for the 4h swing engine config (paper harness)."""
+    list_display = (
+        'name', 'enabled', 'entry_timeframe', 'trend_timeframe',
+        'adx_min', 'breakout_lookback', 'sl_atr_mult', 'tp_atr_mult',
+        'margin_per_trade', 'leverage', 'updated_at',
+    )
+
+
+@admin.register(SwingPaperTrade)
+class SwingPaperTradeAdmin(admin.ModelAdmin):
+    """Admin for 4h swing paper trades (read-only)."""
+    list_display = (
+        'symbol', 'direction', 'status', 'entry_price', 'exit_price',
+        'profit_loss', 'fees_paid', 'entry_time', 'exit_time',
+    )
+    list_filter = ('status', 'direction', 'symbol')
+    search_fields = ('symbol',)
+    readonly_fields = [f.name for f in SwingPaperTrade._meta.fields]

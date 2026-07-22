@@ -10,6 +10,7 @@ from . import (
     optimization,
     push,
     strategy_config,
+    swing,
     top_performers,
     walkforward,
 )
