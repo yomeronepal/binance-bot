@@ -137,6 +137,122 @@ def check_and_execute_cut_loser(
     return None
 
 
+def _has_opposite_daytrade_signal(trade, settings):
+    """True if a qualifying opposite-direction day-trade signal exists.
+
+    The signal must be ACTIVE for the same symbol, in the opposite direction,
+    at or above the configured confidence floor, and generated after the trade
+    was opened.
+    """
+    from signals.models.daytrade import DayTradeSignal
+    opposite = 'SHORT' if trade.direction == 'LONG' else 'LONG'
+    since = trade.entry_time or trade.created_at
+    return DayTradeSignal.objects.filter(
+        symbol=trade.symbol,
+        direction=opposite,
+        status='ACTIVE',
+        confidence__gte=float(settings.opposite_exit_min_confidence),
+        created_at__gt=since,
+    ).exists()
+
+
+def _close_futures_position(trade):
+    """Cancel orders and market-close a position; return exit avgPrice or None."""
+    import asyncio
+    import threading
+    result = [None]
+    error = [None]
+
+    def worker():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                async def _close():
+                    trader = BinanceFuturesTrader(use_testnet=False)
+                    try:
+                        await trader.cancel_all_orders(trade.symbol)
+                        return await trader.close_position(
+                            trade.symbol, trade.direction, trade.quantity
+                        )
+                    finally:
+                        await trader.close()
+                result[0] = loop.run_until_complete(_close())
+            finally:
+                loop.close()
+        except Exception as exc:
+            error[0] = exc
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    thread.join(timeout=30)
+    if error[0]:
+        logger.error("Failed to close %s: %s", trade.symbol, error[0])
+        return None
+    if result[0]:
+        return Decimal(result[0].get('avgPrice', '0'))
+    return None
+
+
+def check_and_execute_opposite_exit(trade, pnl_pct, settings):
+    """Arm on drawdown + opposite day-trade signal; close once recovered to profit.
+
+    Never closes at a loss: the close branch requires ``pnl_pct`` at or above the
+    configured minimum profit. In shadow mode it logs the decision without acting.
+
+    Args:
+        trade: FuturesTrade instance (status OPEN).
+        pnl_pct: Current unrealized PnL as a percent of margin.
+        settings: FuturesTradingSettings instance.
+
+    Returns:
+        dict with close info if the trade was closed, None otherwise.
+    """
+    if not settings.opposite_exit_enabled:
+        return None
+
+    if not trade.opposite_exit_armed and pnl_pct < 0:
+        try:
+            armed = _has_opposite_daytrade_signal(trade, settings)
+        except Exception as exc:
+            logger.warning("Opposite-exit signal check failed for %s: %s", trade.symbol, exc)
+            return None
+        if armed:
+            trade.opposite_exit_armed = True
+            trade.opposite_exit_armed_at = dj_timezone.now()
+            trade.save(update_fields=['opposite_exit_armed', 'opposite_exit_armed_at'])
+            logger.info(
+                "🔄 Opposite-exit armed for %s %s (drawdown %.2f%%, opposite signal >= %.2f)",
+                trade.direction, trade.symbol, pnl_pct,
+                float(settings.opposite_exit_min_confidence),
+            )
+
+    if trade.opposite_exit_armed and pnl_pct >= settings.opposite_exit_min_profit_pct:
+        if settings.opposite_exit_shadow_mode:
+            logger.info(
+                "👀 [shadow] WOULD opposite-exit close %s at %.2f%% (>= %.2f%%)",
+                trade.symbol, pnl_pct, float(settings.opposite_exit_min_profit_pct),
+            )
+            return None
+        exit_price = _close_futures_position(trade)
+        if exit_price is None:
+            return None
+        trade.close_trade(exit_price, 'CLOSED_REVERSAL')
+        trade.error_message = f"Opposite-exit: closed at {pnl_pct:.2f}% after reversal signal"
+        trade.save()
+        logger.info("🔄 Opposite-exit closed %s at %.2f%%", trade.symbol, pnl_pct)
+        return {
+            'trade_id': trade.id,
+            'symbol': trade.symbol,
+            'direction': trade.direction,
+            'exit_price': str(exit_price),
+            'pnl_pct': str(pnl_pct),
+            'reason': 'opposite_exit',
+        }
+
+    return None
+
+
 def check_and_update_dynamic_trailing(
     trade: FuturesTrade,
     pnl_pct: Decimal,
@@ -415,9 +531,21 @@ def get_prioritized_signals(settings: FuturesTradingSettings, limit: int) -> Lis
         '-timeframe_priority', # Better timeframes first
         '-confidence',         # Higher confidence first
         '-created_at'          # Newer signals first
-    )[:limit]
+    )
 
-    return list(queryset)
+    ordered = list(queryset)
+
+    if settings.futures_universe_screen_enabled and ordered:
+        from scanner.services.futures_universe import screen_futures_symbols
+        passing = screen_futures_symbols({s.symbol.symbol for s in ordered})
+        dropped = len(ordered)
+        ordered = [s for s in ordered if s.symbol.symbol in passing]
+        logger.info(
+            "Futures universe screen: %d -> %d signals after screen",
+            dropped, len(ordered),
+        )
+
+    return ordered[:limit]
 
 
 MAX_ENTRY_ATTEMPTS = 5
@@ -919,6 +1047,15 @@ def sync_futures_trades_with_binance(self):
                                     f"📈 Dynamic trailing updated: {trade.symbol} "
                                     f"Tier {trailing_result['new_tier']} ({trailing_result['new_trailing_pct']}%)"
                                 )
+
+                    if trade.status == 'OPEN':
+                        opposite_result = check_and_execute_opposite_exit(trade, pnl_pct, settings)
+                        if opposite_result:
+                            closed_trades.append(opposite_result)
+                            logger.info(
+                                f"🔄 Opposite-exit closed: {trade.symbol} @ {opposite_result['exit_price']} "
+                                f"(PnL: {opposite_result['pnl_pct']}%)"
+                            )
 
                     del binance_position_map[trade.symbol]
                 else:

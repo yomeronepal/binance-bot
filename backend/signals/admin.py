@@ -1492,6 +1492,21 @@ class FuturesTradingSettingsAdmin(admin.ModelAdmin):
             ),
             'description': 'Close losing trades early when they recover near breakeven'
         }),
+        ('Futures Signal-Quality Gate', {
+            'fields': (
+                'futures_universe_screen_enabled',
+                'opposite_exit_enabled',
+                'opposite_exit_shadow_mode',
+                'opposite_exit_min_confidence',
+                'opposite_exit_min_profit_pct',
+            ),
+            'description': (
+                'Universe screening drops illiquid/parabolic symbols before '
+                'execution. Opposite-exit arms a drawdown trade when an opposite '
+                'day-trade signal appears and closes it once it recovers to '
+                'profit (shadow mode logs without acting).'
+            )
+        }),
         ('Dynamic Trailing Stop', {
             'fields': (
                 'dynamic_trailing_enabled',
