@@ -1,14 +1,15 @@
-"""Backtest a trend-following prototype (breakout-in-trend, ATR-based R:R).
+"""Backtest a trend-following prototype (breakout-in-trend, ATR R:R).
 
 Research tool only: no DB writes, no engine, no live orders. Enters WITH the
-1h trend on a 15m breakout, exits on an ATR stop or ATR target for a wide R:R,
-and reports net-of-cost metrics (fee + slippage on turnover). Designed to test
-whether a trend-following class clears the cost hurdle that sinks the current
-mean-reversion engine.
+higher-timeframe trend on an entry-timeframe breakout, exits on an ATR stop or
+ATR target (or an ATR trailing stop), and reports net-of-cost metrics (fee +
+slippage on turnover). Entry/trend timeframes are configurable, so the same
+harness tests 15m intraday and 4h/1D swing.
 
 Usage:
-    python manage.py backtest_trendfollow --symbols BTCUSDT,ETHUSDT --days 90
-    python manage.py backtest_trendfollow --adx-min 25 --tp-atr 4 --sl-atr 1.5
+    python manage.py backtest_trendfollow --days 90
+    python manage.py backtest_trendfollow --entry-tf 4h --trend-tf 1d --days 365 \
+        --adx-min 20 --breakout 20 --sl-atr 1.5 --tp-atr 3
 """
 import asyncio
 from datetime import timedelta
@@ -17,15 +18,37 @@ import numpy as np
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from scanner.indicators.indicator_utils import calculate_ema, calculate_atr, calculate_adx
-from scanner.management.commands.backtest_daytrade import _fetch_symbol_frames
+from scanner.indicators.indicator_utils import (
+    calculate_ema, calculate_atr, calculate_adx, klines_to_dataframe,
+)
+from scanner.services.binance_futures_client import BinanceFuturesClient
+from scanner.management.commands.backtest_daytrade import _fetch_history, _interval_ms
+
+WARMUP_CANDLES = 220
 
 
-def _trend_array(df1h, adx_min):
-    """Per-1h-candle trend label: 'UP', 'DOWN', or '' (no confirmed trend)."""
-    ema50 = calculate_ema(df1h, 50)
-    ema200 = calculate_ema(df1h, 200)
-    adx, _plus, _minus = calculate_adx(df1h, 14)
+async def _fetch_frames(symbol, start_ms, end_ms, entry_tf, trend_tf):
+    """Fetch entry + trend frames with enough warmup for EMA200/ATR on each tf."""
+    e_ms = _interval_ms(entry_tf)
+    t_ms = _interval_ms(trend_tf)
+    async with BinanceFuturesClient() as client:
+        k_entry = await _fetch_history(client, symbol, entry_tf, start_ms - WARMUP_CANDLES * e_ms, end_ms)
+        k_trend = await _fetch_history(client, symbol, trend_tf, start_ms - WARMUP_CANDLES * t_ms, end_ms)
+    if not k_entry or not k_trend:
+        return None, None
+    return klines_to_dataframe(k_entry), klines_to_dataframe(k_trend)
+
+
+def _first_eval_index(df, start_ts):
+    """First index at or after start_ts."""
+    return int(np.searchsorted(df.index.values, np.datetime64(start_ts), side='left'))
+
+
+def _trend_array(df_trend, adx_min):
+    """Per-trend-candle label: 'UP', 'DOWN', or '' (no confirmed trend)."""
+    ema50 = calculate_ema(df_trend, 50)
+    ema200 = calculate_ema(df_trend, 200)
+    adx, _plus, _minus = calculate_adx(df_trend, 14)
     labels = []
     for e50, e200, a in zip(ema50, ema200, adx):
         if np.isnan(e50) or np.isnan(e200) or np.isnan(a) or a < adx_min:
@@ -39,24 +62,20 @@ def _trend_array(df1h, adx_min):
     return labels
 
 
-def _trend_at(h_times, trend_labels, candle_time):
-    """Trend from the last 1h candle that closed at or before candle_time.
-
-    Uses open_time <= candle_time - 1h so the 1h candle is fully closed,
-    avoiding look-ahead.
-    """
-    cutoff = np.datetime64(candle_time - timedelta(hours=1))
+def _trend_at(h_times, trend_labels, candle_time, trend_delta):
+    """Trend from the last trend candle closed at/before candle_time (no look-ahead)."""
+    cutoff = np.datetime64(candle_time - trend_delta)
     idx = int(np.searchsorted(h_times, cutoff, side='right')) - 1
     if idx < 0:
         return ''
     return trend_labels[idx]
 
 
-def _simulate_exit(df15, entry_idx, direction, stop_loss, take_profit):
+def _simulate_exit(df, entry_idx, direction, stop_loss, take_profit):
     """Walk forward to the first SL/TP touch (SL checked first, conservative)."""
-    highs = df15['high'].values
-    lows = df15['low'].values
-    for j in range(entry_idx + 1, len(df15)):
+    highs = df['high'].values
+    lows = df['low'].values
+    for j in range(entry_idx + 1, len(df)):
         if direction == 'LONG':
             if lows[j] <= stop_loss:
                 return j, stop_loss, 'SL'
@@ -70,18 +89,13 @@ def _simulate_exit(df15, entry_idx, direction, stop_loss, take_profit):
     return None, None, 'OPEN'
 
 
-def _simulate_exit_trailing(df15, entry_idx, direction, initial_sl, trail_dist):
-    """Walk forward with an ATR trailing stop (no fixed target; let winners run).
-
-    The stop starts at ``initial_sl`` and ratchets in the trade's favour by
-    ``trail_dist`` behind the best price. The stop-hit check runs before the
-    ratchet within each candle (conservative). Returns (exit_idx, price, outcome).
-    """
-    highs = df15['high'].values
-    lows = df15['low'].values
+def _simulate_exit_trailing(df, entry_idx, direction, initial_sl, trail_dist):
+    """Walk forward with an ATR trailing stop (no fixed target; let winners run)."""
+    highs = df['high'].values
+    lows = df['low'].values
     stop = initial_sl
     best = None
-    for j in range(entry_idx + 1, len(df15)):
+    for j in range(entry_idx + 1, len(df)):
         if direction == 'LONG':
             if lows[j] <= stop:
                 return j, stop, 'TRAIL'
@@ -104,27 +118,27 @@ def _net_pnl(entry, exit_price, direction, notional, fee_rate, slippage_rate):
     return gross - cost
 
 
-def _backtest_symbol(df15, df1h, opts):
+def _backtest_symbol(df_entry, df_trend, start_ts, opts, trend_delta):
     """Walk-forward breakout-in-trend backtest for one symbol; returns trades."""
-    atr = calculate_atr(df15, 14).values
-    highs = df15['high'].values
-    lows = df15['low'].values
-    closes = df15['close'].values
-    times = df15.index
-    h_times = df1h.index.values
-    trend_labels = _trend_array(df1h, opts['adx_min'])
+    atr = calculate_atr(df_entry, 14).values
+    highs = df_entry['high'].values
+    lows = df_entry['low'].values
+    closes = df_entry['close'].values
+    times = df_entry.index
+    h_times = df_trend.index.values
+    trend_labels = _trend_array(df_trend, opts['adx_min'])
 
     look = opts['breakout']
     notional = opts['margin'] * opts['leverage']
     trades = []
-    i = max(look, 200)
-    n = len(df15)
+    i = max(_first_eval_index(df_entry, start_ts), look)
+    n = len(df_entry)
     while i < n:
         a = atr[i]
         if np.isnan(a) or a <= 0:
             i += 1
             continue
-        trend = _trend_at(h_times, trend_labels, times[i].to_pydatetime())
+        trend = _trend_at(h_times, trend_labels, times[i].to_pydatetime(), trend_delta)
         prior_high = highs[i - look:i].max()
         prior_low = lows[i - look:i].min()
         entry = closes[i]
@@ -145,11 +159,9 @@ def _backtest_symbol(df15, df1h, opts):
             tp = entry - opts['tp_atr'] * a
 
         if opts['trail_atr'] > 0:
-            exit_idx, exit_price, outcome = _simulate_exit_trailing(
-                df15, i, direction, sl, opts['trail_atr'] * a
-            )
+            exit_idx, exit_price, outcome = _simulate_exit_trailing(df_entry, i, direction, sl, opts['trail_atr'] * a)
         else:
-            exit_idx, exit_price, outcome = _simulate_exit(df15, i, direction, sl, tp)
+            exit_idx, exit_price, outcome = _simulate_exit(df_entry, i, direction, sl, tp)
         if outcome == 'OPEN':
             break
         pnl = _net_pnl(entry, exit_price, direction, notional, opts['fee_rate'], opts['slippage_rate'])
@@ -185,8 +197,10 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--symbols', default='BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT')
         parser.add_argument('--days', type=int, default=90)
+        parser.add_argument('--entry-tf', default='15m', help='Entry timeframe (e.g. 15m, 4h)')
+        parser.add_argument('--trend-tf', default='1h', help='Trend-filter timeframe (e.g. 1h, 1d)')
         parser.add_argument('--adx-min', type=float, default=20.0)
-        parser.add_argument('--breakout', type=int, default=20, help='15m breakout lookback')
+        parser.add_argument('--breakout', type=int, default=20, help='Entry-tf breakout lookback')
         parser.add_argument('--sl-atr', type=float, default=1.5)
         parser.add_argument('--tp-atr', type=float, default=3.0)
         parser.add_argument('--trail-atr', type=float, default=0.0,
@@ -201,25 +215,27 @@ class Command(BaseCommand):
         start_ms = end_ms - options['days'] * 86_400_000
         start_ts = timezone.datetime.utcfromtimestamp(start_ms / 1000)
         symbols = [s.strip().upper() for s in options['symbols'].split(',') if s.strip()]
+        entry_tf = options['entry_tf']
+        trend_tf = options['trend_tf']
+        trend_delta = timedelta(milliseconds=_interval_ms(trend_tf))
         opts = {k: options[k] for k in (
             'adx_min', 'breakout', 'sl_atr', 'tp_atr', 'trail_atr',
             'fee_rate', 'slippage_rate', 'margin', 'leverage')}
         rr = round(options['tp_atr'] / options['sl_atr'], 2)
+        exit_desc = f"trail {opts['trail_atr']}xATR" if opts['trail_atr'] > 0 else f"TP {opts['tp_atr']}xATR (R:R {rr})"
         self.stdout.write(
             f"Trend-follow breakout | {len(symbols)} symbols | {options['days']}d | "
-            f"ADX>={opts['adx_min']} breakout={opts['breakout']} "
-            f"SL {opts['sl_atr']}xATR TP {opts['tp_atr']}xATR (R:R {rr}) | "
-            f"fee {opts['fee_rate']} slip {opts['slippage_rate']}"
+            f"entry {entry_tf} trend {trend_tf} | ADX>={opts['adx_min']} breakout={opts['breakout']} "
+            f"SL {opts['sl_atr']}xATR {exit_desc} | fee {opts['fee_rate']} slip {opts['slippage_rate']}"
         )
 
         all_trades = []
         for symbol in symbols:
-            df15, df1h = asyncio.run(_fetch_symbol_frames(symbol, start_ms, end_ms, '15m', '1h'))
-            if df15 is None or df1h is None:
+            df_entry, df_trend = asyncio.run(_fetch_frames(symbol, start_ms, end_ms, entry_tf, trend_tf))
+            if df_entry is None or df_trend is None:
                 self.stdout.write(self.style.WARNING(f"  {symbol}: no data"))
                 continue
-            df15 = df15[df15.index >= start_ts]
-            trades = _backtest_symbol(df15, df1h, opts)
+            trades = _backtest_symbol(df_entry, df_trend, start_ts, opts, trend_delta)
             s = _summarize(trades)
             self.stdout.write(
                 f"  {symbol}: {s.get('trades', 0)} trades | win {s.get('win_rate', 0)}% | "
