@@ -5,7 +5,7 @@ import useThemeStore from '../../store/useThemeStore';
 import {
   LayoutDashboard, Signal, TrendingUp, FileText, Bot,
   Calendar, BarChart3, Sun, Moon, LogOut, LogIn, Menu,
-  X, ChevronLeft, ChevronRight, ChevronDown, User, FlaskConical, Activity
+  X, ChevronLeft, ChevronRight, ChevronDown, User, FlaskConical, Activity, Boxes
 } from 'lucide-react';
 import PushNotificationBanner from '../common/PushNotificationBanner';
 
@@ -58,6 +58,12 @@ const Layout = () => {
       type: 'group', label: 'Swing (4h)', items: [
         { to: '/swing-signals', label: 'Signals', icon: Signal },
         { to: '/swing-performance', label: 'Bot Performance', icon: Activity },
+      ],
+    },
+    {
+      type: 'group', label: 'Order Block (4h)', items: [
+        { to: '/order-block-signals', label: 'Signals', icon: Boxes },
+        { to: '/order-block-performance', label: 'Bot Performance', icon: Activity },
       ],
     },
     { type: 'item', to: '/paper-trading', label: 'Paper Trading', icon: FileText },
@@ -117,7 +123,9 @@ const Layout = () => {
         {navSections.map((section, idx) => {
           if (section.type === 'group') {
             const expandedSidebar = !collapsed || isMobile;
-            const isOpen = openGroups[section.label] !== false;
+            const isOpen = section.label in openGroups
+              ? openGroups[section.label]
+              : section.defaultOpen === true;
             return (
               <div key={`group-${idx}`} className="pt-3 first:pt-0">
                 {expandedSidebar ? (

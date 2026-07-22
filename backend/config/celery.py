@@ -228,6 +228,18 @@ app.conf.beat_schedule = {
         'options': {'expires': 280.0},
     },
 
+    'scan-order-block': {
+        'task': 'scanner.tasks.order_block_scanner.scan_order_block',
+        'schedule': crontab(minute=2, hour='0,4,8,12,16,20'),
+        'options': {'expires': 300.0},
+    },
+
+    'monitor-order-block-positions': {
+        'task': 'scanner.tasks.order_block_scanner.monitor_order_block_positions',
+        'schedule': crontab(minute='*/5'),
+        'options': {'expires': 280.0},
+    },
+
 }
 
 # Celery Configuration
@@ -296,6 +308,8 @@ app.conf.update(
         'scanner.tasks.daytrade_executor.monitor_daytrade_positions': {'queue': 'daytrade'},
         'scanner.tasks.swing_scanner.scan_swing': {'queue': 'daytrade'},
         'scanner.tasks.swing_scanner.monitor_swing_positions': {'queue': 'daytrade'},
+        'scanner.tasks.order_block_scanner.scan_order_block': {'queue': 'daytrade'},
+        'scanner.tasks.order_block_scanner.monitor_order_block_positions': {'queue': 'daytrade'},
     },
 )
 

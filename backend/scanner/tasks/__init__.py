@@ -67,12 +67,19 @@ from .swing_scanner import (
     monitor_swing_positions,
 )
 
+from .order_block_scanner import (
+    scan_order_block,
+    monitor_order_block_positions,
+)
+
 __all__ = [
     'scan_daytrade',
     'open_daytrade_positions',
     'monitor_daytrade_positions',
     'scan_swing',
     'monitor_swing_positions',
+    'scan_order_block',
+    'monitor_order_block_positions',
     'scan_binance_market',
     'scan_futures_market',
     'full_data_refresh',

@@ -1,0 +1,567 @@
+"""Backtest ICT / Smart-Money-Concept setups (net-of-cost, research only).
+
+Mechanized approximations of three ICT setups so their performance can be
+compared apples-to-apples (fixed-R exits, same costs):
+
+  sweep_mss_fvg : liquidity sweep -> market-structure shift -> FVG entry
+  fvg_continuation : HTF-trend + fair-value-gap continuation
+  order_block : break of structure from the last opposing candle (order block)
+
+No DB writes, no engine, no live orders. Look-ahead-safe: swing points use a
+confirmation lag, the trend frame is read as-of the entry candle, and FVG/OB
+use only closed candles. ICT is discretionary lore; these are deterministic
+proxies, not the "real" thing — treat results as directional evidence.
+
+Usage:
+    python manage.py backtest_ict --entry-tf 4h --trend-tf 1d --setup all --days 365
+"""
+import asyncio
+from datetime import timedelta
+
+import numpy as np
+from django.core.management.base import BaseCommand
+from django.utils import timezone
+
+from scanner.indicators.indicator_utils import (
+    calculate_ema, calculate_atr, calculate_adx, klines_to_dataframe,
+)
+from scanner.services.binance_futures_client import BinanceFuturesClient
+from scanner.management.commands.backtest_daytrade import _fetch_history, _interval_ms
+
+SETUPS = ['sweep_mss_fvg', 'fvg_continuation', 'order_block']
+WARMUP_CANDLES = 240
+
+
+async def _fetch_frames(symbol, start_ms, end_ms, entry_tf, trend_tf):
+    """Fetch entry + trend frames with enough warmup for EMA200/ATR on each tf."""
+    e_ms = _interval_ms(entry_tf)
+    t_ms = _interval_ms(trend_tf)
+    async with BinanceFuturesClient() as client:
+        k_entry = await _fetch_history(client, symbol, entry_tf, start_ms - WARMUP_CANDLES * e_ms, end_ms)
+        k_trend = await _fetch_history(client, symbol, trend_tf, start_ms - WARMUP_CANDLES * t_ms, end_ms)
+    if not k_entry or not k_trend:
+        return None, None
+    return klines_to_dataframe(k_entry), klines_to_dataframe(k_trend)
+
+
+def _first_eval_index(df, start_ts):
+    """First index at or after start_ts."""
+    return int(np.searchsorted(df.index.values, np.datetime64(start_ts), side='left'))
+
+
+def _swing_levels(highs, lows, k):
+    """Most-recent CONFIRMED swing high/low price at each index (k-bar lag)."""
+    n = len(highs)
+    last_sh = np.full(n, np.nan)
+    last_sl = np.full(n, np.nan)
+    sh = np.nan
+    sl = np.nan
+    for j in range(n):
+        c = j - k
+        if c - k >= 0:
+            wh = highs[c - k:c + k + 1]
+            wl = lows[c - k:c + k + 1]
+            if highs[c] == wh.max():
+                sh = highs[c]
+            if lows[c] == wl.min():
+                sl = lows[c]
+        last_sh[j] = sh
+        last_sl[j] = sl
+    return last_sh, last_sl
+
+
+def _structure_breaks(closes, last_sh, last_sl):
+    """Classify each close's structure break as BOS (continuation) or CHoCH (reversal).
+
+    Maintains the prevailing structure direction: a break in the same direction
+    is a BOS; a break against it is a CHoCH (change of character / first reversal
+    break). Returns (long_break_type[], short_break_type[]) with '', 'BOS' or 'CHoCH'.
+    """
+    n = len(closes)
+    lbt = [''] * n
+    sbt = [''] * n
+    direction = ''
+    for i in range(n):
+        if not np.isnan(last_sh[i]) and closes[i] > last_sh[i]:
+            lbt[i] = 'CHoCH' if direction == 'bear' else 'BOS'
+            direction = 'bull'
+        elif not np.isnan(last_sl[i]) and closes[i] < last_sl[i]:
+            sbt[i] = 'CHoCH' if direction == 'bull' else 'BOS'
+            direction = 'bear'
+    return lbt, sbt
+
+
+def _trend_labels(df_trend, adx_min):
+    """UP/DOWN/'' per trend candle (EMA50 vs EMA200 + ADX)."""
+    ema50 = calculate_ema(df_trend, 50).values
+    ema200 = calculate_ema(df_trend, 200).values
+    adx = calculate_adx(df_trend, 14)[0].values
+    out = []
+    for a50, a200, a in zip(ema50, ema200, adx):
+        if np.isnan(a50) or np.isnan(a200) or np.isnan(a) or a < adx_min:
+            out.append('')
+        elif a50 > a200:
+            out.append('UP')
+        elif a50 < a200:
+            out.append('DOWN')
+        else:
+            out.append('')
+    return out
+
+
+def _trend_at(h_times, labels, t, delta):
+    idx = int(np.searchsorted(h_times, np.datetime64(t - delta), side='right')) - 1
+    return labels[idx] if idx >= 0 else ''
+
+
+def _excursions(highs, lows, entry_idx, exit_idx, direction, entry, risk):
+    """Return (mfe_r, mae_r): favorable/adverse excursion in R before exit."""
+    seg_hi = highs[entry_idx + 1:exit_idx + 1]
+    seg_lo = lows[entry_idx + 1:exit_idx + 1]
+    if len(seg_hi) == 0 or risk <= 0:
+        return 0.0, 0.0
+    if direction == 'LONG':
+        return (seg_hi.max() - entry) / risk, (entry - seg_lo.min()) / risk
+    return (entry - seg_lo.min()) / risk, (seg_hi.max() - entry) / risk
+
+
+def _managed_target_price(entry, risk, direction, target_r):
+    return entry + target_r * risk if direction == 'LONG' else entry - target_r * risk
+
+
+def _managed_legs(highs, lows, closes, atr_i, i, direction, entry, sl, tp, risk, opts):
+    """Managed exit (breakeven / partial+runner / trail / time-stop).
+
+    Returns (legs, exit_idx) where legs is a list of (exit_price, fraction),
+    or (None, None) if the position never closes before data ends.
+    """
+    be_r = opts.get('be_at_r', 0.0)
+    p_r = opts.get('partial_r', 0.0)
+    p_f = opts.get('partial_frac', 0.5)
+    run_tp_r = opts.get('runner_tp_r', 0.0)
+    run_trail = opts.get('runner_trail_atr', 0.0)
+    tstop = int(opts.get('time_stop', 0))
+    target_r = run_tp_r if run_tp_r > 0 else opts['rr']
+    long = direction == 'LONG'
+    stop, best, rem, partial_done = sl, entry, 1.0, False
+    legs = []
+    for j in range(i + 1, len(highs)):
+        fav = (highs[j] - entry) if long else (entry - lows[j])
+        if not partial_done and p_r > 0 and fav >= p_r * risk:
+            legs.append((_managed_target_price(entry, risk, direction, p_r), p_f))
+            rem -= p_f
+            partial_done = True
+            stop = entry
+        if be_r > 0 and fav >= be_r * risk:
+            stop = entry
+        if run_trail > 0 and (partial_done or p_r == 0):
+            best = max(best, highs[j]) if long else min(best, lows[j])
+            trail = best - run_trail * atr_i if long else best + run_trail * atr_i
+            stop = max(stop, trail) if long else min(stop, trail)
+        if (long and lows[j] <= stop) or (not long and highs[j] >= stop):
+            legs.append((stop, rem))
+            return legs, j
+        tp_price = _managed_target_price(entry, risk, direction, target_r)
+        if (long and highs[j] >= tp_price) or (not long and lows[j] <= tp_price):
+            legs.append((tp_price, rem))
+            return legs, j
+        if tstop > 0 and (j - i) >= tstop:
+            legs.append((closes[j], rem))
+            return legs, j
+    return None, None
+
+
+def _managed_pnl(entry, legs, direction, notional, fee, slip):
+    return sum(_net_pnl(entry, price, direction, notional * frac, fee, slip) for price, frac in legs)
+
+
+def _managed_enabled(opts):
+    return any(opts.get(k, 0) for k in ('be_at_r', 'partial_r', 'runner_tp_r', 'runner_trail_atr', 'time_stop'))
+
+
+def _simulate_exit(highs, lows, entry_idx, direction, sl, tp):
+    """First SL/TP touch after entry (SL first). Returns (exit_idx, exit_price) or (None, None)."""
+    for j in range(entry_idx + 1, len(highs)):
+        if direction == 'LONG':
+            if lows[j] <= sl:
+                return j, sl
+            if highs[j] >= tp:
+                return j, tp
+        else:
+            if highs[j] >= sl:
+                return j, sl
+            if lows[j] <= tp:
+                return j, tp
+    return None, None
+
+
+def _simulate_exit_trailing(highs, lows, entry_idx, direction, initial_sl, trail_dist):
+    """ATR trailing stop from entry (no fixed target). Returns (exit_idx, price) or (None, None)."""
+    stop = initial_sl
+    best = None
+    for j in range(entry_idx + 1, len(highs)):
+        if direction == 'LONG':
+            if lows[j] <= stop:
+                return j, stop
+            best = highs[j] if best is None else max(best, highs[j])
+            stop = max(stop, best - trail_dist)
+        else:
+            if highs[j] >= stop:
+                return j, stop
+            best = lows[j] if best is None else min(best, lows[j])
+            stop = min(stop, best + trail_dist)
+    return None, None
+
+
+def _net_pnl(entry, exit_price, direction, notional, fee, slip):
+    move = (exit_price - entry) / entry if direction == 'LONG' else (entry - exit_price) / entry
+    turnover = notional * (1 + exit_price / entry)
+    return notional * move - turnover * (fee + slip)
+
+
+def _swept_recently(lows, highs, closes, last_sl, last_sh, i, look, direction):
+    """True if a liquidity sweep of the opposing level happened in [i-look, i]."""
+    for s in range(max(1, i - look), i + 1):
+        if direction == 'LONG' and not np.isnan(last_sl[s]):
+            if lows[s] < last_sl[s] and closes[s] > last_sl[s]:
+                return True
+        if direction == 'SHORT' and not np.isnan(last_sh[s]):
+            if highs[s] > last_sh[s] and closes[s] < last_sh[s]:
+                return True
+    return False
+
+
+def _confidence(direction, i, closes, opens, highs, lows, vols, vol_sma, atr,
+                last_sh, last_sl, lbt, sbt, look, pd_lb):
+    """Confidence score (max 100) for a setup at candle i, per the hybrid weights."""
+    a = atr[i]
+    score = 15  # order-block / setup base
+    bt = lbt[i] if direction == 'LONG' else sbt[i]
+    if bt == 'BOS':
+        score += 20
+    if abs(closes[i] - opens[i]) > 1.5 * a:
+        score += 15  # strong displacement
+    if _swept_recently(lows, highs, closes, last_sl, last_sh, i, look, direction):
+        score += 20
+    if (direction == 'LONG' and lows[i] > highs[i - 2]) or (direction == 'SHORT' and highs[i] < lows[i - 2]):
+        score += 10  # FVG
+    hi = highs[max(0, i - pd_lb):i + 1].max()
+    lo = lows[max(0, i - pd_lb):i + 1].min()
+    mid = (hi + lo) / 2.0
+    if (direction == 'LONG' and closes[i] <= mid) or (direction == 'SHORT' and closes[i] >= mid):
+        score += 10  # premium/discount
+    if not np.isnan(vol_sma[i]) and vols[i] > vol_sma[i]:
+        score += 10  # volume confirmation
+    return score
+
+
+def _entries(setup, symbol, df_entry, trend_ctx, opts):
+    """Return a list of trade dicts for a setup on one symbol."""
+    highs = df_entry['high'].values
+    lows = df_entry['low'].values
+    closes = df_entry['close'].values
+    opens = df_entry['open'].values
+    vols = df_entry['volume'].values
+    vol_sma = df_entry['volume'].rolling(20).mean().values
+    times = df_entry.index
+    atr = calculate_atr(df_entry, 14).values
+    last_sh, last_sl = _swing_levels(highs, lows, opts['swing_k'])
+    lbt, sbt = _structure_breaks(closes, last_sh, last_sl)
+    h_times, labels, delta = trend_ctx
+    look = opts['lookback']
+    buf = opts['sl_buffer_atr']
+    rr = opts['rr']
+    start = max(_first_eval_index(df_entry, opts['start_ts']), look + 4)
+
+    i = start
+    n = len(df_entry)
+    trades = []
+    while i < n:
+        a = atr[i]
+        if np.isnan(a) or a <= 0:
+            i += 1
+            continue
+        if opts.get('killzone') and times[i].hour not in opts['killzone']:
+            i += 1
+            continue
+        trend = _trend_at(h_times, labels, times[i].to_pydatetime(), delta)
+        found = None
+
+        for direction in ('LONG', 'SHORT'):
+            if opts.get('long_only') and direction == 'SHORT':
+                continue
+            if opts.get('short_only') and direction == 'LONG':
+                continue
+            entry = closes[i]
+            sl = tp = None
+
+            if setup == 'fvg_continuation':
+                if direction == 'LONG' and trend == 'UP' and lows[i] > highs[i - 2]:
+                    sl = highs[i - 2] - buf * a
+                elif direction == 'SHORT' and trend == 'DOWN' and highs[i] < lows[i - 2]:
+                    sl = lows[i - 2] + buf * a
+
+            elif setup == 'sweep_mss_fvg':
+                swept = _swept_recently(lows, highs, closes, last_sl, last_sh, i, look, direction)
+                if direction == 'LONG' and swept and not np.isnan(last_sh[i]) \
+                        and closes[i] > last_sh[i] and lows[i] > highs[i - 2]:
+                    sl = min(lows[i - look:i + 1]) - buf * a
+                elif direction == 'SHORT' and swept and not np.isnan(last_sl[i]) \
+                        and closes[i] < last_sl[i] and highs[i] < lows[i - 2]:
+                    sl = max(highs[i - look:i + 1]) + buf * a
+
+            elif setup == 'order_block':
+                if direction == 'LONG' and not np.isnan(last_sh[i]) and closes[i] > last_sh[i]:
+                    obs = [b for b in range(i - 1, max(i - look, 0) - 1, -1) if closes[b] < opens[b]]
+                    if obs:
+                        sl = lows[obs[0]] - buf * a
+                elif direction == 'SHORT' and not np.isnan(last_sl[i]) and closes[i] < last_sl[i]:
+                    obs = [b for b in range(i - 1, max(i - look, 0) - 1, -1) if closes[b] > opens[b]]
+                    if obs:
+                        sl = highs[obs[0]] + buf * a
+
+            if sl is not None and opts.get('structure') in ('bos', 'choch') \
+                    and setup in ('order_block', 'sweep_mss_fvg'):
+                bt = lbt[i] if direction == 'LONG' else sbt[i]
+                want = 'BOS' if opts['structure'] == 'bos' else 'CHoCH'
+                if bt != want:
+                    sl = None
+
+            if sl is not None and opts.get('require_trend'):
+                if (direction == 'LONG' and trend != 'UP') or (direction == 'SHORT' and trend != 'DOWN'):
+                    sl = None
+
+            if sl is not None and opts.get('require_pd'):
+                lb = opts['pd_lb']
+                hi = highs[max(0, i - lb):i + 1].max()
+                lo = lows[max(0, i - lb):i + 1].min()
+                mid = (hi + lo) / 2.0
+                if (direction == 'LONG' and entry > mid) or (direction == 'SHORT' and entry < mid):
+                    sl = None
+
+            if sl is not None:
+                risk = entry - sl if direction == 'LONG' else sl - entry
+                if risk <= 0:
+                    continue
+                tp = entry + rr * risk if direction == 'LONG' else entry - rr * risk
+                found = (direction, entry, sl, tp)
+                break
+
+        if found is None:
+            i += 1
+            continue
+
+        direction, entry, sl, tp = found
+        score = _confidence(direction, i, closes, opens, highs, lows, vols, vol_sma, atr,
+                            last_sh, last_sl, lbt, sbt, look, opts['pd_lb'])
+        if score < opts.get('min_score', 0):
+            i += 1
+            continue
+        risk = abs(entry - sl)
+        if _managed_enabled(opts):
+            legs, exit_idx = _managed_legs(highs, lows, closes, a, i, direction, entry, sl, tp, risk, opts)
+            if exit_idx is None:
+                break
+            pnl = _managed_pnl(entry, legs, direction, opts['notional'], opts['fee'], opts['slip'])
+            exit_price = legs[-1][0]
+        elif opts.get('trail_atr', 0) > 0:
+            exit_idx, exit_price = _simulate_exit_trailing(highs, lows, i, direction, sl, opts['trail_atr'] * a)
+            if exit_idx is None:
+                break
+            pnl = _net_pnl(entry, exit_price, direction, opts['notional'], opts['fee'], opts['slip'])
+        else:
+            exit_idx, exit_price = _simulate_exit(highs, lows, i, direction, sl, tp)
+            if exit_idx is None:
+                break
+            pnl = _net_pnl(entry, exit_price, direction, opts['notional'], opts['fee'], opts['slip'])
+        outcome = ('TP' if pnl > 0 else 'SL') if _managed_enabled(opts) else ('SL' if exit_price == sl else 'TP')
+        mfe_r, mae_r = _excursions(highs, lows, i, exit_idx, direction, entry, risk)
+        aligned = (direction == 'LONG' and trend == 'UP') or (direction == 'SHORT' and trend == 'DOWN')
+        trades.append({
+            'symbol': symbol,
+            'setup': setup,
+            'direction': direction,
+            'entry_time': times[i],
+            'entry': round(entry, 8),
+            'stop_loss': round(sl, 8),
+            'take_profit': round(tp, 8),
+            'exit_time': times[exit_idx],
+            'exit_price': round(exit_price, 8),
+            'outcome': outcome,
+            'score': score,
+            'trend_align': 'with' if aligned else ('counter' if trend else 'none'),
+            'hour': int(times[i].hour),
+            'bars_held': int(exit_idx - i),
+            'mfe_r': round(mfe_r, 3),
+            'mae_r': round(mae_r, 3),
+            'pnl': round(pnl, 4),
+        })
+        i = exit_idx + 1
+    return trades
+
+
+def _segment_report(trades, start_ts, end_ts, n):
+    """Split (time, pnl) trades into N time buckets and summarize each."""
+    if n <= 1 or not trades:
+        return []
+    span = (end_ts - start_ts) / n
+    buckets = [[] for _ in range(n)]
+    for t in trades:
+        et = t['entry_time'].to_pydatetime().replace(tzinfo=None)
+        idx = min(max(int((et - start_ts) / span), 0), n - 1)
+        buckets[idx].append(t['pnl'])
+    return [((start_ts + span * k).strftime('%Y-%m-%d'), _summarize(buckets[k])) for k in range(n)]
+
+
+def _summarize(pnls):
+    n = len(pnls)
+    if not n:
+        return {'trades': 0}
+    wins = [p for p in pnls if p > 0]
+    gp = sum(wins)
+    gl = abs(sum(p for p in pnls if p < 0))
+    net = gp - gl
+    return {
+        'trades': n,
+        'win_rate': round(len(wins) / n * 100, 1),
+        'net_pnl': round(net, 2),
+        'profit_factor': round(gp / gl, 3) if gl else None,
+        'expectancy': round(net / n, 3),
+    }
+
+
+class Command(BaseCommand):
+    help = "Backtest ICT/SMC setups net-of-cost (research only)"
+
+    def add_arguments(self, parser):
+        parser.add_argument('--symbols', default='BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT')
+        parser.add_argument('--days', type=int, default=365)
+        parser.add_argument('--entry-tf', default='4h')
+        parser.add_argument('--trend-tf', default='1d')
+        parser.add_argument('--setup', default='all', choices=SETUPS + ['all'])
+        parser.add_argument('--adx-min', type=float, default=20.0)
+        parser.add_argument('--swing-k', type=int, default=2, help='Fractal wing for swing points')
+        parser.add_argument('--lookback', type=int, default=10, help='Bars for sweep/OB context')
+        parser.add_argument('--rr', type=float, default=2.0)
+        parser.add_argument('--min-score', type=int, default=0, help='Only take trades with confidence score >= this')
+        parser.add_argument('--trail-atr', type=float, default=0.0, help='ATR trailing-stop distance; >0 replaces the fixed TP')
+        parser.add_argument('--sl-buffer-atr', type=float, default=0.25)
+        parser.add_argument('--fee-rate', type=float, default=0.0004)
+        parser.add_argument('--slippage-rate', type=float, default=0.0002)
+        parser.add_argument('--margin', type=float, default=100.0)
+        parser.add_argument('--leverage', type=float, default=10.0)
+        parser.add_argument('--segments', type=int, default=1,
+                            help='Split the window into N walk-forward buckets per setup')
+        parser.add_argument('--structure', default='any', choices=['any','bos','choch'],
+                            help='Require the structure break to be BOS (continuation) or CHoCH (reversal)')
+        parser.add_argument('--killzone-hours', default='',
+                            help='Comma UTC hours of the entry candle open to allow (ICT killzones), e.g. 8,12')
+        parser.add_argument('--require-trend', action='store_true',
+                            help='Gate entries by HTF trend alignment (long only UP, short only DOWN)')
+        parser.add_argument('--require-pd', action='store_true',
+                            help='ICT premium/discount gate: long only in discount, short only in premium')
+        parser.add_argument('--long-only', action='store_true', help='Take LONG entries only')
+        parser.add_argument('--short-only', action='store_true', help='Take SHORT entries only')
+        parser.add_argument('--be-at-r', type=float, default=0.0, help='Move stop to breakeven after +N R')
+        parser.add_argument('--partial-r', type=float, default=0.0, help='Bank a partial at +N R')
+        parser.add_argument('--partial-frac', type=float, default=0.5, help='Fraction to bank at partial-r')
+        parser.add_argument('--runner-tp-r', type=float, default=0.0, help='Final target for the runner in R (0=use --rr)')
+        parser.add_argument('--runner-trail-atr', type=float, default=0.0, help='Trail the runner by N x ATR')
+        parser.add_argument('--time-stop', type=int, default=0, help='Exit at market after N bars if unresolved')
+        parser.add_argument('--pd-lookback', type=int, default=20, help='Dealing-range lookback for premium/discount')
+        parser.add_argument('--output', default=None, help='Write the full trade log to this CSV path')
+        parser.add_argument('--show-trades', type=int, default=0, help='Print the last N trades per setup')
+
+    def handle(self, *args, **options):
+        end_ms = int(timezone.now().timestamp() * 1000)
+        start_ms = end_ms - options['days'] * 86_400_000
+        start_ts = timezone.datetime.utcfromtimestamp(start_ms / 1000)
+        symbols = [s.strip().upper() for s in options['symbols'].split(',') if s.strip()]
+        entry_tf, trend_tf = options['entry_tf'], options['trend_tf']
+        setups = SETUPS if options['setup'] == 'all' else [options['setup']]
+        options['_setups'] = setups
+        opts = {
+            'adx_min': options['adx_min'], 'swing_k': options['swing_k'],
+            'lookback': options['lookback'], 'rr': options['rr'],
+            'sl_buffer_atr': options['sl_buffer_atr'],
+            'fee': options['fee_rate'], 'slip': options['slippage_rate'],
+            'notional': options['margin'] * options['leverage'],
+            'start_ts': start_ts,
+            'structure': options['structure'],
+            'killzone': {int(h) for h in options['killzone_hours'].split(',') if h.strip()},
+            'require_trend': options['require_trend'],
+            'require_pd': options['require_pd'],
+            'long_only': options['long_only'],
+            'short_only': options['short_only'],
+            'be_at_r': options['be_at_r'],
+            'partial_r': options['partial_r'],
+            'partial_frac': options['partial_frac'],
+            'runner_tp_r': options['runner_tp_r'],
+            'runner_trail_atr': options['runner_trail_atr'],
+            'time_stop': options['time_stop'],
+            'min_score': options['min_score'],
+            'trail_atr': options['trail_atr'],
+            'pd_lb': options['pd_lookback'],
+        }
+        delta = timedelta(milliseconds=_interval_ms(trend_tf))
+        self.stdout.write(
+            f"ICT backtest | {len(symbols)} symbols | {options['days']}d | entry {entry_tf} trend {trend_tf} | "
+            f"ADX>={opts['adx_min']} RR {opts['rr']} | net fee {opts['fee']}+slip {opts['slip']}"
+        )
+
+        frames = {}
+        for symbol in symbols:
+            df_entry, df_trend = asyncio.run(_fetch_frames(symbol, start_ms, end_ms, entry_tf, trend_tf))
+            if df_entry is not None and df_trend is not None:
+                labels = _trend_labels(df_trend, opts['adx_min'])
+                frames[symbol] = (df_entry, (df_trend.index.values, labels, delta))
+
+        end_ts = timezone.datetime.utcfromtimestamp(end_ms / 1000)
+        for setup in setups:
+            all_trades = []
+            for symbol, (df_entry, trend_ctx) in frames.items():
+                all_trades.extend(_entries(setup, symbol, df_entry, trend_ctx, opts))
+            s = _summarize([t['pnl'] for t in all_trades])
+            self.stdout.write(
+                f"  {setup:18s} trades={s.get('trades', 0):4d} win={s.get('win_rate', 0)}% "
+                f"PF={s.get('profit_factor')} net=${s.get('net_pnl', 0)} exp={s.get('expectancy', 0)}"
+            )
+            for label, lo, hi in [('PRIORITY>=80', 80, 101), ('NORMAL 65-79', 65, 80), ('LOW <65', 0, 65)]:
+                band = _summarize([t['pnl'] for t in all_trades if lo <= t.get('score', 0) < hi])
+                if band.get('trades'):
+                    self.stdout.write(
+                        f"      {label:12s} trades={band['trades']:4d} win={band['win_rate']}% "
+                        f"PF={band['profit_factor']} net=${band['net_pnl']}"
+                    )
+            if options['segments'] > 1:
+                for label, seg in _segment_report(all_trades, start_ts, end_ts, options['segments']):
+                    self.stdout.write(
+                        f"      {label}: trades={seg.get('trades', 0):4d} "
+                        f"PF={seg.get('profit_factor')} net=${seg.get('net_pnl', 0)}"
+                    )
+            self._emit_trade_log(all_trades, setup, options)
+
+    def _emit_trade_log(self, trades, setup, options):
+        """Write trades to CSV (--output) and/or print the last N (--show-trades)."""
+        rows = sorted(trades, key=lambda t: t['entry_time'])
+        cols = ['symbol', 'setup', 'direction', 'entry_time', 'entry', 'stop_loss',
+                'take_profit', 'exit_time', 'exit_price', 'outcome', 'score',
+                'trend_align', 'hour', 'bars_held', 'mfe_r', 'mae_r', 'pnl']
+        if options.get('output'):
+            import csv
+            path = options['output']
+            if len(options['_setups']) > 1:
+                path = path.replace('.csv', f'_{setup}.csv') if path.endswith('.csv') else f"{path}.{setup}"
+            with open(path, 'w', newline='') as fh:
+                writer = csv.DictWriter(fh, fieldnames=cols)
+                writer.writeheader()
+                for r in rows:
+                    writer.writerow({k: (r[k].isoformat() if hasattr(r[k], 'isoformat') else r[k]) for k in cols})
+            self.stdout.write(f"      wrote {len(rows)} trades -> {path}")
+        show = options.get('show_trades') or 0
+        for r in (rows[-show:] if show else []):
+            self.stdout.write(
+                f"      {str(r['entry_time'])[:16]} {r['symbol']:9s} {r['direction']:5s} "
+                f"entry {r['entry']} sl {r['stop_loss']} tp {r['take_profit']} "
+                f"-> {str(r['exit_time'])[:16]} {r['outcome']} pnl ${r['pnl']}"
+            )

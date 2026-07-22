@@ -82,6 +82,13 @@ from signals.views.swing import (
     swing_close_trade,
     swing_signals_list,
 )
+from signals.views.order_block import (
+    order_block_trades_list,
+    order_block_open_positions,
+    order_block_summary,
+    order_block_close_trade,
+    order_block_signals_list,
+)
 from signals.views.daytrade import (
     daytrade_signals_list,
     daytrade_trades_list,
@@ -195,6 +202,11 @@ urlpatterns = [
     path('swing/positions/', swing_open_positions, name='swing-positions'),
     path('swing/summary/', swing_summary, name='swing-summary'),
     path('swing/trades/<int:trade_id>/close/', swing_close_trade, name='swing-close-trade'),
+    path('order-block/signals/', order_block_signals_list, name='order-block-signals'),
+    path('order-block/trades/', order_block_trades_list, name='order-block-trades'),
+    path('order-block/positions/', order_block_open_positions, name='order-block-positions'),
+    path('order-block/summary/', order_block_summary, name='order-block-summary'),
+    path('order-block/trades/<int:trade_id>/close/', order_block_close_trade, name='order-block-close-trade'),
 
     # Market Data endpoints
     path('market/orderbook/<str:symbol>/', get_order_book, name='orderbook'),

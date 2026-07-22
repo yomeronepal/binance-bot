@@ -8,6 +8,7 @@ from . import (
     mltuning,
     montecarlo,
     optimization,
+    order_block,
     push,
     strategy_config,
     swing,
