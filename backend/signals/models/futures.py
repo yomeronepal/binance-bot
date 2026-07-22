@@ -141,6 +141,37 @@ class FuturesTradingSettings(models.Model):
         help_text=_("Close trade when it recovers to this % from entry (-1% to +1%, negative = small loss, positive = small profit)")
     )
 
+    futures_universe_screen_enabled = models.BooleanField(
+        default=False,
+        help_text=_("Screen futures signals by liquidity + volatility before executing (drops illiquid/parabolic symbols)")
+    )
+
+    opposite_exit_enabled = models.BooleanField(
+        default=False,
+        help_text=_("Arm a trade in drawdown when an opposite day-trade signal appears, then close it once it recovers to profit")
+    )
+
+    opposite_exit_shadow_mode = models.BooleanField(
+        default=True,
+        help_text=_("Log opposite-exit arm/close decisions without executing them (validation mode)")
+    )
+
+    opposite_exit_min_confidence = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=Decimal('0.70'),
+        validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('1'))],
+        help_text=_("Minimum confidence of the opposite day-trade signal that arms an exit")
+    )
+
+    opposite_exit_min_profit_pct = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=Decimal('0.20'),
+        validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('10'))],
+        help_text=_("Only close an armed trade once unrealized PnL reaches this % of margin (covers round-trip fees)")
+    )
+
     fear_greed_enabled = models.BooleanField(
         default=False,
         help_text=_("Enable Fear & Greed Index filter for trade direction")
@@ -360,6 +391,7 @@ class FuturesTrade(models.Model):
         ('CLOSED_TP', _('Closed - Take Profit')),
         ('CLOSED_SL', _('Closed - Stop Loss')),
         ('CLOSED_MANUAL', _('Closed - Manual')),
+        ('CLOSED_REVERSAL', _('Closed - Opposite Signal')),
         ('FAILED', _('Failed')),
         ('CANCELLED', _('Cancelled')),
     ]
@@ -531,6 +563,18 @@ class FuturesTrade(models.Model):
     cut_loser_triggered = models.BooleanField(
         default=False,
         help_text=_("Whether cut-loser mode has been triggered for this trade")
+    )
+
+    opposite_exit_armed = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=_("Armed to close on recovery after an opposite signal appeared while in drawdown")
+    )
+
+    opposite_exit_armed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_("When the opposite-exit arm was triggered")
     )
 
     max_loss_pct_reached = models.DecimalField(
