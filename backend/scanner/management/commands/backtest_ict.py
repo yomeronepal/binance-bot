@@ -150,6 +150,9 @@ def _entries(setup, symbol, df_entry, trend_ctx, opts):
         if np.isnan(a) or a <= 0:
             i += 1
             continue
+        if opts.get('killzone') and times[i].hour not in opts['killzone']:
+            i += 1
+            continue
         trend = _trend_at(h_times, labels, times[i].to_pydatetime(), delta)
         found = None
 
@@ -278,6 +281,8 @@ class Command(BaseCommand):
         parser.add_argument('--leverage', type=float, default=10.0)
         parser.add_argument('--segments', type=int, default=1,
                             help='Split the window into N walk-forward buckets per setup')
+        parser.add_argument('--killzone-hours', default='',
+                            help='Comma UTC hours of the entry candle open to allow (ICT killzones), e.g. 8,12')
         parser.add_argument('--require-trend', action='store_true',
                             help='Gate entries by HTF trend alignment (long only UP, short only DOWN)')
         parser.add_argument('--require-pd', action='store_true',
@@ -301,6 +306,7 @@ class Command(BaseCommand):
             'fee': options['fee_rate'], 'slip': options['slippage_rate'],
             'notional': options['margin'] * options['leverage'],
             'start_ts': start_ts,
+            'killzone': {int(h) for h in options['killzone_hours'].split(',') if h.strip()},
             'require_trend': options['require_trend'],
             'require_pd': options['require_pd'],
             'pd_lb': options['pd_lookback'],
