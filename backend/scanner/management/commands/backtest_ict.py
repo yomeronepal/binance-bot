@@ -114,6 +114,17 @@ def _trend_at(h_times, labels, t, delta):
     return labels[idx] if idx >= 0 else ''
 
 
+def _excursions(highs, lows, entry_idx, exit_idx, direction, entry, risk):
+    """Return (mfe_r, mae_r): favorable/adverse excursion in R before exit."""
+    seg_hi = highs[entry_idx + 1:exit_idx + 1]
+    seg_lo = lows[entry_idx + 1:exit_idx + 1]
+    if len(seg_hi) == 0 or risk <= 0:
+        return 0.0, 0.0
+    if direction == 'LONG':
+        return (seg_hi.max() - entry) / risk, (entry - seg_lo.min()) / risk
+    return (entry - seg_lo.min()) / risk, (seg_hi.max() - entry) / risk
+
+
 def _simulate_exit(highs, lows, entry_idx, direction, sl, tp):
     """First SL/TP touch after entry (SL first). Returns (exit_idx, exit_price) or (None, None)."""
     for j in range(entry_idx + 1, len(highs)):
@@ -223,6 +234,10 @@ def _entries(setup, symbol, df_entry, trend_ctx, opts):
         found = None
 
         for direction in ('LONG', 'SHORT'):
+            if opts.get('long_only') and direction == 'SHORT':
+                continue
+            if opts.get('short_only') and direction == 'LONG':
+                continue
             entry = closes[i]
             sl = tp = None
 
@@ -295,6 +310,9 @@ def _entries(setup, symbol, df_entry, trend_ctx, opts):
         if exit_idx is None:
             break
         pnl = _net_pnl(entry, exit_price, direction, opts['notional'], opts['fee'], opts['slip'])
+        risk = abs(entry - sl)
+        mfe_r, mae_r = _excursions(highs, lows, i, exit_idx, direction, entry, risk)
+        aligned = (direction == 'LONG' and trend == 'UP') or (direction == 'SHORT' and trend == 'DOWN')
         trades.append({
             'symbol': symbol,
             'setup': setup,
@@ -307,6 +325,11 @@ def _entries(setup, symbol, df_entry, trend_ctx, opts):
             'exit_price': round(exit_price, 8),
             'outcome': 'SL' if exit_price == sl else 'TP',
             'score': score,
+            'trend_align': 'with' if aligned else ('counter' if trend else 'none'),
+            'hour': int(times[i].hour),
+            'bars_held': int(exit_idx - i),
+            'mfe_r': round(mfe_r, 3),
+            'mae_r': round(mae_r, 3),
             'pnl': round(pnl, 4),
         })
         i = exit_idx + 1
@@ -373,6 +396,8 @@ class Command(BaseCommand):
                             help='Gate entries by HTF trend alignment (long only UP, short only DOWN)')
         parser.add_argument('--require-pd', action='store_true',
                             help='ICT premium/discount gate: long only in discount, short only in premium')
+        parser.add_argument('--long-only', action='store_true', help='Take LONG entries only')
+        parser.add_argument('--short-only', action='store_true', help='Take SHORT entries only')
         parser.add_argument('--pd-lookback', type=int, default=20, help='Dealing-range lookback for premium/discount')
         parser.add_argument('--output', default=None, help='Write the full trade log to this CSV path')
         parser.add_argument('--show-trades', type=int, default=0, help='Print the last N trades per setup')
@@ -396,6 +421,8 @@ class Command(BaseCommand):
             'killzone': {int(h) for h in options['killzone_hours'].split(',') if h.strip()},
             'require_trend': options['require_trend'],
             'require_pd': options['require_pd'],
+            'long_only': options['long_only'],
+            'short_only': options['short_only'],
             'min_score': options['min_score'],
             'trail_atr': options['trail_atr'],
             'pd_lb': options['pd_lookback'],
@@ -442,7 +469,8 @@ class Command(BaseCommand):
         """Write trades to CSV (--output) and/or print the last N (--show-trades)."""
         rows = sorted(trades, key=lambda t: t['entry_time'])
         cols = ['symbol', 'setup', 'direction', 'entry_time', 'entry', 'stop_loss',
-                'take_profit', 'exit_time', 'exit_price', 'outcome', 'pnl']
+                'take_profit', 'exit_time', 'exit_price', 'outcome', 'score',
+                'trend_align', 'hour', 'bars_held', 'mfe_r', 'mae_r', 'pnl']
         if options.get('output'):
             import csv
             path = options['output']
