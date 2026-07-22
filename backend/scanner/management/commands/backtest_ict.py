@@ -127,8 +127,8 @@ def _swept_recently(lows, highs, closes, last_sl, last_sh, i, look, direction):
     return False
 
 
-def _entries(setup, df_entry, trend_ctx, opts):
-    """Yield (entry_idx, direction, entry, sl, tp) for a setup on one symbol."""
+def _entries(setup, symbol, df_entry, trend_ctx, opts):
+    """Return a list of trade dicts for a setup on one symbol."""
     highs = df_entry['high'].values
     lows = df_entry['low'].values
     closes = df_entry['close'].values
@@ -182,6 +182,18 @@ def _entries(setup, df_entry, trend_ctx, opts):
                     if obs:
                         sl = highs[obs[0]] + buf * a
 
+            if sl is not None and opts.get('require_trend'):
+                if (direction == 'LONG' and trend != 'UP') or (direction == 'SHORT' and trend != 'DOWN'):
+                    sl = None
+
+            if sl is not None and opts.get('require_pd'):
+                lb = opts['pd_lb']
+                hi = highs[max(0, i - lb):i + 1].max()
+                lo = lows[max(0, i - lb):i + 1].min()
+                mid = (hi + lo) / 2.0
+                if (direction == 'LONG' and entry > mid) or (direction == 'SHORT' and entry < mid):
+                    sl = None
+
             if sl is not None:
                 risk = entry - sl if direction == 'LONG' else sl - entry
                 if risk <= 0:
@@ -199,7 +211,19 @@ def _entries(setup, df_entry, trend_ctx, opts):
         if exit_idx is None:
             break
         pnl = _net_pnl(entry, exit_price, direction, opts['notional'], opts['fee'], opts['slip'])
-        trades.append((times[i], pnl))
+        trades.append({
+            'symbol': symbol,
+            'setup': setup,
+            'direction': direction,
+            'entry_time': times[i],
+            'entry': round(entry, 8),
+            'stop_loss': round(sl, 8),
+            'take_profit': round(tp, 8),
+            'exit_time': times[exit_idx],
+            'exit_price': round(exit_price, 8),
+            'outcome': 'SL' if exit_price == sl else 'TP',
+            'pnl': round(pnl, 4),
+        })
         i = exit_idx + 1
     return trades
 
@@ -210,10 +234,10 @@ def _segment_report(trades, start_ts, end_ts, n):
         return []
     span = (end_ts - start_ts) / n
     buckets = [[] for _ in range(n)]
-    for t, pnl in trades:
-        et = t.to_pydatetime().replace(tzinfo=None)
+    for t in trades:
+        et = t['entry_time'].to_pydatetime().replace(tzinfo=None)
         idx = min(max(int((et - start_ts) / span), 0), n - 1)
-        buckets[idx].append(pnl)
+        buckets[idx].append(t['pnl'])
     return [((start_ts + span * k).strftime('%Y-%m-%d'), _summarize(buckets[k])) for k in range(n)]
 
 
@@ -254,6 +278,13 @@ class Command(BaseCommand):
         parser.add_argument('--leverage', type=float, default=10.0)
         parser.add_argument('--segments', type=int, default=1,
                             help='Split the window into N walk-forward buckets per setup')
+        parser.add_argument('--require-trend', action='store_true',
+                            help='Gate entries by HTF trend alignment (long only UP, short only DOWN)')
+        parser.add_argument('--require-pd', action='store_true',
+                            help='ICT premium/discount gate: long only in discount, short only in premium')
+        parser.add_argument('--pd-lookback', type=int, default=20, help='Dealing-range lookback for premium/discount')
+        parser.add_argument('--output', default=None, help='Write the full trade log to this CSV path')
+        parser.add_argument('--show-trades', type=int, default=0, help='Print the last N trades per setup')
 
     def handle(self, *args, **options):
         end_ms = int(timezone.now().timestamp() * 1000)
@@ -262,6 +293,7 @@ class Command(BaseCommand):
         symbols = [s.strip().upper() for s in options['symbols'].split(',') if s.strip()]
         entry_tf, trend_tf = options['entry_tf'], options['trend_tf']
         setups = SETUPS if options['setup'] == 'all' else [options['setup']]
+        options['_setups'] = setups
         opts = {
             'adx_min': options['adx_min'], 'swing_k': options['swing_k'],
             'lookback': options['lookback'], 'rr': options['rr'],
@@ -269,6 +301,9 @@ class Command(BaseCommand):
             'fee': options['fee_rate'], 'slip': options['slippage_rate'],
             'notional': options['margin'] * options['leverage'],
             'start_ts': start_ts,
+            'require_trend': options['require_trend'],
+            'require_pd': options['require_pd'],
+            'pd_lb': options['pd_lookback'],
         }
         delta = timedelta(milliseconds=_interval_ms(trend_tf))
         self.stdout.write(
@@ -287,8 +322,8 @@ class Command(BaseCommand):
         for setup in setups:
             all_trades = []
             for symbol, (df_entry, trend_ctx) in frames.items():
-                all_trades.extend(_entries(setup, df_entry, trend_ctx, opts))
-            s = _summarize([p for _, p in all_trades])
+                all_trades.extend(_entries(setup, symbol, df_entry, trend_ctx, opts))
+            s = _summarize([t['pnl'] for t in all_trades])
             self.stdout.write(
                 f"  {setup:18s} trades={s.get('trades', 0):4d} win={s.get('win_rate', 0)}% "
                 f"PF={s.get('profit_factor')} net=${s.get('net_pnl', 0)} exp={s.get('expectancy', 0)}"
@@ -299,3 +334,28 @@ class Command(BaseCommand):
                         f"      {label}: trades={seg.get('trades', 0):4d} "
                         f"PF={seg.get('profit_factor')} net=${seg.get('net_pnl', 0)}"
                     )
+            self._emit_trade_log(all_trades, setup, options)
+
+    def _emit_trade_log(self, trades, setup, options):
+        """Write trades to CSV (--output) and/or print the last N (--show-trades)."""
+        rows = sorted(trades, key=lambda t: t['entry_time'])
+        cols = ['symbol', 'setup', 'direction', 'entry_time', 'entry', 'stop_loss',
+                'take_profit', 'exit_time', 'exit_price', 'outcome', 'pnl']
+        if options.get('output'):
+            import csv
+            path = options['output']
+            if len(options['_setups']) > 1:
+                path = path.replace('.csv', f'_{setup}.csv') if path.endswith('.csv') else f"{path}.{setup}"
+            with open(path, 'w', newline='') as fh:
+                writer = csv.DictWriter(fh, fieldnames=cols)
+                writer.writeheader()
+                for r in rows:
+                    writer.writerow({k: (r[k].isoformat() if hasattr(r[k], 'isoformat') else r[k]) for k in cols})
+            self.stdout.write(f"      wrote {len(rows)} trades -> {path}")
+        show = options.get('show_trades') or 0
+        for r in rows[-show:]:
+            self.stdout.write(
+                f"      {str(r['entry_time'])[:16]} {r['symbol']:9s} {r['direction']:5s} "
+                f"entry {r['entry']} sl {r['stop_loss']} tp {r['take_profit']} "
+                f"-> {str(r['exit_time'])[:16]} {r['outcome']} pnl ${r['pnl']}"
+            )
