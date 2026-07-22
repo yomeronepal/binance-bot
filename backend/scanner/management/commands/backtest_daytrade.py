@@ -106,10 +106,20 @@ def _simulate_exit(df15, entry_idx, direction, stop_loss, take_profit):
 
 
 def _trade_pnl(cfg, entry, exit_price, direction):
-    """Return (price_move_pct, pnl_usdt) for a closed trade."""
+    """Return (price_move_pct, net_pnl_usdt) for a closed trade.
+
+    Net of round-trip trading costs (fee + slippage on turnover), so the
+    backtest reflects the same costs a real fill incurs. Funding is omitted
+    (intraday holds make it negligible).
+    """
     move = (exit_price - entry) / entry if direction == 'LONG' else (entry - exit_price) / entry
-    pnl_usdt = cfg.margin_per_trade * cfg.leverage * move
-    return move * 100, pnl_usdt
+    notional = cfg.margin_per_trade * cfg.leverage
+    gross = notional * move
+    fee_rate = getattr(cfg, 'bt_fee_rate', 0.0004)
+    slippage_rate = getattr(cfg, 'bt_slippage_rate', 0.0002)
+    turnover = notional * (1 + exit_price / entry)
+    cost = turnover * (fee_rate + slippage_rate)
+    return move * 100, gross - cost
 
 
 def _first_eval_index(df15, start_ts):
@@ -135,8 +145,9 @@ def _backtest_symbol(engine, cfg, symbol, df15, df1h, start_ts):
             i += 1
             continue
 
+        target = result['tp2'] if getattr(cfg, 'bt_exit_tp2', False) else result['tp1']
         exit_idx, exit_price, outcome = _simulate_exit(
-            df15, i, result['direction'], result['stop_loss'], result['tp1']
+            df15, i, result['direction'], result['stop_loss'], target
         )
         trades.append(_build_trade(cfg, symbol, df15, i, exit_idx, exit_price, outcome, result))
 
@@ -155,7 +166,7 @@ def _build_trade(cfg, symbol, df15, entry_idx, exit_idx, exit_price, outcome, re
         'entry_time': df15.index[entry_idx].isoformat(),
         'entry_price': round(entry, 8),
         'stop_loss': round(result['stop_loss'], 8),
-        'take_profit': round(result['tp1'], 8),
+        'take_profit': round(result['tp2'] if getattr(cfg, 'bt_exit_tp2', False) else result['tp1'], 8),
         'confidence': result['confidence'],
         'score': result['score'],
         'outcome': outcome,
@@ -286,6 +297,14 @@ class Command(BaseCommand):
                             help='Run baseline (V3 off) vs the V3 config over the same data')
         parser.add_argument('--segments', type=int, default=1,
                             help='Split the window into N walk-forward segments for per-window metrics')
+        parser.add_argument('--min-confidence', type=float, default=None,
+                            help='Override engine min_confidence (test a higher-confidence filter)')
+        parser.add_argument('--exit-tp2', action='store_true',
+                            help='Exit winners at TP2 instead of TP1 (let winners run)')
+        parser.add_argument('--fee-rate', type=float, default=0.0004,
+                            help='Per-side fee rate applied to turnover (taker 0.0004, maker ~0.0002)')
+        parser.add_argument('--slippage-rate', type=float, default=0.0002,
+                            help='Per-side slippage rate applied to turnover')
 
     def handle(self, *args, **options):
         end_ms = int(timezone.now().timestamp() * 1000)
@@ -340,6 +359,11 @@ class Command(BaseCommand):
             cfg.regime_max_choppiness = options['regime_max_chop']
             cfg.regime_min_bbw_pct = options['regime_min_bbw']
             cfg.regime_atr_percentile_min = options['regime_atr_pct_min']
+        if options.get('min_confidence') is not None:
+            cfg.min_confidence = options['min_confidence']
+        cfg.bt_exit_tp2 = options.get('exit_tp2', False)
+        cfg.bt_fee_rate = options.get('fee_rate', 0.0004)
+        cfg.bt_slippage_rate = options.get('slippage_rate', 0.0002)
 
     def _run_compare(self, options, start_ms, end_ms, start_ts, end_ts):
         """Run pure baseline vs the experiment config over the same fetched data."""
