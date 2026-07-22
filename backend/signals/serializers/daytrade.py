@@ -52,7 +52,7 @@ class DayTradePaperTradeSerializer(serializers.ModelSerializer):
             'tp1_price', 'tp2_price', 'atr_at_entry', 'tp1_filled', 'tp2_filled',
             'account_risk_pct', 'stop_distance',
             'exit_price', 'exit_time',
-            'realized_pnl', 'profit_loss', 'profit_loss_percentage',
+            'realized_pnl', 'profit_loss', 'fees_paid', 'profit_loss_percentage',
             'leverage', 'status', 'duration_hours', 'is_open', 'is_closed',
             'exits', 'created_at',
         ]

@@ -16,6 +16,7 @@ from decimal import Decimal
 
 from asgiref.sync import sync_to_async
 from celery import shared_task
+from django.conf import settings
 from django.utils import timezone
 
 from scanner.services.binance_futures_client import BinanceFuturesClient
@@ -179,9 +180,39 @@ def _partial_exit(trade, exit_type, price, close_pct, now):
         _record_exit(trade, exit_type, price, leg_qty, now)
 
 
+def _cost_rates():
+    """Return (taker fee, slippage, 8h funding) rates, overridable via settings."""
+    return (
+        Decimal(str(getattr(settings, 'DAYTRADE_TAKER_FEE_RATE', '0.0004'))),
+        Decimal(str(getattr(settings, 'DAYTRADE_SLIPPAGE_RATE', '0.0002'))),
+        Decimal(str(getattr(settings, 'DAYTRADE_FUNDING_RATE_8H', '0.0001'))),
+    )
+
+
+def _trade_cost(trade, exit_price, now):
+    """Estimate round-trip cost: taker fee + slippage on turnover, plus funding.
+
+    Mirrors the backtest engine's cost model so live-paper P/L reflects the same
+    fees a real fill would incur. Turnover is entry + exit notional (both sides).
+    """
+    taker, slippage, funding_8h = _cost_rates()
+    entry_notional = trade.quantity * trade.entry_price
+    exit_notional = trade.quantity * exit_price
+    turnover = entry_notional + exit_notional
+    cost = turnover * (taker + slippage)
+    if trade.entry_time and now:
+        hours = (now - trade.entry_time).total_seconds() / 3600
+        intervals = int(hours // 8)
+        if intervals > 0:
+            cost += entry_notional * funding_8h * Decimal(intervals)
+    return cost
+
+
 def _finalize(trade, status, price, now):
-    """Mark a trade fully closed and finalise its P/L."""
-    trade.profit_loss = trade.realized_pnl
+    """Mark a trade fully closed and finalise its P/L, net of trading costs."""
+    cost = _trade_cost(trade, price, now)
+    trade.fees_paid = cost
+    trade.profit_loss = trade.realized_pnl - cost
     if trade.position_size:
         trade.profit_loss_percentage = (trade.profit_loss / trade.position_size) * Decimal('100')
     trade.exit_price = price
