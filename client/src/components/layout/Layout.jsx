@@ -56,6 +56,7 @@ const Layout = () => {
     },
     {
       type: 'group', label: 'Swing (4h)', items: [
+        { to: '/swing-signals', label: 'Signals', icon: Signal },
         { to: '/swing-performance', label: 'Bot Performance', icon: Activity },
       ],
     },

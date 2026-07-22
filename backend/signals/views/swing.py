@@ -13,7 +13,7 @@ from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
 
 from signals.models.swing import SwingPaperTrade
-from signals.serializers.swing import SwingPaperTradeSerializer
+from signals.serializers.swing import SwingPaperTradeSerializer, SwingSignalSerializer
 from signals.views.public_paper_trading import _compute_performance_metrics
 from signals.views.daytrade import _live_prices
 
@@ -64,6 +64,27 @@ def _attach_live_pnl(positions):
         p['has_real_time_price'] = True
         total_unrealized += unrealized
     return positions, total_unrealized
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def swing_signals_list(request):
+    """Paginated list of detected 4h swing signals. GET /api/swing/signals/"""
+    from signals.models.swing import SwingSignal
+    queryset = SwingSignal.objects.all()
+    symbol = request.query_params.get('symbol')
+    signal_status = request.query_params.get('status')
+    direction = request.query_params.get('direction')
+    if symbol:
+        queryset = queryset.filter(symbol=symbol.upper())
+    if signal_status:
+        queryset = queryset.filter(status=signal_status.upper())
+    if direction and direction != 'ALL':
+        queryset = queryset.filter(direction=direction.upper())
+    queryset = queryset.order_by('-created_at')
+    paginator = _paginator()
+    page = paginator.paginate_queryset(queryset, request)
+    return paginator.get_paginated_response(SwingSignalSerializer(page, many=True).data)
 
 
 @api_view(['GET'])

@@ -2797,3 +2797,15 @@ class SwingPaperTradeAdmin(admin.ModelAdmin):
     list_filter = ('status', 'direction', 'symbol')
     search_fields = ('symbol',)
     readonly_fields = [f.name for f in SwingPaperTrade._meta.fields]
+
+
+from signals.models.swing import SwingSignal as _SwingSignal
+
+
+@admin.register(_SwingSignal)
+class SwingSignalAdmin(admin.ModelAdmin):
+    """Admin for detected 4h swing signals (read-only feed)."""
+    list_display = ('symbol', 'direction', 'status', 'entry', 'stop_loss', 'take_profit', 'candle_open_time', 'created_at')
+    list_filter = ('status', 'direction', 'symbol')
+    search_fields = ('symbol',)
+    readonly_fields = [f.name for f in _SwingSignal._meta.fields]
