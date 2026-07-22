@@ -199,9 +199,22 @@ def _entries(setup, df_entry, trend_ctx, opts):
         if exit_idx is None:
             break
         pnl = _net_pnl(entry, exit_price, direction, opts['notional'], opts['fee'], opts['slip'])
-        trades.append(pnl)
+        trades.append((times[i], pnl))
         i = exit_idx + 1
     return trades
+
+
+def _segment_report(trades, start_ts, end_ts, n):
+    """Split (time, pnl) trades into N time buckets and summarize each."""
+    if n <= 1 or not trades:
+        return []
+    span = (end_ts - start_ts) / n
+    buckets = [[] for _ in range(n)]
+    for t, pnl in trades:
+        et = t.to_pydatetime().replace(tzinfo=None)
+        idx = min(max(int((et - start_ts) / span), 0), n - 1)
+        buckets[idx].append(pnl)
+    return [((start_ts + span * k).strftime('%Y-%m-%d'), _summarize(buckets[k])) for k in range(n)]
 
 
 def _summarize(pnls):
@@ -239,6 +252,8 @@ class Command(BaseCommand):
         parser.add_argument('--slippage-rate', type=float, default=0.0002)
         parser.add_argument('--margin', type=float, default=100.0)
         parser.add_argument('--leverage', type=float, default=10.0)
+        parser.add_argument('--segments', type=int, default=1,
+                            help='Split the window into N walk-forward buckets per setup')
 
     def handle(self, *args, **options):
         end_ms = int(timezone.now().timestamp() * 1000)
@@ -268,12 +283,19 @@ class Command(BaseCommand):
                 labels = _trend_labels(df_trend, opts['adx_min'])
                 frames[symbol] = (df_entry, (df_trend.index.values, labels, delta))
 
+        end_ts = timezone.datetime.utcfromtimestamp(end_ms / 1000)
         for setup in setups:
-            all_pnls = []
+            all_trades = []
             for symbol, (df_entry, trend_ctx) in frames.items():
-                all_pnls.extend(_entries(setup, df_entry, trend_ctx, opts))
-            s = _summarize(all_pnls)
+                all_trades.extend(_entries(setup, df_entry, trend_ctx, opts))
+            s = _summarize([p for _, p in all_trades])
             self.stdout.write(
                 f"  {setup:18s} trades={s.get('trades', 0):4d} win={s.get('win_rate', 0)}% "
                 f"PF={s.get('profit_factor')} net=${s.get('net_pnl', 0)} exp={s.get('expectancy', 0)}"
             )
+            if options['segments'] > 1:
+                for label, seg in _segment_report(all_trades, start_ts, end_ts, options['segments']):
+                    self.stdout.write(
+                        f"      {label}: trades={seg.get('trades', 0):4d} "
+                        f"PF={seg.get('profit_factor')} net=${seg.get('net_pnl', 0)}"
+                    )
