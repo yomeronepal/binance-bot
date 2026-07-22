@@ -125,6 +125,60 @@ def _excursions(highs, lows, entry_idx, exit_idx, direction, entry, risk):
     return (entry - seg_lo.min()) / risk, (seg_hi.max() - entry) / risk
 
 
+def _managed_target_price(entry, risk, direction, target_r):
+    return entry + target_r * risk if direction == 'LONG' else entry - target_r * risk
+
+
+def _managed_legs(highs, lows, closes, atr_i, i, direction, entry, sl, tp, risk, opts):
+    """Managed exit (breakeven / partial+runner / trail / time-stop).
+
+    Returns (legs, exit_idx) where legs is a list of (exit_price, fraction),
+    or (None, None) if the position never closes before data ends.
+    """
+    be_r = opts.get('be_at_r', 0.0)
+    p_r = opts.get('partial_r', 0.0)
+    p_f = opts.get('partial_frac', 0.5)
+    run_tp_r = opts.get('runner_tp_r', 0.0)
+    run_trail = opts.get('runner_trail_atr', 0.0)
+    tstop = int(opts.get('time_stop', 0))
+    target_r = run_tp_r if run_tp_r > 0 else opts['rr']
+    long = direction == 'LONG'
+    stop, best, rem, partial_done = sl, entry, 1.0, False
+    legs = []
+    for j in range(i + 1, len(highs)):
+        fav = (highs[j] - entry) if long else (entry - lows[j])
+        if not partial_done and p_r > 0 and fav >= p_r * risk:
+            legs.append((_managed_target_price(entry, risk, direction, p_r), p_f))
+            rem -= p_f
+            partial_done = True
+            stop = entry
+        if be_r > 0 and fav >= be_r * risk:
+            stop = entry
+        if run_trail > 0 and (partial_done or p_r == 0):
+            best = max(best, highs[j]) if long else min(best, lows[j])
+            trail = best - run_trail * atr_i if long else best + run_trail * atr_i
+            stop = max(stop, trail) if long else min(stop, trail)
+        if (long and lows[j] <= stop) or (not long and highs[j] >= stop):
+            legs.append((stop, rem))
+            return legs, j
+        tp_price = _managed_target_price(entry, risk, direction, target_r)
+        if (long and highs[j] >= tp_price) or (not long and lows[j] <= tp_price):
+            legs.append((tp_price, rem))
+            return legs, j
+        if tstop > 0 and (j - i) >= tstop:
+            legs.append((closes[j], rem))
+            return legs, j
+    return None, None
+
+
+def _managed_pnl(entry, legs, direction, notional, fee, slip):
+    return sum(_net_pnl(entry, price, direction, notional * frac, fee, slip) for price, frac in legs)
+
+
+def _managed_enabled(opts):
+    return any(opts.get(k, 0) for k in ('be_at_r', 'partial_r', 'runner_tp_r', 'runner_trail_atr', 'time_stop'))
+
+
 def _simulate_exit(highs, lows, entry_idx, direction, sl, tp):
     """First SL/TP touch after entry (SL first). Returns (exit_idx, exit_price) or (None, None)."""
     for j in range(entry_idx + 1, len(highs)):
@@ -303,14 +357,24 @@ def _entries(setup, symbol, df_entry, trend_ctx, opts):
         if score < opts.get('min_score', 0):
             i += 1
             continue
-        if opts.get('trail_atr', 0) > 0:
+        risk = abs(entry - sl)
+        if _managed_enabled(opts):
+            legs, exit_idx = _managed_legs(highs, lows, closes, a, i, direction, entry, sl, tp, risk, opts)
+            if exit_idx is None:
+                break
+            pnl = _managed_pnl(entry, legs, direction, opts['notional'], opts['fee'], opts['slip'])
+            exit_price = legs[-1][0]
+        elif opts.get('trail_atr', 0) > 0:
             exit_idx, exit_price = _simulate_exit_trailing(highs, lows, i, direction, sl, opts['trail_atr'] * a)
+            if exit_idx is None:
+                break
+            pnl = _net_pnl(entry, exit_price, direction, opts['notional'], opts['fee'], opts['slip'])
         else:
             exit_idx, exit_price = _simulate_exit(highs, lows, i, direction, sl, tp)
-        if exit_idx is None:
-            break
-        pnl = _net_pnl(entry, exit_price, direction, opts['notional'], opts['fee'], opts['slip'])
-        risk = abs(entry - sl)
+            if exit_idx is None:
+                break
+            pnl = _net_pnl(entry, exit_price, direction, opts['notional'], opts['fee'], opts['slip'])
+        outcome = ('TP' if pnl > 0 else 'SL') if _managed_enabled(opts) else ('SL' if exit_price == sl else 'TP')
         mfe_r, mae_r = _excursions(highs, lows, i, exit_idx, direction, entry, risk)
         aligned = (direction == 'LONG' and trend == 'UP') or (direction == 'SHORT' and trend == 'DOWN')
         trades.append({
@@ -323,7 +387,7 @@ def _entries(setup, symbol, df_entry, trend_ctx, opts):
             'take_profit': round(tp, 8),
             'exit_time': times[exit_idx],
             'exit_price': round(exit_price, 8),
-            'outcome': 'SL' if exit_price == sl else 'TP',
+            'outcome': outcome,
             'score': score,
             'trend_align': 'with' if aligned else ('counter' if trend else 'none'),
             'hour': int(times[i].hour),
@@ -398,6 +462,12 @@ class Command(BaseCommand):
                             help='ICT premium/discount gate: long only in discount, short only in premium')
         parser.add_argument('--long-only', action='store_true', help='Take LONG entries only')
         parser.add_argument('--short-only', action='store_true', help='Take SHORT entries only')
+        parser.add_argument('--be-at-r', type=float, default=0.0, help='Move stop to breakeven after +N R')
+        parser.add_argument('--partial-r', type=float, default=0.0, help='Bank a partial at +N R')
+        parser.add_argument('--partial-frac', type=float, default=0.5, help='Fraction to bank at partial-r')
+        parser.add_argument('--runner-tp-r', type=float, default=0.0, help='Final target for the runner in R (0=use --rr)')
+        parser.add_argument('--runner-trail-atr', type=float, default=0.0, help='Trail the runner by N x ATR')
+        parser.add_argument('--time-stop', type=int, default=0, help='Exit at market after N bars if unresolved')
         parser.add_argument('--pd-lookback', type=int, default=20, help='Dealing-range lookback for premium/discount')
         parser.add_argument('--output', default=None, help='Write the full trade log to this CSV path')
         parser.add_argument('--show-trades', type=int, default=0, help='Print the last N trades per setup')
@@ -423,6 +493,12 @@ class Command(BaseCommand):
             'require_pd': options['require_pd'],
             'long_only': options['long_only'],
             'short_only': options['short_only'],
+            'be_at_r': options['be_at_r'],
+            'partial_r': options['partial_r'],
+            'partial_frac': options['partial_frac'],
+            'runner_tp_r': options['runner_tp_r'],
+            'runner_trail_atr': options['runner_trail_atr'],
+            'time_stop': options['time_stop'],
             'min_score': options['min_score'],
             'trail_atr': options['trail_atr'],
             'pd_lb': options['pd_lookback'],
@@ -483,7 +559,7 @@ class Command(BaseCommand):
                     writer.writerow({k: (r[k].isoformat() if hasattr(r[k], 'isoformat') else r[k]) for k in cols})
             self.stdout.write(f"      wrote {len(rows)} trades -> {path}")
         show = options.get('show_trades') or 0
-        for r in rows[-show:]:
+        for r in (rows[-show:] if show else []):
             self.stdout.write(
                 f"      {str(r['entry_time'])[:16]} {r['symbol']:9s} {r['direction']:5s} "
                 f"entry {r['entry']} sl {r['stop_loss']} tp {r['take_profit']} "
