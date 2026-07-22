@@ -70,6 +70,31 @@ def _simulate_exit(df15, entry_idx, direction, stop_loss, take_profit):
     return None, None, 'OPEN'
 
 
+def _simulate_exit_trailing(df15, entry_idx, direction, initial_sl, trail_dist):
+    """Walk forward with an ATR trailing stop (no fixed target; let winners run).
+
+    The stop starts at ``initial_sl`` and ratchets in the trade's favour by
+    ``trail_dist`` behind the best price. The stop-hit check runs before the
+    ratchet within each candle (conservative). Returns (exit_idx, price, outcome).
+    """
+    highs = df15['high'].values
+    lows = df15['low'].values
+    stop = initial_sl
+    best = None
+    for j in range(entry_idx + 1, len(df15)):
+        if direction == 'LONG':
+            if lows[j] <= stop:
+                return j, stop, 'TRAIL'
+            best = highs[j] if best is None else max(best, highs[j])
+            stop = max(stop, best - trail_dist)
+        else:
+            if highs[j] >= stop:
+                return j, stop, 'TRAIL'
+            best = lows[j] if best is None else min(best, lows[j])
+            stop = min(stop, best + trail_dist)
+    return None, None, 'OPEN'
+
+
 def _net_pnl(entry, exit_price, direction, notional, fee_rate, slippage_rate):
     """Net P/L in USDT after round-trip fee + slippage on turnover."""
     move = (exit_price - entry) / entry if direction == 'LONG' else (entry - exit_price) / entry
@@ -119,7 +144,12 @@ def _backtest_symbol(df15, df1h, opts):
             sl = entry + opts['sl_atr'] * a
             tp = entry - opts['tp_atr'] * a
 
-        exit_idx, exit_price, outcome = _simulate_exit(df15, i, direction, sl, tp)
+        if opts['trail_atr'] > 0:
+            exit_idx, exit_price, outcome = _simulate_exit_trailing(
+                df15, i, direction, sl, opts['trail_atr'] * a
+            )
+        else:
+            exit_idx, exit_price, outcome = _simulate_exit(df15, i, direction, sl, tp)
         if outcome == 'OPEN':
             break
         pnl = _net_pnl(entry, exit_price, direction, notional, opts['fee_rate'], opts['slippage_rate'])
@@ -159,6 +189,8 @@ class Command(BaseCommand):
         parser.add_argument('--breakout', type=int, default=20, help='15m breakout lookback')
         parser.add_argument('--sl-atr', type=float, default=1.5)
         parser.add_argument('--tp-atr', type=float, default=3.0)
+        parser.add_argument('--trail-atr', type=float, default=0.0,
+                            help='ATR trailing-stop distance; >0 replaces the fixed TP (let winners run)')
         parser.add_argument('--fee-rate', type=float, default=0.0004)
         parser.add_argument('--slippage-rate', type=float, default=0.0002)
         parser.add_argument('--margin', type=float, default=100.0)
@@ -170,7 +202,8 @@ class Command(BaseCommand):
         start_ts = timezone.datetime.utcfromtimestamp(start_ms / 1000)
         symbols = [s.strip().upper() for s in options['symbols'].split(',') if s.strip()]
         opts = {k: options[k] for k in (
-            'adx_min', 'breakout', 'sl_atr', 'tp_atr', 'fee_rate', 'slippage_rate', 'margin', 'leverage')}
+            'adx_min', 'breakout', 'sl_atr', 'tp_atr', 'trail_atr',
+            'fee_rate', 'slippage_rate', 'margin', 'leverage')}
         rr = round(options['tp_atr'] / options['sl_atr'], 2)
         self.stdout.write(
             f"Trend-follow breakout | {len(symbols)} symbols | {options['days']}d | "
