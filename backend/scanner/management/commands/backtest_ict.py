@@ -70,6 +70,27 @@ def _swing_levels(highs, lows, k):
     return last_sh, last_sl
 
 
+def _structure_breaks(closes, last_sh, last_sl):
+    """Classify each close's structure break as BOS (continuation) or CHoCH (reversal).
+
+    Maintains the prevailing structure direction: a break in the same direction
+    is a BOS; a break against it is a CHoCH (change of character / first reversal
+    break). Returns (long_break_type[], short_break_type[]) with '', 'BOS' or 'CHoCH'.
+    """
+    n = len(closes)
+    lbt = [''] * n
+    sbt = [''] * n
+    direction = ''
+    for i in range(n):
+        if not np.isnan(last_sh[i]) and closes[i] > last_sh[i]:
+            lbt[i] = 'CHoCH' if direction == 'bear' else 'BOS'
+            direction = 'bull'
+        elif not np.isnan(last_sl[i]) and closes[i] < last_sl[i]:
+            sbt[i] = 'CHoCH' if direction == 'bull' else 'BOS'
+            direction = 'bear'
+    return lbt, sbt
+
+
 def _trend_labels(df_trend, adx_min):
     """UP/DOWN/'' per trend candle (EMA50 vs EMA200 + ADX)."""
     ema50 = calculate_ema(df_trend, 50).values
@@ -136,6 +157,7 @@ def _entries(setup, symbol, df_entry, trend_ctx, opts):
     times = df_entry.index
     atr = calculate_atr(df_entry, 14).values
     last_sh, last_sl = _swing_levels(highs, lows, opts['swing_k'])
+    lbt, sbt = _structure_breaks(closes, last_sh, last_sl)
     h_times, labels, delta = trend_ctx
     look = opts['lookback']
     buf = opts['sl_buffer_atr']
@@ -184,6 +206,13 @@ def _entries(setup, symbol, df_entry, trend_ctx, opts):
                     obs = [b for b in range(i - 1, max(i - look, 0) - 1, -1) if closes[b] > opens[b]]
                     if obs:
                         sl = highs[obs[0]] + buf * a
+
+            if sl is not None and opts.get('structure') in ('bos', 'choch') \
+                    and setup in ('order_block', 'sweep_mss_fvg'):
+                bt = lbt[i] if direction == 'LONG' else sbt[i]
+                want = 'BOS' if opts['structure'] == 'bos' else 'CHoCH'
+                if bt != want:
+                    sl = None
 
             if sl is not None and opts.get('require_trend'):
                 if (direction == 'LONG' and trend != 'UP') or (direction == 'SHORT' and trend != 'DOWN'):
@@ -281,6 +310,8 @@ class Command(BaseCommand):
         parser.add_argument('--leverage', type=float, default=10.0)
         parser.add_argument('--segments', type=int, default=1,
                             help='Split the window into N walk-forward buckets per setup')
+        parser.add_argument('--structure', default='any', choices=['any','bos','choch'],
+                            help='Require the structure break to be BOS (continuation) or CHoCH (reversal)')
         parser.add_argument('--killzone-hours', default='',
                             help='Comma UTC hours of the entry candle open to allow (ICT killzones), e.g. 8,12')
         parser.add_argument('--require-trend', action='store_true',
@@ -306,6 +337,7 @@ class Command(BaseCommand):
             'fee': options['fee_rate'], 'slip': options['slippage_rate'],
             'notional': options['margin'] * options['leverage'],
             'start_ts': start_ts,
+            'structure': options['structure'],
             'killzone': {int(h) for h in options['killzone_hours'].split(',') if h.strip()},
             'require_trend': options['require_trend'],
             'require_pd': options['require_pd'],
