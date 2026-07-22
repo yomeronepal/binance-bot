@@ -148,12 +148,38 @@ def _swept_recently(lows, highs, closes, last_sl, last_sh, i, look, direction):
     return False
 
 
+def _confidence(direction, i, closes, opens, highs, lows, vols, vol_sma, atr,
+                last_sh, last_sl, lbt, sbt, look, pd_lb):
+    """Confidence score (max 100) for a setup at candle i, per the hybrid weights."""
+    a = atr[i]
+    score = 15  # order-block / setup base
+    bt = lbt[i] if direction == 'LONG' else sbt[i]
+    if bt == 'BOS':
+        score += 20
+    if abs(closes[i] - opens[i]) > 1.5 * a:
+        score += 15  # strong displacement
+    if _swept_recently(lows, highs, closes, last_sl, last_sh, i, look, direction):
+        score += 20
+    if (direction == 'LONG' and lows[i] > highs[i - 2]) or (direction == 'SHORT' and highs[i] < lows[i - 2]):
+        score += 10  # FVG
+    hi = highs[max(0, i - pd_lb):i + 1].max()
+    lo = lows[max(0, i - pd_lb):i + 1].min()
+    mid = (hi + lo) / 2.0
+    if (direction == 'LONG' and closes[i] <= mid) or (direction == 'SHORT' and closes[i] >= mid):
+        score += 10  # premium/discount
+    if not np.isnan(vol_sma[i]) and vols[i] > vol_sma[i]:
+        score += 10  # volume confirmation
+    return score
+
+
 def _entries(setup, symbol, df_entry, trend_ctx, opts):
     """Return a list of trade dicts for a setup on one symbol."""
     highs = df_entry['high'].values
     lows = df_entry['low'].values
     closes = df_entry['close'].values
     opens = df_entry['open'].values
+    vols = df_entry['volume'].values
+    vol_sma = df_entry['volume'].rolling(20).mean().values
     times = df_entry.index
     atr = calculate_atr(df_entry, 14).values
     last_sh, last_sl = _swing_levels(highs, lows, opts['swing_k'])
@@ -239,6 +265,11 @@ def _entries(setup, symbol, df_entry, trend_ctx, opts):
             continue
 
         direction, entry, sl, tp = found
+        score = _confidence(direction, i, closes, opens, highs, lows, vols, vol_sma, atr,
+                            last_sh, last_sl, lbt, sbt, look, opts['pd_lb'])
+        if score < opts.get('min_score', 0):
+            i += 1
+            continue
         exit_idx, exit_price = _simulate_exit(highs, lows, i, direction, sl, tp)
         if exit_idx is None:
             break
@@ -254,6 +285,7 @@ def _entries(setup, symbol, df_entry, trend_ctx, opts):
             'exit_time': times[exit_idx],
             'exit_price': round(exit_price, 8),
             'outcome': 'SL' if exit_price == sl else 'TP',
+            'score': score,
             'pnl': round(pnl, 4),
         })
         i = exit_idx + 1
@@ -303,6 +335,7 @@ class Command(BaseCommand):
         parser.add_argument('--swing-k', type=int, default=2, help='Fractal wing for swing points')
         parser.add_argument('--lookback', type=int, default=10, help='Bars for sweep/OB context')
         parser.add_argument('--rr', type=float, default=2.0)
+        parser.add_argument('--min-score', type=int, default=0, help='Only take trades with confidence score >= this')
         parser.add_argument('--sl-buffer-atr', type=float, default=0.25)
         parser.add_argument('--fee-rate', type=float, default=0.0004)
         parser.add_argument('--slippage-rate', type=float, default=0.0002)
@@ -341,6 +374,7 @@ class Command(BaseCommand):
             'killzone': {int(h) for h in options['killzone_hours'].split(',') if h.strip()},
             'require_trend': options['require_trend'],
             'require_pd': options['require_pd'],
+            'min_score': options['min_score'],
             'pd_lb': options['pd_lookback'],
         }
         delta = timedelta(milliseconds=_interval_ms(trend_tf))
@@ -366,6 +400,13 @@ class Command(BaseCommand):
                 f"  {setup:18s} trades={s.get('trades', 0):4d} win={s.get('win_rate', 0)}% "
                 f"PF={s.get('profit_factor')} net=${s.get('net_pnl', 0)} exp={s.get('expectancy', 0)}"
             )
+            for label, lo, hi in [('PRIORITY>=80', 80, 101), ('NORMAL 65-79', 65, 80), ('LOW <65', 0, 65)]:
+                band = _summarize([t['pnl'] for t in all_trades if lo <= t.get('score', 0) < hi])
+                if band.get('trades'):
+                    self.stdout.write(
+                        f"      {label:12s} trades={band['trades']:4d} win={band['win_rate']}% "
+                        f"PF={band['profit_factor']} net=${band['net_pnl']}"
+                    )
             if options['segments'] > 1:
                 for label, seg in _segment_report(all_trades, start_ts, end_ts, options['segments']):
                     self.stdout.write(
