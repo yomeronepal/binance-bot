@@ -54,6 +54,11 @@ const Layout = () => {
         { to: '/daytrade-sessions', label: 'Trading Session', icon: Calendar },
       ],
     },
+    {
+      type: 'group', label: 'Swing (4h)', items: [
+        { to: '/swing-performance', label: 'Bot Performance', icon: Activity },
+      ],
+    },
     { type: 'item', to: '/paper-trading', label: 'Paper Trading', icon: FileText },
     { type: 'item', to: '/backtesting', label: 'Backtesting', icon: FlaskConical },
     { type: 'item', to: '/futures-performance', label: 'Future Trade', icon: BarChart3 },

@@ -75,6 +75,12 @@ from signals.views.chart import chart_annotations, delete_annotation, fibonacci_
 from signals.views.blacklist import BlacklistedSymbolViewSet
 from signals.views.push import subscribe_push, unsubscribe_push, push_status, subscribe_push_public
 from signals.views.top_performers import top_performers, top_performers_periods
+from signals.views.swing import (
+    swing_trades_list,
+    swing_open_positions,
+    swing_summary,
+    swing_close_trade,
+)
 from signals.views.daytrade import (
     daytrade_signals_list,
     daytrade_trades_list,
@@ -182,6 +188,11 @@ urlpatterns = [
     path('daytrade/sessions/', daytrade_sessions_list, name='daytrade-sessions'),
     path('daytrade/report/', daytrade_report, name='daytrade-report'),
     path('daytrade/trades/<int:trade_id>/close/', daytrade_close_trade, name='daytrade-close-trade'),
+
+    path('swing/trades/', swing_trades_list, name='swing-trades'),
+    path('swing/positions/', swing_open_positions, name='swing-positions'),
+    path('swing/summary/', swing_summary, name='swing-summary'),
+    path('swing/trades/<int:trade_id>/close/', swing_close_trade, name='swing-close-trade'),
 
     # Market Data endpoints
     path('market/orderbook/<str:symbol>/', get_order_book, name='orderbook'),
