@@ -49,11 +49,11 @@ def _candidate_entries(engine, df, config, symbol):
         current, previous = window.iloc[-1], window.iloc[-2]
         long_sig, long_conf, _l = engine._check_long_conditions(window, current, previous, config, symbol)
         if long_sig and long_conf >= config.min_confidence:
-            out.append((i, 'LONG', float(closes[i]), float(atr[i])))
+            out.append((i, 'LONG', float(closes[i]), float(atr[i]), df.index[i]))
             continue
         short_sig, short_conf, _s = engine._check_short_conditions(window, current, previous, config, symbol)
         if short_sig and short_conf >= config.min_confidence:
-            out.append((i, 'SHORT', float(closes[i]), float(atr[i])))
+            out.append((i, 'SHORT', float(closes[i]), float(atr[i]), df.index[i]))
     return out
 
 
@@ -80,10 +80,10 @@ def _net(entry, exit_price, direction, notional, fee, slip):
 
 
 def _simulate(candidates, highs, lows, sl_mult, rr, notional, fee, slip):
-    """Walk candidate entries with no-overlap; return list of net P/L per trade."""
-    pnls = []
+    """Walk candidate entries with no-overlap; return list of (entry_time, net P/L)."""
+    trades = []
     guard = -1
-    for idx, direction, entry, atr in candidates:
+    for idx, direction, entry, atr, ts in candidates:
         if idx <= guard:
             continue
         risk = sl_mult * atr
@@ -94,9 +94,9 @@ def _simulate(candidates, highs, lows, sl_mult, rr, notional, fee, slip):
         exit_price = _exit(highs, lows, idx, direction, sl, tp)
         if exit_price is None:
             break
-        pnls.append(_net(entry, exit_price, direction, notional, fee, slip))
+        trades.append((ts, _net(entry, exit_price, direction, notional, fee, slip)))
         guard = _exit_index(highs, lows, idx, direction, sl, tp)
-    return pnls
+    return trades
 
 
 def _exit_index(highs, lows, entry_idx, direction, sl, tp):
@@ -133,6 +133,8 @@ class Command(BaseCommand):
         parser.add_argument('--slippage-rate', type=float, default=0.0002)
         parser.add_argument('--margin', type=float, default=100.0)
         parser.add_argument('--leverage', type=float, default=10.0)
+        parser.add_argument('--rr', type=float, default=None, help='Single R:R to test (default: sweep)')
+        parser.add_argument('--segments', type=int, default=1, help='Walk-forward time segments (needs --rr)')
 
     def handle(self, *args, **options):
         config = SignalConfig()
@@ -154,7 +156,13 @@ class Command(BaseCommand):
             f"conf>={config.min_confidence} | SL {sl_mult}xATR | net fee {fee}+slip {slip} | fib off"
         )
         prepared = self._prepare(frames, engine, config)
-        self._sweep(prepared, sl_mult, notional, fee, slip)
+        if options['rr'] is not None and options['segments'] > 1:
+            start_ts = timezone.datetime.utcfromtimestamp(start_ms / 1000)
+            end_ts = timezone.datetime.utcfromtimestamp(end_ms / 1000)
+            self._walkforward(prepared, sl_mult, options['rr'], notional, fee, slip,
+                              start_ts, end_ts, options['segments'])
+        else:
+            self._sweep(prepared, sl_mult, notional, fee, slip)
 
     def _prepare(self, frames, engine, config):
         """Compute indicators + candidate entries + bar arrays per symbol (once)."""
@@ -168,13 +176,42 @@ class Command(BaseCommand):
         self.stdout.write(f"  candidate signals detected: {total}")
         return prepared
 
+    def _all_trades(self, prepared, sl_mult, rr, notional, fee, slip):
+        """Every (entry_time, pnl) across symbols for one R:R."""
+        trades = []
+        for cands, highs, lows in prepared.values():
+            trades.extend(_simulate(cands, highs, lows, sl_mult, rr, notional, fee, slip))
+        return trades
+
+    def _walkforward(self, prepared, sl_mult, rr, notional, fee, slip, start_ts, end_ts, n):
+        """Split trades into N sequential time windows and summarize each."""
+        trades = self._all_trades(prepared, sl_mult, rr, notional, fee, slip)
+        overall = _summ([p for _, p in trades])
+        self.stdout.write(
+            f"  WALK-FORWARD 1:{rr} in {n} windows | overall: {overall['trades']} trades "
+            f"win {overall['win']:.1f}% PF {overall['pf']:.3f} net ${overall['net']:.0f}"
+        )
+        span = (end_ts - start_ts) / n
+        wins = 0
+        for k in range(n):
+            lo, hi = start_ts + span * k, start_ts + span * (k + 1)
+            seg = [p for ts, p in trades if lo <= ts.to_pydatetime().replace(tzinfo=None) < hi]
+            s = _summ(seg)
+            if s['net'] > 0:
+                wins += 1
+            self.stdout.write(
+                f"      {str(lo)[:10]}: {s['trades']:4d} trades  win {s['win']:5.1f}%  "
+                f"PF {s['pf']:5.3f}  net ${s['net']:.0f}"
+            )
+        self.stdout.write(f"  positive windows: {wins}/{n}")
+
     def _sweep(self, prepared, sl_mult, notional, fee, slip):
         self.stdout.write("  R:R    trades   win%    PF     net$     exp$")
         best = None
         for rr in RR_SWEEP:
             pnls = []
             for cands, highs, lows in prepared.values():
-                pnls.extend(_simulate(cands, highs, lows, sl_mult, rr, notional, fee, slip))
+                pnls.extend([p for _, p in _simulate(cands, highs, lows, sl_mult, rr, notional, fee, slip)])
             s = _summ(pnls)
             self.stdout.write(
                 f"  1:{rr:<4} {s['trades']:5d}  {s['win']:5.1f}  {s['pf']:5.3f}  "
