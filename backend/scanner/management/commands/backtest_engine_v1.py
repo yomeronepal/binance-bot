@@ -135,6 +135,7 @@ class Command(BaseCommand):
         parser.add_argument('--leverage', type=float, default=10.0)
         parser.add_argument('--rr', type=float, default=None, help='Single R:R to test (default: sweep)')
         parser.add_argument('--segments', type=int, default=1, help='Walk-forward time segments (needs --rr)')
+        parser.add_argument('--output', default=None, help='Write per-trade log (entry_time,pnl) for a single --rr')
 
     def handle(self, *args, **options):
         config = SignalConfig()
@@ -156,6 +157,14 @@ class Command(BaseCommand):
             f"conf>={config.min_confidence} | SL {sl_mult}xATR | net fee {fee}+slip {slip} | fib off"
         )
         prepared = self._prepare(frames, engine, config)
+        if options['rr'] is not None and options['output']:
+            trades = self._all_trades(prepared, sl_mult, options['rr'], notional, fee, slip)
+            with open(options['output'], 'w') as handle:
+                handle.write('entry_time,pnl\n')
+                for ts, pnl in sorted(trades):
+                    handle.write(f'{ts.isoformat()},{pnl}\n')
+            self.stdout.write(f"  wrote {len(trades)} trades -> {options['output']}")
+            return
         if options['rr'] is not None and options['segments'] > 1:
             start_ts = timezone.datetime.utcfromtimestamp(start_ms / 1000)
             end_ts = timezone.datetime.utcfromtimestamp(end_ms / 1000)
