@@ -61,6 +61,37 @@ def _session_trades_opened(session):
     ).count()
 
 
+def _session_scope_start():
+    """UTC start of the counting scope: today's active session window, else NPT day start."""
+    session = _active_session()
+    if session:
+        return _session_window_start_utc(session)
+    npt = dj_timezone.now() + NEPAL_OFFSET
+    day_start_npt = npt.replace(hour=0, minute=0, second=0, microsecond=0)
+    return day_start_npt - NEPAL_OFFSET
+
+
+def futures_trading_halted(threshold):
+    """Global circuit breaker: True after `threshold` consecutive SLs since the last TP.
+
+    Pools all live futures closes (any bot) within the current session-window scope,
+    ordered by exit time. A CLOSED_TP resets the streak; other close reasons are
+    ignored. Shared by every live-entry path so a losing streak halts all bots.
+    """
+    if not threshold or threshold <= 0:
+        return False
+    from signals.models.futures import FuturesTrade
+
+    closes = FuturesTrade.objects.filter(
+        exit_time__gte=_session_scope_start(),
+        status__in=['CLOSED_TP', 'CLOSED_SL'],
+    ).order_by('exit_time').values_list('status', flat=True)
+    streak = 0
+    for status in closes:
+        streak = 0 if status == 'CLOSED_TP' else streak + 1
+    return streak >= threshold
+
+
 def _place_orders(symbol, direction, leverage, margin, stop_loss, take_profit):
     """Place entry + SL/TP orders on Binance in a worker thread.
 
@@ -118,6 +149,8 @@ def _live_gates_open(signal):
     cap = settings.daytrade_max_trades_per_session
     if cap and _session_trades_opened(session) >= cap:
         return None, 'session_trade_cap'
+    if futures_trading_halted(settings.consecutive_sl_halt_threshold):
+        return None, 'sl_streak_halt'
     if settings.get_available_gw_trade_slots() <= 0:
         return None, 'no_slots'
     if FuturesTrade.objects.filter(

@@ -128,6 +128,16 @@ class FuturesTradingSettings(models.Model):
         )
     )
 
+    consecutive_sl_halt_threshold = models.PositiveIntegerField(
+        default=3,
+        help_text=_(
+            "Circuit breaker for ALL live bots: after this many consecutive stop-losses "
+            "(pooled, since the last take-profit) within the active Day-Trade Session "
+            "window, block new live futures entries until a take-profit resets it. "
+            "0 = disabled."
+        )
+    )
+
     cut_loser_enabled = models.BooleanField(
         default=False,
         help_text=_("Enable 'cut loser first' - close losing trades when they recover near breakeven")
