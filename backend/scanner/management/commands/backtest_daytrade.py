@@ -307,6 +307,8 @@ class Command(BaseCommand):
                             help='Per-side slippage rate applied to turnover')
         parser.add_argument('--entry-tf', default=None, help='Override entry timeframe (e.g. 5m, 15m, 1h, 4h)')
         parser.add_argument('--trend-tf', default=None, help='Override trend timeframe (higher than entry)')
+        parser.add_argument('--sl-pct', type=float, default=None, help='Override stop-loss percentage')
+        parser.add_argument('--tp-pct', type=float, default=None, help='Override take-profit percentage')
 
     def handle(self, *args, **options):
         end_ms = int(timezone.now().timestamp() * 1000)
@@ -367,6 +369,10 @@ class Command(BaseCommand):
             cfg.entry_timeframe = options['entry_tf']
         if options.get('trend_tf'):
             cfg.trend_timeframe = options['trend_tf']
+        if options.get('sl_pct') is not None:
+            cfg.sl_percentage = options['sl_pct']
+        if options.get('tp_pct') is not None:
+            cfg.tp_percentage = options['tp_pct']
         cfg.bt_exit_tp2 = options.get('exit_tp2', False)
         cfg.bt_fee_rate = options.get('fee_rate', 0.0004)
         cfg.bt_slippage_rate = options.get('slippage_rate', 0.0002)
