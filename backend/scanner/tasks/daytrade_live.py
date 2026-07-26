@@ -24,16 +24,95 @@ logger = logging.getLogger(__name__)
 NEPAL_OFFSET = timedelta(hours=5, minutes=45)
 
 
-def _now_in_active_session():
-    """True if the current Nepal time falls inside any active Day-Trade Session."""
+LIVE_ENTRY_NOTE = 'Day-trade live entry'
+
+
+def _active_session():
+    """The active Day-Trade Session covering the current Nepal time, or None."""
     from signals.models.daytrade import DayTradeSession
 
     npt = dj_timezone.now() + NEPAL_OFFSET
     hour, weekday = npt.hour, npt.weekday()
-    for session in DayTradeSession.objects.filter(is_active=True):
+    for session in DayTradeSession.objects.filter(is_active=True).order_by('start_hour'):
         if session.covers(hour, weekday):
-            return True
-    return False
+            return session
+    return None
+
+
+def _now_in_active_session():
+    """True if the current Nepal time falls inside any active Day-Trade Session."""
+    return _active_session() is not None
+
+
+def _session_window_start_utc(session):
+    """UTC datetime for the start of today's occurrence of this session window."""
+    npt = dj_timezone.now() + NEPAL_OFFSET
+    window_start_npt = npt.replace(hour=session.start_hour, minute=0, second=0, microsecond=0)
+    return window_start_npt - NEPAL_OFFSET
+
+
+def _consecutive_sl_halt(threshold, scope_start, engine_filter):
+    """True after `threshold` consecutive SLs since the last TP for one engine.
+
+    Counts that engine's live futures closes since scope_start, ordered by exit
+    time. A CLOSED_TP resets the streak; other close reasons are ignored.
+    """
+    if not threshold or threshold <= 0 or scope_start is None:
+        return False
+    from signals.models.futures import FuturesTrade
+
+    closes = (FuturesTrade.objects
+              .filter(exit_time__gte=scope_start, status__in=['CLOSED_TP', 'CLOSED_SL'])
+              .filter(**engine_filter)
+              .order_by('exit_time')
+              .values_list('status', flat=True))
+    streak = 0
+    for status in closes:
+        streak = 0 if status == 'CLOSED_TP' else streak + 1
+    return streak >= threshold
+
+
+def daytrade_trading_halted(threshold):
+    """Per-engine breaker for the DAY-TRADE engine within its DayTradeSession window."""
+    session = _active_session()
+    if session is None:
+        return False
+    return _consecutive_sl_halt(
+        threshold, _session_window_start_utc(session),
+        {'signal__isnull': True, 'error_message__startswith': LIVE_ENTRY_NOTE},
+    )
+
+
+def _active_trading_session():
+    """Active V1 golden-window TradingSession covering the current Nepal time, or None."""
+    from signals.models.base import TradingSession
+
+    npt = dj_timezone.now() + NEPAL_OFFSET
+    minutes, weekday = npt.hour * 60 + npt.minute, npt.weekday()
+    for session in TradingSession.objects.filter(active=True).order_by('start_hour', 'start_minute'):
+        start = session.start_hour * 60 + session.start_minute
+        end = session.end_hour * 60 + session.end_minute
+        if start <= minutes < end and (not session.active_days or weekday in session.active_days):
+            return session
+    return None
+
+
+def _trading_session_window_start(session):
+    """UTC start of today's occurrence of this V1 golden-window session."""
+    npt = dj_timezone.now() + NEPAL_OFFSET
+    start_npt = npt.replace(hour=session.start_hour, minute=session.start_minute, second=0, microsecond=0)
+    return start_npt - NEPAL_OFFSET
+
+
+def golden_window_trading_halted(threshold):
+    """Per-engine breaker for the V1 GOLDEN-WINDOW engine within its TradingSession window."""
+    session = _active_trading_session()
+    if session is None:
+        return False
+    return _consecutive_sl_halt(
+        threshold, _trading_session_window_start(session),
+        {'signal__isnull': False},
+    )
 
 
 def _place_orders(symbol, direction, leverage, margin, stop_loss, take_profit):
@@ -87,8 +166,11 @@ def _live_gates_open(signal):
         return None, 'daytrade_live_disabled'
     if signal.meta and signal.meta.get('live_order_id'):
         return None, 'already_executed'
-    if not _now_in_active_session():
+    session = _active_session()
+    if session is None:
         return None, 'not_in_session'
+    if daytrade_trading_halted(settings.consecutive_sl_halt_threshold):
+        return None, 'sl_streak_halt'
     if settings.get_available_gw_trade_slots() <= 0:
         return None, 'no_slots'
     if FuturesTrade.objects.filter(
@@ -111,7 +193,7 @@ def _record_live_trade(signal, settings, result):
     tp_order_id = result.get('tp_order_id')
     warnings = result.get('warnings') or []
 
-    note = 'Day-trade live entry (in-session)'
+    note = f'{LIVE_ENTRY_NOTE} (in-session)'
     if not sl_order_id:
         note += ' | WARNING: no SL order on Binance'
     if not tp_order_id:

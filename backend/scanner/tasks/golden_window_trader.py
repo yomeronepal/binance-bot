@@ -775,6 +775,11 @@ def golden_window_auto_trader(self):
             logger.debug("GW2 trading is disabled")
             return {"status": "skipped", "reason": "gw2_disabled"}
 
+        from scanner.tasks.daytrade_live import golden_window_trading_halted
+        if golden_window_trading_halted(settings.consecutive_sl_halt_threshold):
+            logger.info("GW auto-trader halted: consecutive-SL circuit breaker active")
+            return {"status": "skipped", "reason": "sl_streak_halt"}
+
         # Get available trade slots
         available_slots = settings.get_available_gw_trade_slots()
 

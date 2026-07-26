@@ -120,6 +120,16 @@ class FuturesTradingSettings(models.Model):
         )
     )
 
+    consecutive_sl_halt_threshold = models.PositiveIntegerField(
+        default=2,
+        help_text=_(
+            "Circuit breaker (per engine): after this many consecutive stop-losses "
+            "since the last take-profit within the engine's active trading-session "
+            "window, block that engine's new live futures entries until a take-profit "
+            "resets it. Validated optimum is 2 (forward-tested). 0 = disabled."
+        )
+    )
+
     cut_loser_enabled = models.BooleanField(
         default=False,
         help_text=_("Enable 'cut loser first' - close losing trades when they recover near breakeven")

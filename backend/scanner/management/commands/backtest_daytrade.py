@@ -305,6 +305,10 @@ class Command(BaseCommand):
                             help='Per-side fee rate applied to turnover (taker 0.0004, maker ~0.0002)')
         parser.add_argument('--slippage-rate', type=float, default=0.0002,
                             help='Per-side slippage rate applied to turnover')
+        parser.add_argument('--entry-tf', default=None, help='Override entry timeframe (e.g. 5m, 15m, 1h, 4h)')
+        parser.add_argument('--trend-tf', default=None, help='Override trend timeframe (higher than entry)')
+        parser.add_argument('--sl-pct', type=float, default=None, help='Override stop-loss percentage')
+        parser.add_argument('--tp-pct', type=float, default=None, help='Override take-profit percentage')
 
     def handle(self, *args, **options):
         end_ms = int(timezone.now().timestamp() * 1000)
@@ -337,7 +341,24 @@ class Command(BaseCommand):
 
         overall = _summarize(cfg, all_trades)
         self._print_report(overall, per_symbol)
+        if options['segments'] > 1:
+            self._print_walkforward(cfg, all_trades, start_ts, end_ts, options['segments'])
         self._maybe_write(options['output'], cfg, overall, per_symbol, all_trades, options['days'])
+
+    def _print_walkforward(self, cfg, trades, start_ts, end_ts, n):
+        """Split trades into N sequential time windows and summarize each."""
+        buckets = _segment_trades(trades, start_ts, end_ts, n)
+        self.stdout.write(f"  walk-forward ({n} windows):")
+        wins = 0
+        for i, bucket in enumerate(buckets):
+            s = _summarize(cfg, bucket)
+            if (s['net_pnl_usdt'] or 0) > 0:
+                wins += 1
+            self.stdout.write(
+                f"    window {i + 1}: {s['resolved_trades']} trades  win {s['win_rate']}%  "
+                f"PF {s['profit_factor']}  net ${s['net_pnl_usdt']}"
+            )
+        self.stdout.write(f"  positive windows: {wins}/{n}")
 
     def _apply_overrides(self, cfg, options):
         """Apply experiment flags onto the engine config."""
@@ -361,6 +382,14 @@ class Command(BaseCommand):
             cfg.regime_atr_percentile_min = options['regime_atr_pct_min']
         if options.get('min_confidence') is not None:
             cfg.min_confidence = options['min_confidence']
+        if options.get('entry_tf'):
+            cfg.entry_timeframe = options['entry_tf']
+        if options.get('trend_tf'):
+            cfg.trend_timeframe = options['trend_tf']
+        if options.get('sl_pct') is not None:
+            cfg.sl_percentage = options['sl_pct']
+        if options.get('tp_pct') is not None:
+            cfg.tp_percentage = options['tp_pct']
         cfg.bt_exit_tp2 = options.get('exit_tp2', False)
         cfg.bt_fee_rate = options.get('fee_rate', 0.0004)
         cfg.bt_slippage_rate = options.get('slippage_rate', 0.0002)

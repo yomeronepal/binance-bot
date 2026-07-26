@@ -92,6 +92,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
       if (activeWindow === 'top') params.append('top_performer', 'true');
       if (activeWindow === 'macro_allow') params.append('macro_filter', 'allow');
       if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
+      if (activeWindow === 'priority') params.append('priority', 'true');
     }
     if (direction !== 'ALL') params.append('direction', direction);
     if (minConfidence !== 'ALL') params.append('min_confidence', minConfidence);
@@ -213,6 +214,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
         if (activeWindow === 'top') params.append('top_performer', 'true');
         if (activeWindow === 'macro_allow') params.append('macro_filter', 'allow');
         if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
+        if (activeWindow === 'priority') params.append('priority', 'true');
       }
       if (direction !== 'ALL') params.append('direction', direction);
       if (minConfidence !== 'ALL') params.append('min_confidence', minConfidence);
@@ -220,7 +222,8 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
       if (hour !== 'ALL') params.append('hour', hour);
       if (month !== 'ALL') params.append('month', month);
       if (year !== 'ALL') params.append('year', year);
-      if (feat.sessionWindows && sessionWindow !== 'all') params.append('window', sessionWindow);
+      if (feat.sessionWindows && sessionWindow === 'priority') params.append('priority', 'true');
+      else if (feat.sessionWindows && sessionWindow !== 'all') params.append('window', sessionWindow);
 
       const queryParams = params.toString() ? `?${params.toString()}` : '';
 
@@ -275,6 +278,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
         if (activeWindow === 'top') params.append('top_performer', 'true');
         if (activeWindow === 'macro_allow') params.append('macro_filter', 'allow');
         if (activeWindow === 'macro_block') params.append('macro_filter', 'block');
+        if (activeWindow === 'priority') params.append('priority', 'true');
       }
       if (direction !== 'ALL') params.append('direction', direction);
       if (minConfidence !== 'ALL') params.append('min_confidence', minConfidence);
@@ -282,7 +286,8 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
       if (hour !== 'ALL') params.append('hour', hour);
       if (month !== 'ALL') params.append('month', month);
       if (year !== 'ALL') params.append('year', year);
-      if (feat.sessionWindows && sessionWindow !== 'all') params.append('window', sessionWindow);
+      if (feat.sessionWindows && sessionWindow === 'priority') params.append('priority', 'true');
+      else if (feat.sessionWindows && sessionWindow !== 'all') params.append('window', sessionWindow);
       if (debouncedSymbol) params.append('symbol', debouncedSymbol);
 
       const res = await axios.get(`${baseURL}${source.listUrl}?${params.toString()}`);
@@ -484,6 +489,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
                 {[
                   { val: 'all', label: 'All Trades', color: 'blue' },
                   { val: 'ai', label: 'In AI Window', color: 'cyan' },
+                  { val: 'priority', label: 'Priority', color: 'rose' },
                   { val: 'outside', label: 'Outside Window', color: 'gray' },
                 ].map((w) => (
                   <button
@@ -584,6 +590,18 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
                 >
                   <Zap className="w-4 h-4" />
                   GW2 AI
+                </button>
+
+                <button
+                  onClick={() => setActiveWindow('priority')}
+                  title="Priority signals only"
+                  className={`flex-shrink-0 px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${activeWindow === 'priority'
+                    ? 'bg-rose-600 text-white shadow-md shadow-rose-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                    }`}
+                >
+                  <Zap className="w-4 h-4" />
+                  Priority
                 </button>
 
                 <span className="text-gray-300 dark:text-gray-600">|</span>
@@ -1001,7 +1019,8 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
               outside_golden_window: activeWindow === 'outside_gw' ? 'true' : undefined,
               gw1_ai: activeWindow === 'gw1_ai' ? 'true' : undefined,
               gw2_ai: activeWindow === 'gw2_ai' ? 'true' : undefined,
-              window: feat.sessionWindows && sessionWindow !== 'all' ? sessionWindow : undefined,
+              priority: (activeWindow === 'priority' || sessionWindow === 'priority') ? 'true' : undefined,
+              window: feat.sessionWindows && sessionWindow !== 'priority' && sessionWindow !== 'all' ? sessionWindow : undefined,
               direction: direction,
               weekday: weekday,
               hour: hour,
@@ -1020,7 +1039,8 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
               outside_golden_window: activeWindow === 'outside_gw' ? 'true' : undefined,
               gw1_ai: activeWindow === 'gw1_ai' ? 'true' : undefined,
               gw2_ai: activeWindow === 'gw2_ai' ? 'true' : undefined,
-              window: feat.sessionWindows && sessionWindow !== 'all' ? sessionWindow : undefined,
+              priority: (activeWindow === 'priority' || sessionWindow === 'priority') ? 'true' : undefined,
+              window: feat.sessionWindows && sessionWindow !== 'priority' && sessionWindow !== 'all' ? sessionWindow : undefined,
               direction: direction,
               weekday: weekday,
               hour: hour,
