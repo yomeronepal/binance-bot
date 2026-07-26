@@ -180,6 +180,9 @@ def _apply_golden_window_filter(queryset, params):
     if params.get('golden_window', '').lower() == 'true':
         queryset = queryset.filter(is_priority=True)
 
+    if params.get('priority', '').lower() == 'true':
+        queryset = queryset.filter(is_priority=True)
+
     if params.get('golden_window_2', '').lower() == 'true':
         queryset = queryset.filter(is_golden_2=True)
 

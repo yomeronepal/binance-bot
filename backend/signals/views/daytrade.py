@@ -98,6 +98,8 @@ def _apply_trade_filters(queryset, request):
             queryset = queryset.filter(confidence__gte=float(min_confidence))
         except (TypeError, ValueError):
             pass
+    if request.query_params.get('priority', '').lower() == 'true':
+        queryset = queryset.filter(is_priority=True)
     queryset = _apply_time_filters(queryset, request.query_params)
     queryset = _apply_session_filter(queryset, request)
     return queryset
