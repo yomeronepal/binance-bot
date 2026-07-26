@@ -120,6 +120,14 @@ class FuturesTradingSettings(models.Model):
         )
     )
 
+    daytrade_max_trades_per_session = models.PositiveIntegerField(
+        default=2,
+        help_text=_(
+            "Max REAL day-trade futures entries opened per active Day-Trade Session "
+            "window (per day). 0 = unlimited. Guards against over-trading live."
+        )
+    )
+
     cut_loser_enabled = models.BooleanField(
         default=False,
         help_text=_("Enable 'cut loser first' - close losing trades when they recover near breakeven")

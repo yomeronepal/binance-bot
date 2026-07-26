@@ -24,16 +24,41 @@ logger = logging.getLogger(__name__)
 NEPAL_OFFSET = timedelta(hours=5, minutes=45)
 
 
-def _now_in_active_session():
-    """True if the current Nepal time falls inside any active Day-Trade Session."""
+LIVE_ENTRY_NOTE = 'Day-trade live entry'
+
+
+def _active_session():
+    """The active Day-Trade Session covering the current Nepal time, or None."""
     from signals.models.daytrade import DayTradeSession
 
     npt = dj_timezone.now() + NEPAL_OFFSET
     hour, weekday = npt.hour, npt.weekday()
-    for session in DayTradeSession.objects.filter(is_active=True):
+    for session in DayTradeSession.objects.filter(is_active=True).order_by('start_hour'):
         if session.covers(hour, weekday):
-            return True
-    return False
+            return session
+    return None
+
+
+def _now_in_active_session():
+    """True if the current Nepal time falls inside any active Day-Trade Session."""
+    return _active_session() is not None
+
+
+def _session_window_start_utc(session):
+    """UTC datetime for the start of today's occurrence of this session window."""
+    npt = dj_timezone.now() + NEPAL_OFFSET
+    window_start_npt = npt.replace(hour=session.start_hour, minute=0, second=0, microsecond=0)
+    return window_start_npt - NEPAL_OFFSET
+
+
+def _session_trades_opened(session):
+    """Count real day-trade entries opened during today's occurrence of this session."""
+    from signals.models.futures import FuturesTrade
+
+    return FuturesTrade.objects.filter(
+        entry_time__gte=_session_window_start_utc(session),
+        error_message__startswith=LIVE_ENTRY_NOTE,
+    ).count()
 
 
 def _place_orders(symbol, direction, leverage, margin, stop_loss, take_profit):
@@ -87,8 +112,12 @@ def _live_gates_open(signal):
         return None, 'daytrade_live_disabled'
     if signal.meta and signal.meta.get('live_order_id'):
         return None, 'already_executed'
-    if not _now_in_active_session():
+    session = _active_session()
+    if session is None:
         return None, 'not_in_session'
+    cap = settings.daytrade_max_trades_per_session
+    if cap and _session_trades_opened(session) >= cap:
+        return None, 'session_trade_cap'
     if settings.get_available_gw_trade_slots() <= 0:
         return None, 'no_slots'
     if FuturesTrade.objects.filter(
@@ -111,7 +140,7 @@ def _record_live_trade(signal, settings, result):
     tp_order_id = result.get('tp_order_id')
     warnings = result.get('warnings') or []
 
-    note = 'Day-trade live entry (in-session)'
+    note = f'{LIVE_ENTRY_NOTE} (in-session)'
     if not sl_order_id:
         note += ' | WARNING: no SL order on Binance'
     if not tp_order_id:
