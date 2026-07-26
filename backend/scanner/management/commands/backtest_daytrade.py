@@ -341,7 +341,24 @@ class Command(BaseCommand):
 
         overall = _summarize(cfg, all_trades)
         self._print_report(overall, per_symbol)
+        if options['segments'] > 1:
+            self._print_walkforward(cfg, all_trades, start_ts, end_ts, options['segments'])
         self._maybe_write(options['output'], cfg, overall, per_symbol, all_trades, options['days'])
+
+    def _print_walkforward(self, cfg, trades, start_ts, end_ts, n):
+        """Split trades into N sequential time windows and summarize each."""
+        buckets = _segment_trades(trades, start_ts, end_ts, n)
+        self.stdout.write(f"  walk-forward ({n} windows):")
+        wins = 0
+        for i, bucket in enumerate(buckets):
+            s = _summarize(cfg, bucket)
+            if (s['net_pnl_usdt'] or 0) > 0:
+                wins += 1
+            self.stdout.write(
+                f"    window {i + 1}: {s['resolved_trades']} trades  win {s['win_rate']}%  "
+                f"PF {s['profit_factor']}  net ${s['net_pnl_usdt']}"
+            )
+        self.stdout.write(f"  positive windows: {wins}/{n}")
 
     def _apply_overrides(self, cfg, options):
         """Apply experiment flags onto the engine config."""
