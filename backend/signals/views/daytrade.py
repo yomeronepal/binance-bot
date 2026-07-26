@@ -68,9 +68,11 @@ def _apply_session_filter(queryset, request):
         return queryset
     sessions = _active_sessions()
     if not sessions:
-        return queryset.none() if window == 'ai' else queryset
+        return queryset.filter(is_priority=True) if window == 'ai' else queryset
     matched = _in_session_ids(queryset, sessions)
-    return queryset.filter(id__in=matched) if window == 'ai' else queryset.exclude(id__in=matched)
+    if window == 'ai':
+        return queryset.filter(Q(id__in=matched) | Q(is_priority=True))
+    return queryset.exclude(id__in=matched)
 
 
 def _apply_trade_filters(queryset, request):

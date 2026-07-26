@@ -193,7 +193,8 @@ def _apply_golden_window_filter(queryset, params):
         queryset = _filter_by_ai_sessions('ACTIVE_TRADING_WINDOW', queryset)
 
     if params.get('gw2_ai', '').lower() == 'true':
-        queryset = _filter_by_ai_sessions('GOLDEN_WINDOW', queryset)
+        session_qs = _filter_by_ai_sessions('GOLDEN_WINDOW', queryset)
+        queryset = queryset.filter(Q(id__in=session_qs.values('id')) | Q(is_priority=True))
 
     return queryset
 
