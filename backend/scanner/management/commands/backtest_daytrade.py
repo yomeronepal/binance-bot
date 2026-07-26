@@ -305,6 +305,8 @@ class Command(BaseCommand):
                             help='Per-side fee rate applied to turnover (taker 0.0004, maker ~0.0002)')
         parser.add_argument('--slippage-rate', type=float, default=0.0002,
                             help='Per-side slippage rate applied to turnover')
+        parser.add_argument('--entry-tf', default=None, help='Override entry timeframe (e.g. 5m, 15m, 1h, 4h)')
+        parser.add_argument('--trend-tf', default=None, help='Override trend timeframe (higher than entry)')
 
     def handle(self, *args, **options):
         end_ms = int(timezone.now().timestamp() * 1000)
@@ -361,6 +363,10 @@ class Command(BaseCommand):
             cfg.regime_atr_percentile_min = options['regime_atr_pct_min']
         if options.get('min_confidence') is not None:
             cfg.min_confidence = options['min_confidence']
+        if options.get('entry_tf'):
+            cfg.entry_timeframe = options['entry_tf']
+        if options.get('trend_tf'):
+            cfg.trend_timeframe = options['trend_tf']
         cfg.bt_exit_tp2 = options.get('exit_tp2', False)
         cfg.bt_fee_rate = options.get('fee_rate', 0.0004)
         cfg.bt_slippage_rate = options.get('slippage_rate', 0.0002)
