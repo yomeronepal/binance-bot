@@ -51,16 +51,6 @@ def _session_window_start_utc(session):
     return window_start_npt - NEPAL_OFFSET
 
 
-def _session_trades_opened(session):
-    """Count real day-trade entries opened during today's occurrence of this session."""
-    from signals.models.futures import FuturesTrade
-
-    return FuturesTrade.objects.filter(
-        entry_time__gte=_session_window_start_utc(session),
-        error_message__startswith=LIVE_ENTRY_NOTE,
-    ).count()
-
-
 def _consecutive_sl_halt(threshold, scope_start, engine_filter):
     """True after `threshold` consecutive SLs since the last TP for one engine.
 
@@ -179,9 +169,6 @@ def _live_gates_open(signal):
     session = _active_session()
     if session is None:
         return None, 'not_in_session'
-    cap = settings.daytrade_max_trades_per_session
-    if cap and _session_trades_opened(session) >= cap:
-        return None, 'session_trade_cap'
     if daytrade_trading_halted(settings.consecutive_sl_halt_threshold):
         return None, 'sl_streak_halt'
     if settings.get_available_gw_trade_slots() <= 0:

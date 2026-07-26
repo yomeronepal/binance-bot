@@ -120,21 +120,13 @@ class FuturesTradingSettings(models.Model):
         )
     )
 
-    daytrade_max_trades_per_session = models.PositiveIntegerField(
+    consecutive_sl_halt_threshold = models.PositiveIntegerField(
         default=2,
         help_text=_(
-            "Max REAL day-trade futures entries opened per active Day-Trade Session "
-            "window (per day). 0 = unlimited. Guards against over-trading live."
-        )
-    )
-
-    consecutive_sl_halt_threshold = models.PositiveIntegerField(
-        default=3,
-        help_text=_(
-            "Circuit breaker for ALL live bots: after this many consecutive stop-losses "
-            "(pooled, since the last take-profit) within the active Day-Trade Session "
-            "window, block new live futures entries until a take-profit resets it. "
-            "0 = disabled."
+            "Circuit breaker (per engine): after this many consecutive stop-losses "
+            "since the last take-profit within the engine's active trading-session "
+            "window, block that engine's new live futures entries until a take-profit "
+            "resets it. Validated optimum is 2 (forward-tested). 0 = disabled."
         )
     )
 
