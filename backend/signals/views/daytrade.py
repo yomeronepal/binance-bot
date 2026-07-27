@@ -102,6 +102,11 @@ def _apply_trade_filters(queryset, request):
             pass
     if request.query_params.get('priority', '').lower() == 'true':
         queryset = queryset.filter(id__in=_in_session_ids(queryset, _active_sessions()))
+    execution = request.query_params.get('execution', '').lower()
+    if execution == 'taken':
+        queryset = queryset.filter(skip_reason='')
+    elif execution == 'skipped':
+        queryset = queryset.exclude(skip_reason='')
     queryset = _apply_time_filters(queryset, request.query_params)
     queryset = _apply_session_filter(queryset, request)
     return queryset

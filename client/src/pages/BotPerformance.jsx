@@ -68,6 +68,9 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
   const [sessionWindow, setSessionWindow] = useState(() => {
     return localStorage.getItem(`${sk}session_window`) || 'all';
   });
+  const [execution, setExecution] = useState(() => {
+    return localStorage.getItem(`${sk}execution`) || 'all';
+  });
   const [dtSessions, setDtSessions] = useState([]);
   const [symbolSearch, setSymbolSearch] = useState('');
   const [debouncedSymbol, setDebouncedSymbol] = useState('');
@@ -100,6 +103,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
     if (hour !== 'ALL') params.append('hour', hour);
     if (month !== 'ALL') params.append('month', month);
     if (year !== 'ALL') params.append('year', year);
+    if (execution !== 'all') params.append('execution', execution);
     return `${baseURL}${source.exportUrl}?${params.toString()}`;
   };
 
@@ -151,6 +155,10 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
   useEffect(() => {
     localStorage.setItem(`${sk}session_window`, sessionWindow);
   }, [sessionWindow]);
+
+  useEffect(() => {
+    localStorage.setItem(`${sk}execution`, execution);
+  }, [execution]);
 
   useEffect(() => {
     if (!feat.sessionWindows || !source.sessionsUrl) return;
@@ -224,6 +232,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
       if (year !== 'ALL') params.append('year', year);
       if (feat.sessionWindows && sessionWindow === 'priority') params.append('priority', 'true');
       else if (feat.sessionWindows && sessionWindow !== 'all') params.append('window', sessionWindow);
+      if (execution !== 'all') params.append('execution', execution);
 
       const queryParams = params.toString() ? `?${params.toString()}` : '';
 
@@ -288,6 +297,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
       if (year !== 'ALL') params.append('year', year);
       if (feat.sessionWindows && sessionWindow === 'priority') params.append('priority', 'true');
       else if (feat.sessionWindows && sessionWindow !== 'all') params.append('window', sessionWindow);
+      if (execution !== 'all') params.append('execution', execution);
       if (debouncedSymbol) params.append('symbol', debouncedSymbol);
 
       const res = await axios.get(`${baseURL}${source.listUrl}?${params.toString()}`);
@@ -310,11 +320,11 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
 
   useEffect(() => {
     fetchPerformanceData();
-  }, [activeWindow, direction, minConfidence, weekday, hour, month, year, sessionWindow]);
+  }, [activeWindow, direction, minConfidence, weekday, hour, month, year, sessionWindow, execution]);
 
   useEffect(() => {
     fetchTradeHistory();
-  }, [activeWindow, direction, minConfidence, weekday, hour, month, year, sessionWindow, debouncedSymbol, currentPage]);
+  }, [activeWindow, direction, minConfidence, weekday, hour, month, year, sessionWindow, execution, debouncedSymbol, currentPage]);
 
   // Show loading only on initial load (when summary is null)
   if (loading && !summary) {
@@ -748,6 +758,26 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
                   </button>
                 ))}
               </div>
+
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar w-full sm:w-auto p-1">
+                {[
+                  { val: 'all', label: 'All', active: 'bg-blue-600 text-white shadow-md' },
+                  { val: 'taken', label: 'Taken', active: 'bg-green-600 text-white shadow-md' },
+                  { val: 'skipped', label: 'Skipped', active: 'bg-amber-500 text-white shadow-md' },
+                ].map((e) => (
+                  <button
+                    key={e.val}
+                    onClick={() => setExecution(e.val)}
+                    title="Which trades the 2-consecutive-loss circuit breaker would have taken vs skipped"
+                    className={`flex-shrink-0 px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-lg transition-all ${execution === e.val
+                      ? e.active
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                      }`}
+                  >
+                    {e.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Dropdowns Row */}
@@ -1046,6 +1076,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
               gw2_ai: activeWindow === 'gw2_ai' ? 'true' : undefined,
               priority: (activeWindow === 'priority' || sessionWindow === 'priority') ? 'true' : undefined,
               window: feat.sessionWindows && sessionWindow !== 'priority' && sessionWindow !== 'all' ? sessionWindow : undefined,
+              execution: execution !== 'all' ? execution : undefined,
               direction: direction,
               weekday: weekday,
               hour: hour,
@@ -1066,6 +1097,7 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
               gw2_ai: activeWindow === 'gw2_ai' ? 'true' : undefined,
               priority: (activeWindow === 'priority' || sessionWindow === 'priority') ? 'true' : undefined,
               window: feat.sessionWindows && sessionWindow !== 'priority' && sessionWindow !== 'all' ? sessionWindow : undefined,
+              execution: execution !== 'all' ? execution : undefined,
               direction: direction,
               weekday: weekday,
               hour: hour,
@@ -1252,6 +1284,14 @@ const TradeHistoryTable = ({ trades, onReplay }) => {
                       )}
                       {trade.is_neutral_reversal && (
                         <RefreshCw className="w-3 h-3 text-cyan-500" />
+                      )}
+                      {trade.skip_reason && (
+                        <span
+                          title="The 2-consecutive-loss circuit breaker would have skipped this trade"
+                          className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                        >
+                          skipped
+                        </span>
                       )}
                     </div>
                   </div>

@@ -12,6 +12,17 @@ from signals.models import Signal, PaperTrade
 logger = logging.getLogger(__name__)
 
 
+def _system_skip_reason(user):
+    """Breaker tag for a system paper trade; '' for user trades or on error."""
+    if user is not None:
+        return ''
+    try:
+        from signals.services.skip_reason import breaker_skip_reason
+        return breaker_skip_reason(PaperTrade, {'user__isnull': True})
+    except Exception:
+        return ''
+
+
 class PaperTradingService:
     """
     Service for managing paper trades - simulated trading without real execution.
@@ -137,6 +148,7 @@ class PaperTradingService:
             is_priority=is_golden_1,
             is_golden_2=is_golden_2,
             fear_greed_at_entry=fg_value,
+            skip_reason=_system_skip_reason(user),
             status='OPEN'
         )
 
