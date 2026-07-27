@@ -181,7 +181,7 @@ def _apply_golden_window_filter(queryset, params):
         queryset = queryset.filter(is_priority=True)
 
     if params.get('priority', '').lower() == 'true':
-        queryset = queryset.filter(id__in=_current_priority_ids(queryset))
+        queryset = queryset.filter(is_priority=True)
 
     if params.get('golden_window_2', '').lower() == 'true':
         queryset = queryset.filter(is_golden_2=True)
@@ -194,8 +194,7 @@ def _apply_golden_window_filter(queryset, params):
 
     if params.get('gw2_ai', '').lower() == 'true':
         session_qs = _filter_by_ai_sessions('GOLDEN_WINDOW', queryset)
-        session_ids = set(session_qs.values_list('id', flat=True)) | _current_priority_ids(queryset)
-        queryset = queryset.filter(id__in=session_ids)
+        queryset = queryset.filter(Q(id__in=session_qs.values('id')) | Q(is_priority=True))
 
     return queryset
 
@@ -250,18 +249,6 @@ def _filter_by_ai_sessions(session_type, queryset):
         return queryset.none()
 
     return queryset.filter(id__in=matching_ids)
-
-
-def _current_priority_ids(queryset):
-    """IDs of trades whose entry_time falls in ANY current optimized session.
-
-    Dynamic 'priority': recomputed against the live TradingSession windows
-    (both auto-generated types), so it tracks re-optimization instead of the
-    frozen is_priority flag set at signal creation.
-    """
-    atw = _filter_by_ai_sessions('ACTIVE_TRADING_WINDOW', queryset)
-    gw = _filter_by_ai_sessions('GOLDEN_WINDOW', queryset)
-    return set(atw.values_list('id', flat=True)) | set(gw.values_list('id', flat=True))
 
 
 def _apply_time_filters(queryset, params):
