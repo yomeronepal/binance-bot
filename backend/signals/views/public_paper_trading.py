@@ -100,7 +100,23 @@ def _apply_common_filters(queryset, params):
     queryset = _apply_macro_filter(queryset, params)
     queryset = _apply_golden_window_filter(queryset, params)
     queryset = _apply_time_filters(queryset, params)
+    queryset = _apply_execution_filter(queryset, params)
 
+    return queryset
+
+
+def _apply_execution_filter(queryset, params):
+    """Filter by the reconstructed circuit-breaker decision.
+
+    ``?execution=taken``   -> only trades the breaker would have taken.
+    ``?execution=skipped`` -> only trades the breaker would have skipped.
+    Anything else -> no change.
+    """
+    execution = str(params.get('execution', '')).lower()
+    if execution == 'taken':
+        return queryset.filter(skip_reason='')
+    if execution == 'skipped':
+        return queryset.exclude(skip_reason='')
     return queryset
 
 
@@ -378,6 +394,7 @@ def _get_filter_params(request):
         'weekday', 'hour', 'month', 'year', 'days',
         'top_performer',
         'macro_filter',
+        'execution',
     ]
     return {k: request.query_params.get(k, '') for k in keys}
 
@@ -645,6 +662,7 @@ def public_performance(request):
     queryset = _maybe_apply_top_performer(queryset, params)
     queryset = _maybe_apply_macro_filter(queryset, params)
     queryset = _maybe_apply_asset_class(queryset, params)
+    queryset = _apply_execution_filter(queryset, params)
 
     direction = params.get('direction', 'ALL').upper()
     if direction == 'LONG':
@@ -703,6 +721,7 @@ def public_open_positions(request):
     queryset = _maybe_apply_top_performer(queryset, params)
     queryset = _maybe_apply_macro_filter(queryset, params)
     queryset = _maybe_apply_asset_class(queryset, params)
+    queryset = _apply_execution_filter(queryset, params)
 
     direction = params.get('direction')
     if direction and direction != 'ALL':
