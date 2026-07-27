@@ -66,6 +66,16 @@ def _position_size(db_config, entry, stop_loss):
     }
 
 
+def _breaker_skip_reason():
+    """Breaker tag for a new system day-trade; '' on any error."""
+    try:
+        from signals.models.daytrade import DayTradePaperTrade
+        from signals.services.skip_reason import breaker_skip_reason
+        return breaker_skip_reason(DayTradePaperTrade, {'user__isnull': True})
+    except Exception:
+        return ''
+
+
 def _open_trade_from_signal(signal, db_config):
     """Create a DayTradePaperTrade sized to a fixed margin x leverage."""
     from signals.models.daytrade import DayTradePaperTrade
@@ -96,6 +106,7 @@ def _open_trade_from_signal(signal, db_config):
         account_risk_pct=db_config.risk_per_trade_pct,
         stop_distance=sizing['stop_distance'],
         leverage=sizing['leverage'],
+        skip_reason=_breaker_skip_reason(),
         status='OPEN',
     )
 

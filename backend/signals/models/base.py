@@ -799,6 +799,14 @@ class PaperTrade(models.Model):
         help_text=_("Current trade status")
     )
 
+    skip_reason = models.CharField(
+        max_length=16,
+        default='',
+        blank=True,
+        db_index=True,
+        help_text=_("Live gate that would have skipped this trade: ''=taken, 'breaker'.")
+    )
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
