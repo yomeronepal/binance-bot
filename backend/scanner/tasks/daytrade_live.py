@@ -51,24 +51,26 @@ def _session_window_start_utc(session):
     return window_start_npt - NEPAL_OFFSET
 
 
-def _consecutive_sl_halt(threshold, scope_start, engine_filter):
-    """True after `threshold` consecutive SLs since the last TP for one engine.
+def _consecutive_loss_halt(threshold, scope_start, engine_filter):
+    """True after `threshold` consecutive net-negative closes since the last winner.
 
     Counts that engine's live futures closes since scope_start, ordered by exit
-    time. A CLOSED_TP resets the streak; other close reasons are ignored.
+    time, by realized P/L sign: profit_loss > 0 resets the streak, any close with
+    profit_loss <= 0 increments it. Fee-aware and covers every close reason
+    (SL, TP, manual cut-loser, reversal) — not just stop-loss exits.
     """
     if not threshold or threshold <= 0 or scope_start is None:
         return False
     from signals.models.futures import FuturesTrade
 
     closes = (FuturesTrade.objects
-              .filter(exit_time__gte=scope_start, status__in=['CLOSED_TP', 'CLOSED_SL'])
+              .filter(exit_time__gte=scope_start, status__startswith='CLOSED')
               .filter(**engine_filter)
               .order_by('exit_time')
-              .values_list('status', flat=True))
+              .values_list('profit_loss', flat=True))
     streak = 0
-    for status in closes:
-        streak = 0 if status == 'CLOSED_TP' else streak + 1
+    for pnl in closes:
+        streak = 0 if (pnl or 0) > 0 else streak + 1
     return streak >= threshold
 
 
@@ -77,7 +79,7 @@ def daytrade_trading_halted(threshold):
     session = _active_session()
     if session is None:
         return False
-    return _consecutive_sl_halt(
+    return _consecutive_loss_halt(
         threshold, _session_window_start_utc(session),
         {'signal__isnull': True, 'error_message__startswith': LIVE_ENTRY_NOTE},
     )
@@ -109,7 +111,7 @@ def golden_window_trading_halted(threshold):
     session = _active_trading_session()
     if session is None:
         return False
-    return _consecutive_sl_halt(
+    return _consecutive_loss_halt(
         threshold, _trading_session_window_start(session),
         {'signal__isnull': False},
     )
