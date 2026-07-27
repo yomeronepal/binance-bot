@@ -881,12 +881,14 @@ def public_summary(request):
 
     GET /api/public/paper-trading/summary/?direction=ALL&page=1&page_size=10
     """
+    from scanner.tasks.daytrade_live import live_trading_status
     params = _get_filter_params(request)
     cache_key = _build_cache_key('perf:summary', params)
+    live_status = live_trading_status('golden_window')
 
     cached = cache.get(cache_key)
     if cached is not None:
-        return Response(cached)
+        return Response({**cached, **live_status})
 
     all_system_trades = PaperTrade.objects.filter(user__isnull=True)
 
@@ -931,7 +933,7 @@ def public_summary(request):
     }
 
     cache.set(cache_key, summary, CACHE_TTL_SUMMARY)
-    return Response(summary)
+    return Response({**summary, **live_status})
 
 
 @api_view(['GET'])

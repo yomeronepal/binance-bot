@@ -331,9 +331,11 @@ def daytrade_summary(request):
     metrics['unrealized_pnl'] = unrealized_pnl
     metrics['total_pnl'] = total_pnl
 
+    from scanner.tasks.daytrade_live import live_trading_status
     config = DayTradeStrategyConfig.get_active()
     account = _bot_account()
     initial_balance = float(account.initial_balance) if account else 10000.0
+    live_status = live_trading_status('daytrade')
 
     recent_closed = base.filter(status__startswith='CLOSED').order_by('-exit_time')[:10]
     recent_closed_data = DayTradePaperTradeSerializer(recent_closed, many=True).data
@@ -361,6 +363,7 @@ def daytrade_summary(request):
         'initial_balance': initial_balance,
         'roi_percent': round((total_pnl / initial_balance * 100), 2) if initial_balance else 0,
         'min_confidence': config.min_confidence,
+        **live_status,
     }
     if account:
         summary['account'] = DayTradePaperAccountSerializer(account).data
