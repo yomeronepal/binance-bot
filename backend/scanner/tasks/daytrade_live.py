@@ -115,6 +115,30 @@ def golden_window_trading_halted(threshold):
     )
 
 
+def live_trading_status(engine):
+    """Live Binance-futures status for an engine, from settings + the SL breaker.
+
+    engine: 'daytrade' or 'golden_window' (V1). Returns dict with
+    live_trading_enabled (config), live_trading_halted (breaker tripped now)
+    and binance_live_active (enabled AND not halted).
+    """
+    from signals.models.futures import FuturesTradingSettings
+
+    settings = FuturesTradingSettings.get_settings()
+    threshold = settings.consecutive_sl_halt_threshold
+    if engine == 'daytrade':
+        enabled = bool(settings.is_enabled and settings.daytrade_live_enabled)
+        halted = daytrade_trading_halted(threshold) if enabled else False
+    else:
+        enabled = bool(settings.is_enabled and settings.gw_auto_trader_enabled)
+        halted = golden_window_trading_halted(threshold) if enabled else False
+    return {
+        'live_trading_enabled': enabled,
+        'live_trading_halted': bool(halted),
+        'binance_live_active': bool(enabled and not halted),
+    }
+
+
 def _place_orders(symbol, direction, leverage, margin, stop_loss, take_profit):
     """Place entry + SL/TP orders on Binance in a worker thread.
 
