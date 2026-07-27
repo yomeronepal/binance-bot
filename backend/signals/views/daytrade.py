@@ -68,10 +68,10 @@ def _apply_session_filter(queryset, request):
         return queryset
     sessions = _active_sessions()
     if not sessions:
-        return queryset.filter(is_priority=True) if window == 'ai' else queryset
+        return queryset.none() if window == 'ai' else queryset
     matched = _in_session_ids(queryset, sessions)
     if window == 'ai':
-        return queryset.filter(Q(id__in=matched) | Q(is_priority=True))
+        return queryset.filter(id__in=matched)
     return queryset.exclude(id__in=matched)
 
 
@@ -101,7 +101,7 @@ def _apply_trade_filters(queryset, request):
         except (TypeError, ValueError):
             pass
     if request.query_params.get('priority', '').lower() == 'true':
-        queryset = queryset.filter(is_priority=True)
+        queryset = queryset.filter(id__in=_in_session_ids(queryset, _active_sessions()))
     queryset = _apply_time_filters(queryset, request.query_params)
     queryset = _apply_session_filter(queryset, request)
     return queryset
