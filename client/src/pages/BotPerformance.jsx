@@ -463,6 +463,31 @@ const BotPerformance = ({ source = DEFAULT_BOT_SOURCE }) => {
               <h1 className="text-xl sm:text-3xl font-bold text-gray-900 dark:text-white">{source.title}</h1>
               <p className="text-gray-600 dark:text-gray-400 text-xs sm:text-base">{source.subtitle}</p>
             </div>
+            {summary?.live_trading_enabled !== undefined && (
+              <span
+                title={summary.binance_live_active
+                  ? 'Placing real Binance futures orders'
+                  : summary.live_trading_halted
+                    ? 'Paused by the consecutive-SL circuit breaker until a take-profit'
+                    : 'Live futures execution is disabled'}
+                className={`ml-auto flex-shrink-0 inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ${
+                  summary.binance_live_active
+                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                    : summary.live_trading_halted
+                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                      : 'bg-gray-400/15 text-gray-500 dark:text-gray-400'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${
+                  summary.binance_live_active
+                    ? 'bg-emerald-500 animate-pulse'
+                    : summary.live_trading_halted ? 'bg-amber-500' : 'bg-gray-400'
+                }`} />
+                Binance Live: {summary.binance_live_active
+                  ? 'ON'
+                  : summary.live_trading_halted ? 'OFF · Halted (SL streak)' : 'OFF'}
+              </span>
+            )}
           </div>
 
           {/* Info Banner */}
