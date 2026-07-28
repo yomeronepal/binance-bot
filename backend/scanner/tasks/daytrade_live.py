@@ -26,6 +26,8 @@ NEPAL_OFFSET = timedelta(hours=5, minutes=45)
 
 LIVE_ENTRY_NOTE = 'Day-trade live entry'
 
+DAYTRADE_MAX_TRADES_PER_SESSION = 2
+
 
 def _active_session():
     """The active Day-Trade Session covering the current Nepal time, or None."""
@@ -49,6 +51,17 @@ def _session_window_start_utc(session):
     npt = dj_timezone.now() + NEPAL_OFFSET
     window_start_npt = npt.replace(hour=session.start_hour, minute=0, second=0, microsecond=0)
     return window_start_npt - NEPAL_OFFSET
+
+
+def _session_trades_opened(session):
+    """Count real day-trade futures entries opened in today's session window."""
+    from signals.models.futures import FuturesTrade
+
+    return FuturesTrade.objects.filter(
+        entry_time__gte=_session_window_start_utc(session),
+        signal__isnull=True,
+        error_message__startswith=LIVE_ENTRY_NOTE,
+    ).count()
 
 
 def _consecutive_loss_halt(threshold, scope_start, engine_filter):
@@ -195,6 +208,8 @@ def _live_gates_open(signal):
     session = _active_session()
     if session is None:
         return None, 'not_in_session'
+    if _session_trades_opened(session) >= DAYTRADE_MAX_TRADES_PER_SESSION:
+        return None, 'session_trade_cap'
     if daytrade_trading_halted(settings.consecutive_sl_halt_threshold):
         return None, 'sl_streak_halt'
     if settings.get_available_gw_trade_slots() <= 0:
