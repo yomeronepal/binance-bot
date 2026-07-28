@@ -24,11 +24,17 @@ def to_nepal_time(dt):
 
 
 def get_closed_trades():
-    """Closed, bot-owned day-trade paper trades with an entry timestamp."""
+    """Closed, bot-owned day-trade paper trades with an entry timestamp.
+
+    Excludes trades tagged with a skip_reason (ones a live gate such as the
+    circuit breaker would have skipped), so the optimizer tunes sessions from
+    only the trades the bot would actually take.
+    """
     return DayTradePaperTrade.objects.filter(
         user__isnull=True,
         status__startswith='CLOSED',
         entry_time__isnull=False,
+        skip_reason='',
     )
 
 
