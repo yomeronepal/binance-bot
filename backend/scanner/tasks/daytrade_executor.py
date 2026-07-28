@@ -100,13 +100,20 @@ def _open_trade_from_signal(signal, db_config):
     )
 
 
+DAYTRADE_MAX_LIVE_PER_SCAN = 1
+
+
 def _maybe_execute_live(signal):
-    """Place a real Binance order for the signal if live day-trade gates pass."""
+    """Place a real Binance order for the signal if live day-trade gates pass.
+
+    Returns the opened FuturesTrade (truthy) or None.
+    """
     try:
         from scanner.tasks.daytrade_live import maybe_execute_live_daytrade
-        maybe_execute_live_daytrade(signal)
+        return maybe_execute_live_daytrade(signal)
     except Exception as exc:
         logger.warning("DayTrade live execution error for %s: %s", signal.symbol, exc)
+        return None
 
 
 @shared_task(name='scanner.tasks.daytrade_executor.open_daytrade_positions', bind=True, max_retries=0)
@@ -117,6 +124,7 @@ def open_daytrade_positions(self):
     _, db_config = _active_config()
     account = _get_or_create_account()
     opened = 0
+    live_opened = 0
 
     for signal in DayTradeSignal.objects.filter(status='ACTIVE').order_by('created_at'):
         if signal.confidence is not None and signal.confidence < db_config.min_confidence:
@@ -131,7 +139,8 @@ def open_daytrade_positions(self):
         if trade:
             opened += 1
             logger.info("DayTrade opened %s %s @ %s", trade.direction, trade.symbol, trade.entry_price)
-        _maybe_execute_live(signal)
+        if live_opened < DAYTRADE_MAX_LIVE_PER_SCAN and _maybe_execute_live(signal):
+            live_opened += 1
 
     if opened:
         account.last_trade_at = timezone.now()
