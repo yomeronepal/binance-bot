@@ -33,7 +33,11 @@ def to_nepal_time(dt):
 
 def get_closed_trades():
     """
-    Get all closed paper trades with valid entry times.
+    Get closed paper trades with valid entry times, excluding skipped ones.
+
+    Trades tagged with a skip_reason (ones a live gate such as the circuit
+    breaker would have skipped) are excluded, so golden windows are optimized
+    from only the trades the bot would actually take.
 
     Returns:
         QuerySet of closed PaperTrade objects
@@ -41,6 +45,7 @@ def get_closed_trades():
     return PaperTrade.objects.filter(
         status__startswith='CLOSED',
         entry_time__isnull=False,
+        skip_reason='',
     )
 
 

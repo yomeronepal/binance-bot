@@ -150,8 +150,9 @@ def open_daytrade_positions(self):
         if trade:
             opened += 1
             logger.info("DayTrade opened %s %s @ %s", trade.direction, trade.symbol, trade.entry_price)
-        if live_opened < DAYTRADE_MAX_LIVE_PER_SCAN and _maybe_execute_live(signal):
-            live_opened += 1
+            if (not trade.skip_reason and live_opened < DAYTRADE_MAX_LIVE_PER_SCAN
+                    and _maybe_execute_live(signal)):
+                live_opened += 1
 
     if opened:
         account.last_trade_at = timezone.now()
