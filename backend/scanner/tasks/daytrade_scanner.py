@@ -40,12 +40,14 @@ def _screen_thresholds():
     """Universe-screening thresholds, overridable via Django settings.
 
     Returns:
-        Tuple of (min 24h quote volume, min 24h range %, max 24h range %).
+        Tuple of (min 24h quote volume, min 24h range %, max 24h range %,
+        min last price).
     """
     return (
         getattr(settings, 'DAYTRADE_MIN_QUOTE_VOLUME_USDT', 10_000_000),
         getattr(settings, 'DAYTRADE_MIN_24H_RANGE_PCT', 2.0),
         getattr(settings, 'DAYTRADE_MAX_24H_RANGE_PCT', 40.0),
+        getattr(settings, 'DAYTRADE_MIN_PRICE_USDT', 0.01),
     )
 
 
@@ -54,6 +56,20 @@ async def _active_blacklist():
     from signals.models.blacklist import BlacklistedSymbol
     symbols = await sync_to_async(BlacklistedSymbol.get_blacklisted_symbols)()
     return {s.upper() for s in symbols}
+
+
+def _below_price_floor(ticker, min_price):
+    """True if the ticker's last price is below the minimum price floor.
+
+    Sub-cent coins are dropped from the auto-discovered universe: their wide
+    tick/spread and quantity-precision make live futures fills unreliable.
+    A missing or unparseable price is treated as below the floor (dropped).
+    """
+    try:
+        last = float(ticker.get('lastPrice') or 0)
+    except (TypeError, ValueError):
+        return True
+    return last < min_price
 
 
 def _range_pct(ticker):
@@ -77,17 +93,21 @@ async def _screen_universe(client, pairs, top_n):
     (24h range above the ceiling), then ranks the survivors by volume.
     """
     valid = set(pairs)
-    min_vol, min_range, max_range = _screen_thresholds()
+    min_vol, min_range, max_range, min_price = _screen_thresholds()
     tickers = await client._request('GET', '/fapi/v1/ticker/24hr')
 
     survivors = []
     dropped_volume = 0
     dropped_range = 0
+    dropped_price = 0
     for t in tickers:
         if t['symbol'] not in valid:
             continue
         if float(t.get('quoteVolume') or 0) < min_vol:
             dropped_volume += 1
+            continue
+        if _below_price_floor(t, min_price):
+            dropped_price += 1
             continue
         rng = _range_pct(t)
         if rng is None or rng < min_range or rng > max_range:
@@ -102,8 +122,8 @@ async def _screen_universe(client, pairs, top_n):
 
     logger.info(
         "DayTrade screen: %d candidates -> %d pass "
-        "(dropped %d low-volume, %d out-of-band); floor=$%s range=%s-%s%%",
-        len(valid), len(ranked), dropped_volume, dropped_range,
+        "(dropped %d low-volume, %d sub-$%s, %d out-of-band); floor=$%s range=%s-%s%%",
+        len(valid), len(ranked), dropped_volume, min_price, dropped_price, dropped_range,
         f"{min_vol:,}", min_range, max_range,
     )
     return ranked
