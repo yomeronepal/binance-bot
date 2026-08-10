@@ -450,6 +450,27 @@ def is_in_gw2_ai_window() -> bool:
     return any(session.matches(nepal_now) for session in sessions)
 
 
+def _paper_breaker_skipping() -> bool:
+    """True when the V1 paper circuit breaker would tag a new trade skipped.
+
+    Uses the same paper-stream breaker that stamps skip_reason on PaperTrade, so
+    live execution honours the visible "skipped" tag: a trade the paper view
+    marks skipped is not placed on Binance.
+    """
+    try:
+        from signals.models.base import PaperTrade
+        from signals.services.skip_reason import breaker_skip_reason
+        return bool(breaker_skip_reason(PaperTrade, {'user__isnull': True}))
+    except Exception:
+        return False
+
+
+def _min_signal_price() -> float:
+    """Minimum entry price for a V1 futures signal, overridable via settings."""
+    from django.conf import settings as django_settings
+    return getattr(django_settings, 'FUTURES_MIN_PRICE_USDT', 0.01)
+
+
 def get_prioritized_signals(settings: FuturesTradingSettings, limit: int) -> List[Signal]:
     """
     Get active FUTURES signals prioritized for golden window trading.
@@ -499,6 +520,9 @@ def get_prioritized_signals(settings: FuturesTradingSettings, limit: int) -> Lis
     # Filter by minimum confidence
     queryset = queryset.filter(confidence__gte=float(settings.min_signal_confidence))
 
+    # Drop sub-floor coins: wide ticks/spread make live futures fills unreliable.
+    queryset = queryset.filter(entry__gte=Decimal(str(_min_signal_price())))
+
     open_or_pending_symbols = FuturesTrade.objects.filter(
         status__in=['OPEN', 'PENDING']
     ).values_list('symbol', flat=True)
@@ -508,6 +532,14 @@ def get_prioritized_signals(settings: FuturesTradingSettings, limit: int) -> Lis
         status='FAILED'
     ).values_list('signal_id', flat=True)
     queryset = queryset.exclude(id__in=already_traded_signal_ids)
+
+    # Never trade a signal whose paper trade the breaker tagged skipped — the
+    # visible "skipped" tag is authoritative for live execution.
+    from signals.models.base import PaperTrade
+    skipped_signal_ids = PaperTrade.objects.filter(
+        user__isnull=True, signal__isnull=False
+    ).exclude(skip_reason='').values_list('signal_id', flat=True)
+    queryset = queryset.exclude(id__in=skipped_signal_ids)
 
     # Add priority scoring for ordering
     # Higher score = higher priority
@@ -779,6 +811,10 @@ def golden_window_auto_trader(self):
         if golden_window_trading_halted(settings.consecutive_sl_halt_threshold):
             logger.info("GW auto-trader halted: consecutive-SL circuit breaker active")
             return {"status": "skipped", "reason": "sl_streak_halt"}
+
+        if _paper_breaker_skipping():
+            logger.info("GW auto-trader halted: paper circuit breaker would skip this trade")
+            return {"status": "skipped", "reason": "breaker_skip"}
 
         # Get available trade slots
         available_slots = settings.get_available_gw_trade_slots()
