@@ -533,6 +533,14 @@ def get_prioritized_signals(settings: FuturesTradingSettings, limit: int) -> Lis
     ).values_list('signal_id', flat=True)
     queryset = queryset.exclude(id__in=already_traded_signal_ids)
 
+    # Never trade a signal whose paper trade the breaker tagged skipped — the
+    # visible "skipped" tag is authoritative for live execution.
+    from signals.models.base import PaperTrade
+    skipped_signal_ids = PaperTrade.objects.filter(
+        user__isnull=True, signal__isnull=False
+    ).exclude(skip_reason='').values_list('signal_id', flat=True)
+    queryset = queryset.exclude(id__in=skipped_signal_ids)
+
     # Add priority scoring for ordering
     # Higher score = higher priority
     queryset = queryset.annotate(
